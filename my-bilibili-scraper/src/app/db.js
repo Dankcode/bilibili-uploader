@@ -1,17 +1,48 @@
-import mongoose from 'mongoose';
-
-const connectionString = process.env.MONGO_URI; // Replace with your MongoDB connection string
-
-const connectDB = async () => {
+import { sql } from '@vercel/postgres';
+import { NextResponse } from 'next/server';
+ 
+export async function GET(requestedDataName) {
+if (!requestedDataName){
+  return null
+}
+else 
   try {
-    await mongoose.connect(connectionString, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log('MongoDB connected successfully');
+    const result =
+    await sql`SELECT * FROM public.pets;`;
+    console.log(result.rows)
+    return (
+        <div>
+            <table>
+            <thead>
+              <tr>
+                <th>Chinese Name</th>
+                <th>Chinese Description</th>
+                <th>English Name</th>
+                <th>English Description</th>
+                <th>BiliBili URL</th>
+                <th>Valid_Upload</th>
+                <th>Upload_Date</th>
+                <th>Youtube URL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.map((post, index) => (
+                <tr key={index}> 
+                  <td>{post.Chinese_Name}</td>
+                  <td>{post.Chinese_Desc}</td>
+                  <td>{post.Eng_Name}</td>
+                  <td>{post.Eng_Desc}</td>
+                  <td>{post.BiliURL}</td>
+                  <td>{post.Valid_Upload}</td>
+                  <td>{post.Upload_Date}</td>
+                  <td>{post.YoutubeURL}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+    )
   } catch (error) {
-    console.error('Error connecting to MongoDB:', error);
+    return NextResponse.json({ error }, { status: 500 });
   }
-};
-
-export default connectDB;
+}
