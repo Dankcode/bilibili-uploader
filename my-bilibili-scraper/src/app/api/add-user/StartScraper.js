@@ -13,6 +13,7 @@ export const CreateUser = () => {
     /*
     takes a URL and the scraper grabs the username's data to fill in the username role
     only accepts a proper bilibili url 
+    call the post(username), post(chinese_name) etc
     */
     const regex = /bilibili\.com\/(\d+)/;
 
