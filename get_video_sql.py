@@ -1,5 +1,6 @@
 import psycopg2
 
+# use the same id and password as the postgresql database 
 def connect_to_db(dbname, user, password, host):
   """Connects to the PostgreSQL database.
 
