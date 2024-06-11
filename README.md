@@ -19,11 +19,6 @@ Youtube automation project to create TikTok compilation videos, to post on to yo
 
 
 
-## [Subscribe](https://www.youtube.com/channel/UCsQqV_wq5yPrw5YIpvwmjvQ) to my youtube channel - this took a lot of time to make - so Subscribe.
-
-it helps me out.
-
-
 Notes:
 
 - redirect URI -> http://localhost:8080/

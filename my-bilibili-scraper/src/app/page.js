@@ -1,9 +1,10 @@
 import React from 'react';
 import PostForm from './Form';
+import Scraper from './biliscraper';
 export default function myPage() {
   return (
     <div>
-      <PostForm />
+      <Scraper />
     </div>
   )
 };
@@ -15,4 +16,4 @@ export default function myPage() {
 //     <GetSheetData/>
 //     </div>
 //   )
-// }
+// 
