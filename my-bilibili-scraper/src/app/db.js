@@ -1,17 +1,10 @@
-import mongoose from 'mongoose';
+import { Pool } from 'pg';
 
-const connectionString = process.env.MONGO_URI; // Replace with your MongoDB connection string
+const pool = new Pool({
+  user: 'your_username', // Replace with your PostgreSQL username
+  password: 'your_password', // Replace with your PostgreSQL password
+  host: 'your_host', // Replace with your PostgreSQL host
+  database: 'your_database', // Replace with your PostgreSQL database name
+});
 
-const connectDB = async () => {
-  try {
-    await mongoose.connect(connectionString, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log('MongoDB connected successfully');
-  } catch (error) {
-    console.error('Error connecting to MongoDB:', error);
-  }
-};
-
-export default connectDB;
+export default pool;
