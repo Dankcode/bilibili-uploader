@@ -15,8 +15,8 @@ make a new button function where it checks for status that are not 'complete'
 */
 
 import React, { useState, useEffect }from 'react';
-// import UsernameList from './db';
-import CreateUser from './api/add-user/StartScraper';
+import UsernameList from './postgreSQL-stuff/getUsernames';
+import getAllData from './postgreSQL-stuff/getAllData';
 
 const TableList = () => {
   const [users, setUsers] = useState([]);
@@ -37,7 +37,7 @@ const TableList = () => {
           {users.length > 0 ? (
             <ul>
               {users.map((val, index) => (
-                <li key={index} onClick={(e) => {/* sends the username to the db.js */}}>
+                <li key={index} onClick={(e) => {getAllData(val)}}>
                   {val}
                 </li>
               ))}
@@ -46,7 +46,6 @@ const TableList = () => {
             <p>No tables found for users.</p>
           )}
       </ul>
-    <CreateUser />
     </div>
     );
 };
