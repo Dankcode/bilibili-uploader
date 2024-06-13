@@ -1,5 +1,5 @@
 import nextConnect from 'next-connect';
-import { pool } from './db.js'; // Import the connection pool
+import { pool } from './getUsernames.js/index.js'; // Import the connection pool
 
 const handler = nextConnect();
 
