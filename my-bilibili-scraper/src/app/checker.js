@@ -7,7 +7,7 @@ when cron queues the JS it will first
 2. compare the data to the url links
 3. if video matches title
     skips to the next in the list
-    if entire page is in the list skip to the next page by changing the url page # to 2 and rescrape the data 
+    if entire page is in the list skip to the next page by changing the url page # to 2 and rescrape the data  
 4. if video is not matched with in the db 
     upload "video found" status to SQL
     begin ai translation of the title
@@ -23,9 +23,6 @@ when cron queues the JS it will first
     once completed dump the given info for that video
     upload "completed" status to SQL
 */
-import React from 'react';
-import Scraper from './biliscraper';
-
 // 1. scrape the data from the list of video url pages and selects only the VALID videos to be uploaded
 //     includes 15min length
 const videoLengthChecker = (scrapedData) => {
