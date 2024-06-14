@@ -1,13 +1,10 @@
 import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
  
-export async function UsernameList() {
+export default async function UsernameList() {
   try {
     const users =
-    await sql`    
-    SELECT DISTINCT username
-    FROM public.bilibili_uploader;
-    `;
+    await sql`SELECT DISTINCT username FROM public.bilibili_uploader;`;
     console.log(result.rows)
 
     return users;
