@@ -7,16 +7,7 @@ import { NextResponse } from 'next/server';
 async function updateUsername(Username, BiliURL) {
     try {
       const result =
-        await sql`INSERT INTO public.bilibili_uploader( 
-            Username, 
-            BiliURL,
-        )
-        VALUES
-        (
-          ${Username},
-          ${BiliURL},
-        )
-        ;`;
+        await sql`INSERT INTO public.bilibili_uploader( Username, BiliURL ) VALUES ( ${Username}, ${BiliURL} );`;
         //insert values for the initial creation here
       return NextResponse.json({ result }, { status: 200 });
     } catch (error) {
@@ -27,14 +18,7 @@ async function updateUsername(Username, BiliURL) {
 async function updateStatus(Username, BiliURL, Upload_Status) {
     try {
       const result =
-        await sql`INSERT INTO public.bilibili_uploader WHERE Username = ${Username} AND BiliURL = ${BiliURL};( 
-            Upload_Status, 
-        )
-        VALUES
-        (
-          ${Upload_Status},
-        )
-        ;`;
+        await sql`UPDATE public.bilibili_uploader SET Upload_Status = ${Upload_Status} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
       return NextResponse.json({ result }, { status: 200 });
     } catch (error) {
       return NextResponse.json({ error }, { status: 500 });
@@ -43,17 +27,7 @@ async function updateStatus(Username, BiliURL, Upload_Status) {
 async function updateChinese(Username, BiliURL, Chinese_Name, Chinese_Desc) {
     try {
       const result =
-        await sql`INSERT INTO public.bilibili_uploader WHERE Username = ${Username} AND BiliURL = ${BiliURL};( 
-            Chinese_Name, 
-            Chinese_Desc, 
-        )
-        VALUES
-        (
-          ${Chinese_Name},
-          ${Chinese_Desc},
-        )
-        ;`;
-        //insert values for the initial creation here
+        await sql`UPDATE public.bilibili_uploader SET Chinese_Name = ${Chinese_Name} Chinese_Desc = ${Chinese_Desc} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
       return NextResponse.json({ result }, { status: 200 });
     } catch (error) {
       return NextResponse.json({ error }, { status: 500 });
@@ -62,17 +36,7 @@ async function updateChinese(Username, BiliURL, Chinese_Name, Chinese_Desc) {
 async function updateEnglish(Username, BiliURL, Eng_Name, Eng_Desc) {
     try {
       const result =
-        await sql`INSERT INTO public.bilibili_uploader WHERE Username = ${Username} AND BiliURL = ${BiliURL};( 
-            Eng_Name, 
-            Eng_Desc, 
-        )
-        VALUES
-        (
-          ${Eng_Name},
-          ${Eng_Desc},
-        )
-        ;`;
-        //insert values for the initial creation here
+        await sql`UPDATE public.bilibili_uploader SET Eng_Name = ${Eng_Name} Eng_Desc = ${Eng_Desc} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
       return NextResponse.json({ result }, { status: 200 });
     } catch (error) {
       return NextResponse.json({ error }, { status: 500 });
@@ -81,15 +45,7 @@ async function updateEnglish(Username, BiliURL, Eng_Name, Eng_Desc) {
 async function updateValidUpload(Username, BiliURL, Valid_Upload) {
     try {
       const result =
-        await sql`INSERT INTO public.bilibili_uploader WHERE Username = ${Username} AND BiliURL = ${BiliURL};( 
-            Valid_Upload,
-        )
-        VALUES
-        (
-          ${Valid_Upload},
-        )
-        ;`;
-        //insert values for the initial creation here
+        await sql`UPDATE public.bilibili_uploader SET Valid_Upload = ${Valid_Upload} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`
       return NextResponse.json({ result }, { status: 200 });
     } catch (error) {
       return NextResponse.json({ error }, { status: 500 });
@@ -98,15 +54,7 @@ async function updateValidUpload(Username, BiliURL, Valid_Upload) {
 async function updateUploadDate(Username, BiliURL, Upload_Date) {
     try {
       const result =
-        await sql`INSERT INTO public.bilibili_uploader WHERE Username = ${Username} AND BiliURL = ${BiliURL};( 
-            Upload_Date,
-        )
-        VALUES
-        (
-          ${Upload_Date},
-        )
-        ;`;
-        //insert values for the initial creation here
+        await sql`UPDATE public.bilibili_uploader SET Upload_Date = ${Upload_Date} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
       return NextResponse.json({ result }, { status: 200 });
     } catch (error) {
       return NextResponse.json({ error }, { status: 500 });
@@ -115,15 +63,7 @@ async function updateUploadDate(Username, BiliURL, Upload_Date) {
 async function updateYoutubeURL(Username, BiliURL, YoutubeURL) {
     try {
       const result =
-        await sql`INSERT INTO public.bilibili_uploader WHERE Username = ${Username} AND BiliURL = ${BiliURL};( 
-            YoutubeURL,
-        )
-        VALUES
-        (
-          ${YoutubeURL},
-        )
-        ;`;
-        //insert values for the initial creation here
+        await sql`UPDATE public.bilibili_uploader SET YoutubeURL = ${YoutubeURL} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
       return NextResponse.json({ result }, { status: 200 });
     } catch (error) {
       return NextResponse.json({ error }, { status: 500 });

@@ -3,9 +3,11 @@ import { NextResponse } from 'next/server';
 //creates initial table if doesnt exist
 
 export async function GET(request) {
-  
+  const Username = '405832523'
+  const BiliURL = 'https://www.bilibili.com/video/BV1UT421S7kB/?spm_id_from=333.999.0.0&vd_source=13ef93c0b77fc1861411754dcfa41c79'
+  const Valid_Upload = 'true'
   try {
-      await sql`INSERT INTO public.bilibili_uploader ( Username, BiliURL ) VALUES ( ${'405832523'}, ${'https://www.bilibili.com/video/BV1UT421S7kB/?spm_id_from=333.999.0.0&vd_source=13ef93c0b77fc1861411754dcfa41c79'});`;
+      await sql`UPDATE public.bilibili_uploader SET Valid_Upload = ${Valid_Upload} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
   } catch (error) {
       const result = await sql`SELECT * FROM pg_stat_activity WHERE state = '42601' ;`;
         //insert values for the initial creation here
@@ -14,7 +16,7 @@ export async function GET(request) {
   const pets = await sql`SELECT * FROM public.bilibili_uploader;`;
   return NextResponse.json({ pets }, { status: 200 });
 }
-
+// ${'405832523'}, ${'https://www.bilibili.com/video/BV1UT421S7kB/?spm_id_from=333.999.0.0&vd_source=13ef93c0b77fc1861411754dcfa41c79'});
 //page to go to when something gets stuck
 // export async function GET(request) {
 //   try {
