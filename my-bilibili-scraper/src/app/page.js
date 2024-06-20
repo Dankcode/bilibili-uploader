@@ -1,12 +1,14 @@
 // 
 import React from 'react';
 // import PostForm from './Form';
-import Scraper from './biliscraper';
+// import Scraper from './biliscraper';
+import VideoDownloader from './bilibili-downloader';
 
 export default function myPage() {
    return (
     <div>
-       <Scraper />
+       {/* <Scraper /> */}
+       <VideoDownloader />
     </div>
    )
  }
