@@ -1,5 +1,9 @@
 {
   "dependencies": {
-    "puppeteer": "^22.8.0"
+    "lodash": "^4.17.21",
+    "nanoid": "^5.0.7",
+    "pinia": "^2.1.7",
+    "puppeteer": "^22.8.0",
+    "zustand": "^4.5.4"
   }
 }
