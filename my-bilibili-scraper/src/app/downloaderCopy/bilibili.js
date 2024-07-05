@@ -85,7 +85,7 @@ export const useBaseStore = create((set) => ({
 
 export const useSettingStore = create((set) => ({
   downloadPath: '',
-  SESSDATA: '***REMOVED***-g9qTqu1uuUgWPBDrUl9J_G2Ya8-xNVLXRFRf30SVmpCaHFzNVpPaVZIaTVLbTN4eFcxSERCVEU1WFJuVE83bEJVa1dDaG43OFVqOHFvOUd0M3JoT0k5WUpvZXJqU2xUcmFGVmVXTWtiRjNWaVN5SWdaM2N3IIEC',
+  SESSDATA: '***REMOVED***-G299w62lPvX4Op4q5ZarG4cE9qQEPsOCuISVjF1SnRDZkhOd0VLTmJKSklaZHpPUWxZRC1BWi1kUUpENUxOOXpyRl9Kc0NRWXZvVkIzZTZSZDA2dHg3WWZXYms4dHg5Y1pXNzZ4M05Wa2w3YVFZV1p3IIEC',
   isMerge: true,
   isDelete: true,
   bfeId: '',
@@ -293,7 +293,7 @@ const checkUrlRedirect = async (videoUrl) => {
   const config = {
     headers: {
       'User-Agent': `${UA}`,
-      cookie: `SESSDATA=***REMOVED***-g9qTqu1uuUgWPBDrUl9J_G2Ya8-xNVLXRFRf30SVmpCaHFzNVpPaVZIaTVLbTN4eFcxSERCVEU1WFJuVE83bEJVa1dDaG43OFVqOHFvOUd0M3JoT0k5WUpvZXJqU2xUcmFGVmVXTWtiRjNWaVN5SWdaM2N3IIEC`
+      cookie: `SESSDATA=***REMOVED***-G299w62lPvX4Op4q5ZarG4cE9qQEPsOCuISVjF1SnRDZkhOd0VLTmJKSklaZHpPUWxZRC1BWi1kUUpENUxOOXpyRl9Kc0NRWXZvVkIzZTZSZDA2dHg3WWZXYms4dHg5Y1pXNzZ4M05Wa2w3YVFZV1p3IIEC`
     }
   };
   const body = await axios.get('https://www.bilibili.com/video/BV1wz4y1F7Vc', config);
