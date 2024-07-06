@@ -9,7 +9,7 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15
     const config = {
       headers: {
         'User-Agent': `${UA}`,
-        cookie: `SESSDATA=b02e7ce8%2C1735568226%2Cb32b5%2A71CjBJzOCDnSOkzIt6iYdz67ezG35Em0FO-G299w62lPvX4Op4q5ZarG4cE9qQEPsOCuISVjF1SnRDZkhOd0VLTmJKSklaZHpPUWxZRC1BWi1kUUpENUxOOXpyRl9Kc0NRWXZvVkIzZTZSZDA2dHg3WWZXYms4dHg5Y1pXNzZ4M05Wa2w3YVFZV1p3IIEC`
+        cookie: `SESSDATA=f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC`
       }
     };
     const body = await axios.get('https://www.bilibili.com/video/BV1wz4y1F7Vc', config);
@@ -70,10 +70,10 @@ throw new Error(error);
 }
 };
 const getDownloadUrl = async (cid, bvid, quality) => {
-   const sses = 'b02e7ce8%2C1735568226%2Cb32b5%2A71CjBJzOCDnSOkzIt6iYdz67ezG35Em0FO-G299w62lPvX4Op4q5ZarG4cE9qQEPsOCuISVjF1SnRDZkhOd0VLTmJKSklaZHpPUWxZRC1BWi1kUUpENUxOOXpyRl9Kc0NRWXZvVkIzZTZSZDA2dHg3WWZXYms4dHg5Y1pXNzZ4M05Wa2w3YVFZV1p3IIEC'
+   const sses = 'f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'
    const bfeId = [
-    'buvid3=D3D7FDFE-602A-22C5-5B11-3F858DDBE8F606230infoc; path=/; expires=Thu, 01 Apr 2027 16:33:26 GMT; domain=.bilibili.com',
-    'b_nut=1720197206; path=/; expires=Sat, 05 Jul 2025 16:33:26 GMT; domain=.bilibili.com',
+    'buvid3=AEF98C90-5389-F03E-DBF1-24EB2EF38A0B75925infoc; path=/; expires=Fri, 02 Apr 2027 11:39:35 GMT; domain=.bilibili.com',
+    'b_nut=1720265975; path=/; expires=Sun, 06 Jul 2025 11:39:35 GMT; domain=.bilibili.com',
     'innersign=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.bilibili.com'
   ]
    const config = {
@@ -88,12 +88,32 @@ const getDownloadUrl = async (cid, bvid, quality) => {
     config
   );
   // saveResponseCookies(response.headers['set-cookie']);
-  // console.log(response.data.data.dash.video[0].baseUrl)
-  // return console.log(response.data.data.dash.video[0].baseUrl)
+  // console.log(response.data.data.dash.video)
+  // return console.log(response.data.data.dash.audio)
+};
+const getBfeId = async () => {
+  const sses = 'f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'
+  const bfeId = [
+   'buvid3=D3D7FDFE-602A-22C5-5B11-3F858DDBE8F606230infoc; path=/; expires=Thu, 01 Apr 2027 16:33:26 GMT; domain=.bilibili.com',
+   'b_nut=1720197206; path=/; expires=Sat, 05 Jul 2025 16:33:26 GMT; domain=.bilibili.com',
+   'innersign=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.bilibili.com'
+ ]
+  const config = {
+   headers: {
+     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15',
+     cookie: `SESSDATA=${sses};`
+   },
+   responseType: 'json'
+ };
+ const response = await axios.get(
+   'https://www.bilibili.com/video/BV1wz4y1F7Vc',
+   config
+ );
+ return console.log(response.headers)
 };
 const VideoInput = () => {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
-  const sses = 'b02e7ce8%2C1735568226%2Cb32b5%2A71CjBJzOCDnSOkzIt6iYdz67ezG35Em0FO-G299w62lPvX4Op4q5ZarG4cE9qQEPsOCuISVjF1SnRDZkhOd0VLTmJKSklaZHpPUWxZRC1BWi1kUUpENUxOOXpyRl9Kc0NRWXZvVkIzZTZSZDA2dHg3WWZXYms4dHg5Y1pXNzZ4M05Wa2w3YVFZV1p3IIEC'
+  const sses = 'f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'
 
   const HandleDownload = async () => {
     // Perform URL redirection check and parse HTML
@@ -118,6 +138,7 @@ const VideoInput = () => {
         config
       );
       // console.log((await response).headers)
+      // getBfeId();
       return Downloader();
     } catch (error) {
       console.log(`解析错误：${error}`);
