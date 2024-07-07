@@ -89,7 +89,7 @@ const getDownloadUrl = async (cid, bvid, quality) => {
   );
   // saveResponseCookies(response.headers['set-cookie']);
   // console.log(response.data.data.dash.video)
-  // return console.log(response.data.data.dash.audio)
+  // return console.log(response.data.data.dash)
 };
 const getBfeId = async () => {
   const sses = '***REMOVED***-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'

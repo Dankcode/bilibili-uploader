@@ -37,27 +37,21 @@ const sleep = (timeoutMS) => new Promise((resolve) => setTimeout(resolve, timeou
 const mergeVideoAudio = (videoPath, audioPath, out) => {
     return new Promise((resolve, reject) => {
       ffmpeg()
-        .input(videoPath)
-        .input(audioPath)
-        .audioCodec('copy')
-        .videoCodec('copy')
-        .on('start', (cmd) => {
-          console.log(`开始转码：${cmd}`);
-        })
-        .on('end', () => {
-          resolve('end');
-        })
-        .on('error', (err) => {
-          reject(err);
-        })
-        .save(out);
+      const command = `ffmpeg -i ${videoPath} -i ${audioPath} -c copy -movflags frag_keyframe+empty_moov -f mp4 ${out}`;
+      exec(command, (error, stdout, stderr) => {
+              if (error) {
+        reject(error);
+      } else {
+        resolve(stdout ? stdout : stderr);
+      }
+    });
     });
   };
 
 export default async function Downloader(req, res) {
     const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
-const videoURL = 'https://upos-sz-mirrorcos.bilivideo.com/upgcxcode/73/08/1288630873/1288630873-1-30077.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEqxTEto8BTrNvN0GvT90W5JZMkX_YN0MvXg8gNEV4NC8xNEV4N03eN0B5tZlqNxTEto8BTrNvNeZVuJ10Kj_g2UB02J0mN0B5tZlqNCNEto8BTrNvNC7MTX502C8f2jmMQJ6mqF2fka1mqx6gqj0eN0B599M=&uipk=5&nbs=1&deadline=1720285412&gen=playurlv2&os=cosbv&oi=0&trid=8ec6e5149ad4495e9f52f0fa37f679ebu&mid=3546393887115629&platform=pc&og=cos&upsig=95f7f7720f4968f48c52e0d4c126ccf1&uparams=e,uipk,nbs,deadline,gen,os,oi,trid,mid,platform,og&bvc=vod&nettype=0&orderid=0,3&buvid=&build=0&f=u_0_0&agrr=0&bw=56844&logo=80000000'
-const audioURL = 'https://upos-sz-mirrorcos.bilivideo.com/upgcxcode/73/08/1288630873/1288630873-1-30077.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEqxTEto8BTrNvN0GvT90W5JZMkX_YN0MvXg8gNEV4NC8xNEV4N03eN0B5tZlqNxTEto8BTrNvNeZVuJ10Kj_g2UB02J0mN0B5tZlqNCNEto8BTrNvNC7MTX502C8f2jmMQJ6mqF2fka1mqx6gqj0eN0B599M=&uipk=5&nbs=1&deadline=1720285459&gen=playurlv2&os=cosbv&oi=0&trid=88d9894155e14c4395ac4d625939cfedu&mid=3546393887115629&platform=pc&og=cos&upsig=26257ae6be841c3f7977782a5a292e67&uparams=e,uipk,nbs,deadline,gen,os,oi,trid,mid,platform,og&bvc=vod&nettype=0&orderid=0,3&buvid=&build=0&f=u_0_0&agrr=0&bw=56844&logo=80000000'
+const videoURL = 'https://upos-sz-estgcos.bilivideo.com/upgcxcode/73/08/1288630873/1288630873-1-30077.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEqxTEto8BTrNvN0GvT90W5JZMkX_YN0MvXg8gNEV4NC8xNEV4N03eN0B5tZlqNxTEto8BTrNvNeZVuJ10Kj_g2UB02J0mN0B5tZlqNCNEto8BTrNvNC7MTX502C8f2jmMQJ6mqF2fka1mqx6gqj0eN0B599M=&uipk=5&nbs=1&deadline=1720338723&gen=playurlv2&os=upos&oi=1961292555&trid=960d3cb59a0744d68fc3b62c8271b989u&mid=3546393887115629&platform=pc&og=cos&upsig=cbc69afa22d22b9d9a5d73f0f5d55618&uparams=e,uipk,nbs,deadline,gen,os,oi,trid,mid,platform,og&bvc=vod&nettype=0&orderid=0,3&buvid=&build=0&f=u_0_0&agrr=0&bw=56844&logo=80000000'
+const audioURL = 'https://upos-sz-estgoss.bilivideo.com/upgcxcode/73/08/1288630873/1288630873-1-30280.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEqxTEto8BTrNvN0GvT90W5JZMkX_YN0MvXg8gNEV4NC8xNEV4N03eN0B5tZlqNxTEto8BTrNvNeZVuJ10Kj_g2UB02J0mN0B5tZlqNCNEto8BTrNvNC7MTX502C8f2jmMQJ6mqF2fka1mqx6gqj0eN0B599M=&uipk=5&nbs=1&deadline=1720338790&gen=playurlv2&os=upos&oi=1961292555&trid=e0f781fbbfc74ec28bb351c4ccec4fdfu&mid=3546393887115629&platform=pc&og=hw&upsig=2b351f46c77fd4107c167da33f852e72&uparams=e,uipk,nbs,deadline,gen,os,oi,trid,mid,platform,og&bvc=vod&nettype=0&orderid=0,3&buvid=&build=0&f=u_0_0&agrr=0&bw=14370&logo=80000000'
 const downloadConfig = {
     headers: {
       'User-Agent': `${UA}`,
