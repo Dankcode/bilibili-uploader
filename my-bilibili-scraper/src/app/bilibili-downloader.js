@@ -1,6 +1,28 @@
 import React from 'react';
 import axios from 'axios';
 import Downloader from './downloaderCopy/download';
+import { cookies } from 'next/headers';
+
+async function getCookieSSES() {
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
+  const config = {
+    headers: {
+      'User-Agent': `${UA}`,
+      cookie: ''
+    }
+  };
+
+  try {
+    const parsedCookies = await axios.get(cookies, config)
+    if (parsedCookies) {
+      console.log(parsedCookies);
+    } else {
+      console.log({ error: 'SESSDATA not found' });
+    }
+  } catch(error) {
+    console.log('Error fetching SESSDATA:', error);
+  };
+}
 
 const parseHtml = async (html, type, url) => {
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
@@ -124,22 +146,23 @@ const VideoInput = () => {
       'innersign=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.bilibili.com'
     ]
     try {
-      const videoInfo = await parseHtml(videoUrl, 1, videoUrl); // Replace with actual HTML
-      getDownloadUrl(1288630873, 'BV1wz4y1F7Vc', 64)
-      const config = {
-        headers: {
-          'User-Agent': `${UA}`,
-          cookie: `SESSDATA=${sses};bfe_id=${bfeId}`
-        },
-        responseType: 'json'
-      };
-      const response = axios.get(
-        `https://api.bilibili.com/x/player/playurl?cid=${1288630873}&bvid=${'BV1wz4y1F7Vc'}&qn=127&type=&otype=json&fourk=1&fnver=0&fnval=80&session=68191c1dc3c75042c6f35fba895d65b0`,
-        config
-      );
+      // const videoInfo = await parseHtml(videoUrl, 1, videoUrl); 
+      // getDownloadUrl(1288630873, 'BV1wz4y1F7Vc', 64)
+      // const config = {
+      //   headers: {
+      //     'User-Agent': `${UA}`,
+      //     cookie: `SESSDATA=${sses};bfe_id=${bfeId}`
+      //   },
+      //   responseType: 'json'
+      // };
+      // const response = axios.get(
+      //   `https://api.bilibili.com/x/player/playurl?cid=${1288630873}&bvid=${'BV1wz4y1F7Vc'}&qn=127&type=&otype=json&fourk=1&fnver=0&fnval=80&session=68191c1dc3c75042c6f35fba895d65b0`,
+      //   config
+      // );
       // console.log((await response).headers)
       // getBfeId();
-      return Downloader();
+      return getCookieSSES()
+      // return Downloader();
     } catch (error) {
       console.log(`解析错误：${error}`);
     }
