@@ -2,6 +2,8 @@ import React from 'react';
 import axios from 'axios';
 import Downloader from './downloaderCopy/download';
 import { cookies } from 'next/headers';
+const { chromium } = require('playwright');
+const fs = require('fs');
 
 async function getCookieSSES() {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
@@ -13,17 +15,36 @@ async function getCookieSSES() {
   };
 
   try {
-    const parsedCookies = await axios.get(cookies, config)
-    if (parsedCookies) {
-      console.log(parsedCookies);
-    } else {
-      console.log({ error: 'SESSDATA not found' });
-    }
+    const browser = await chromium.launch({ headless: false });
+    const context = await browser.newContext();
+  
+    // Load cookies and local storage from a file
+    const storage = JSON.parse(fs.readFileSync('storage.json', 'utf8'));
+    await context.addCookies(storage.cookies);
+    await context.addInitScript(storage => {
+      for (const [key, value] of Object.entries(storage)) {
+        window.localStorage.setItem(key, value);
+      }
+    }, storage.localStorage);
+  
+    const page = await context.newPage();
+  
+    // Navigate to a page that requires login
+    await page.goto('https://www.bilibili.com/video/BV1wz4y1F7Vc');
+  
+    const cookies = await context.cookies();
+    const sess = cookies.find(cookie => cookie.name === 'SESSDATA')
+    console.log(sess.value);
+  
+    await page.waitForTimeout(5000); // Adjust this time as needed for your actions
+    
+    await browser.close();
+    // if does not return a sess value, then rerun the login 
+    return sess.value
   } catch(error) {
-    console.log('Error fetching SESSDATA:', error);
+    console.log('Error', error);
   };
 }
-
 const parseHtml = async (html, type, url) => {
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
 
@@ -161,7 +182,7 @@ const VideoInput = () => {
       // );
       // console.log((await response).headers)
       // getBfeId();
-      return getCookieSSES()
+      // return getCookieSSES()
       // return Downloader();
     } catch (error) {
       console.log(`解析错误：${error}`);
