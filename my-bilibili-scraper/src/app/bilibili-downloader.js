@@ -4,6 +4,7 @@ import Downloader from './downloaderCopy/download';
 import { cookies } from 'next/headers';
 const { chromium } = require('playwright');
 const fs = require('fs');
+import { Client } from '@notionhq/client';
 
 async function getCookieSSES() {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
@@ -154,6 +155,49 @@ const getBfeId = async () => {
  );
  return console.log(response.headers)
 };
+const connectNotion = async () => {
+  const notionApiKey = 'secret_77ntMw7OXmYfiV8SO9Eua0OfjonfAWyXRrOisMnwyDk';
+  const databaseId = '735b31852cca438595e68dfac53ed1d7';
+  
+    const url = 'https://api.notion.com/v1/pages';
+  
+    const headers = {
+      'Authorization': `Bearer ${notionApiKey}`,
+      "Notion-Version": "2022-06-28",
+      "Content-Type": "application/json",
+    };
+  
+    const data = {
+      parent: { database_id: databaseId },
+      properties: {
+        Name: {
+          title: [
+            {
+              text: {
+                content: 'Test Page from API'
+              }
+            }
+          ]
+        },
+        Description: {
+          rich_text: [
+            {
+              text: {
+                content: 'This page was created using the Notion API and Axios.'
+              }
+            }
+          ]
+        }
+      }
+    };
+  
+    try {
+      const response = await axios.post(url, data, { headers });
+      console.log('Page created successfully:', response.data);
+    } catch (error) {
+      console.error('Error creating page:' + error);
+    }  
+}
 const VideoInput = () => {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
   const sses = '***REMOVED***-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'
@@ -184,6 +228,7 @@ const VideoInput = () => {
       // getBfeId();
       // return getCookieSSES()
       // return Downloader();
+      return connectNotion();
     } catch (error) {
       console.log(`解析错误：${error}`);
     }
