@@ -4,7 +4,6 @@ import Downloader from './downloaderCopy/download';
 import { cookies } from 'next/headers';
 const { chromium } = require('playwright');
 const fs = require('fs');
-import { Client } from '@notionhq/client';
 
 async function getCookieSSES() {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
@@ -155,49 +154,36 @@ const getBfeId = async () => {
  );
  return console.log(response.headers)
 };
-const connectNotion = async () => {
-  const notionApiKey = 'secret_77ntMw7OXmYfiV8SO9Eua0OfjonfAWyXRrOisMnwyDk';
-  const databaseId = '735b31852cca438595e68dfac53ed1d7';
-  
-    const url = 'https://api.notion.com/v1/pages';
-  
-    const headers = {
-      'Authorization': `Bearer ${notionApiKey}`,
-      "Notion-Version": "2022-06-28",
-      "Content-Type": "application/json",
-    };
-  
-    const data = {
-      parent: { database_id: databaseId },
-      properties: {
-        Name: {
-          title: [
-            {
-              text: {
-                content: 'Test Page from API'
-              }
-            }
-          ]
-        },
-        Description: {
-          rich_text: [
-            {
-              text: {
-                content: 'This page was created using the Notion API and Axios.'
-              }
-            }
-          ]
-        }
-      }
-    };
-  
-    try {
-      const response = await axios.post(url, data, { headers });
-      console.log('Page created successfully:', response.data);
-    } catch (error) {
-      console.error('Error creating page:' + error);
-    }  
-}
+const { Client } = require('@notionhq/client');
+
+// Initialize a new Notion client
+const notion = new Client({
+  auth: 'secret_77ntMw7OXmYfiV8SO9Eua0OfjonfAWyXRrOisMnwyDk',
+});
+
+// Function to get a page's content
+const connectNotion = async (pageId) => {
+  try {
+    const response = await notion.pages.retrieve({ page_id: pageId });
+    console.log('Page content:', response.properties);
+  } catch (error) {
+    console.error('Error retrieving page content:', error);
+  }
+};
+
+// Function to query a database
+const queryDatabase = async (databaseId) => {
+  try {
+    const response = await notion.databases.query({ database_id: databaseId });
+    console.log('Database query results:', response.data);
+  } catch (error) {
+    console.error('Error querying database:', error);
+  }
+};
+
+// Replace with your actual page ID or database ID
+const pageId = 'https://api.notion.com/v1/pages';
+const databaseId = '735b31852cca438595e68dfac53ed1d7';
 const VideoInput = () => {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
   const sses = 'f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'
@@ -228,7 +214,7 @@ const VideoInput = () => {
       // getBfeId();
       // return getCookieSSES()
       // return Downloader();
-      return connectNotion();
+      return connectNotion('735b31852cca438595e68dfac53ed1d7');
     } catch (error) {
       console.log(`解析错误：${error}`);
     }

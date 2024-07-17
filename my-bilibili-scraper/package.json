@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@notionhq/client": "^2.2.15",
     "@vercel/postgres": "^0.8.0",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
