@@ -3,12 +3,21 @@ import React from 'react';
 // import PostForm from './Form';
 // import Scraper from './biliscraper';
 import VideoDownloader from './bilibili-downloader';
+import UsernameList from './NotionDB/getUsernames';
+import { QueryDatabase } from './NotionDB/updateData';
+import GetValidUpload from './NotionDB/getValidUpload';
+import { UpdateChinese } from './NotionDB/updateData';
 
 export default function myPage() {
    return (
     <div>
+         <UpdateChinese 
+         pageId={'9a51f3fc-e89d-40a1-a3f1-594278ad932f'} 
+         BiliURL={'test1'} 
+         Chinese_Name={'test2'} 
+         Chinese_Desc={'test3'}/>
        {/* <Scraper /> */}
-       <VideoDownloader />
+       {/* <VideoDownloader /> */}
     </div>
    )
  }
