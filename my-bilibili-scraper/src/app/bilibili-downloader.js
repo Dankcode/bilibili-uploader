@@ -162,10 +162,11 @@ const notion = new Client({
 });
 
 // Function to get a page's content
-const connectNotion = async (pageId) => {
+const connectNotion = async () => {
   try {
-    const response = await notion.pages.retrieve({ page_id: pageId });
-    console.log('Page content:', response.properties);
+    const databaseId = '1fb726490c0947e9967a285846af19f5';
+    const response = await notion.databases.retrieve({ database_id: databaseId });
+    console.log('Page content:', response);
   } catch (error) {
     console.error('Error retrieving page content:', error);
   }
@@ -214,7 +215,7 @@ const VideoInput = () => {
       // getBfeId();
       // return getCookieSSES()
       // return Downloader();
-      return connectNotion('735b31852cca438595e68dfac53ed1d7');
+      return connectNotion();
     } catch (error) {
       console.log(`解析错误：${error}`);
     }

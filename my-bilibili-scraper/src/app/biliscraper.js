@@ -33,7 +33,7 @@ const puppeteer = require('puppeteer');
         return mergedData
         //cronjob sends array data to sql database then starts the upload progress
       });
-      // we only need the mergedData array, the rest can be commented out
+
       return (
         <div>
           <h1>Bilibili Links</h1>
