@@ -173,10 +173,85 @@ const connectNotion = async () => {
 };
 
 // Function to query a database
-const queryDatabase = async (databaseId) => {
+const queryDatabase = async () => {
+  const databaseId = '1fb726490c0947e9967a285846af19f5';
   try {
-    const response = await notion.databases.query({ database_id: databaseId });
-    console.log('Database query results:', response.data);
+    const response = await notion.pages.create({
+      parent: {
+        "type": "database_id",
+        "database_id": databaseId
+    },
+      properties: {
+        "Chinese_Name": {
+          "title": [
+              {
+                  'type': 'text',
+                  "text": {
+                      "content": "dank"
+                  }
+              }
+          ]
+      },
+      "Chinese_Description": {
+        "rich_text": [
+            {
+              'type': 'text',
+                "text": {
+                    "content": "A dark green leafy vegetable"
+                }
+            }
+        ]
+      },  
+      "Youtube_URL": {
+          "rich_text": [
+              {
+                'type': 'text',
+                  "text": {
+                      "content": "A dark green leafy vegetable"
+                  }
+              }
+          ]
+      },
+      "Release_Date": {
+        "rich_text": [
+            {
+              'type': 'date',
+                "text": {
+                    "content": "A dark green leafy vegetable"
+                }
+            }
+        ]
+      },  
+      "BiliBili_URL": {
+        "rich_text": [
+            {
+              'type': 'text',
+                "text": {
+                    "content": "A dark green leafy vegetable"
+                }
+            }
+        ]
+      },  
+      "Status": {
+        "status": {
+          "name": "Not started"
+        }
+      },
+      "Valid_Upload": {
+        "rich_text": [
+            {
+              'type': 'multi_select',
+                "multi_select": [
+                  {
+                    "name": "inValid"
+                  },
+                ]
+            }
+        ]
+      },  
+    },
+    });
+    console.log('Page created:', response);
   } catch (error) {
     console.error('Error querying database:', error);
   }
@@ -215,7 +290,7 @@ const VideoInput = () => {
       // getBfeId();
       // return getCookieSSES()
       // return Downloader();
-      return connectNotion();
+      // return queryDatabase();
     } catch (error) {
       console.log(`解析错误：${error}`);
     }

@@ -1,5 +1,7 @@
 //mainframe where cronjob calls to 
 //cronjob returns a username for the day to run
+// this page will contain the URL with the page link and the bilibili ID 
+
 
 
 // import { sql } from '@vercel/postgres';
