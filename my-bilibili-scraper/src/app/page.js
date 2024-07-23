@@ -1,21 +1,23 @@
-// 
 import React from 'react';
 // import PostForm from './Form';
-// import Scraper from './biliscraper';
+import Scraper from './biliscraper';
 import VideoDownloader from './bilibili-downloader';
 import UsernameList from './NotionDB/getUsernames';
 import { QueryDatabase } from './NotionDB/updateData';
-import GetValidUpload from './NotionDB/getValidUpload';
+import { GetTodayUpload } from './NotionDB/updateData';
 import { UpdateChinese } from './NotionDB/updateData';
 
 export default function myPage() {
+   const pageId = '9a51f3fc-e89d-40a1-a3f1-594278ad932f'; // Replace with your actual page ID
+   const BiliURL = 'https://www.bilibili.com/video/BV1wz4y1F7Vc';
+   const Chinese_Name = '示例名称'; // Example Chinese name
+   const Chinese_Desc = '这是一个示例描述'; // Example Chinese description
+ 
+   // const response = UpdateChinese(pageId, BiliURL, Chinese_Name, Chinese_Desc)
    return (
     <div>
-         <UpdateChinese 
-         pageId={'9a51f3fc-e89d-40a1-a3f1-594278ad932f'} 
-         BiliURL={'test1'} 
-         Chinese_Name={'test2'} 
-         Chinese_Desc={'test3'}/>
+      {/* <GetTodayUpload /> */}
+         {/* {response} */}
        {/* <Scraper /> */}
        {/* <VideoDownloader /> */}
     </div>

@@ -1,6 +1,6 @@
 const puppeteer = require('puppeteer');
 
-  export default async function Scraper() {
+  export default async function Scraper(pageUrl) {
     // copy paste the video page URL, but do not replace the /video?tid=0&pn=3&keyword=&order=pubdate part 
     // the {pageNumber} value must be set for each new video
     const bilibiliUrl = 'https://space.bilibili.com/49748554/video?tid=0&pn=1&keyword=&order=pubdate'; 
@@ -34,19 +34,21 @@ const puppeteer = require('puppeteer');
         //cronjob sends array data to sql database then starts the upload progress
       });
 
-      return (
-        <div>
-          <h1>Bilibili Links</h1>
-          <ul>
-            {allALinks.map((url, index) => (
-              <li key={index}>
-                <p>{url.name}</p>
-                <a href={url.link}>{url.link}</a> <p>{url.length}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      );
+      // return (
+      //   <div>
+      //     <h1>Bilibili Links</h1>
+      //     <ul>
+      //       {allALinks.map((url, index) => (
+      //         <li key={index}>
+      //           <p>{url.name}</p>
+      //           <a href={url.link}>{url.link}</a> <p>{url.length}</p>
+      //         </li>
+      //       ))}
+      //     </ul>
+      //   </div>
+      // );
+      // console.log(allALinks)
+      return allALinks
     } catch (error) {
       console.error('Error scraping data:', error);
       return <div>Error scraping data</div>;

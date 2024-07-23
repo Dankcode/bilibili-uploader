@@ -1,5 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
+import { find_newUpload } from '@/app/checker';
+import Scraper from '../biliscraper';
 const { Client } = require('@notionhq/client');
 
 const notion = new Client({
@@ -7,8 +9,57 @@ const notion = new Client({
 });
 //update the status of the tables here
 //the updater will AWAYS have the username and bilibili URL the same to know which one its updating so that it doesnt reinsert or insert wrong
+//creates a new page in notion when there's a new entry, this runs everytime it's time for and upload
+// creates a new array by mapping thru the current notion list 
+//filters the scraped list to remove any existing URLs
+// the remaining URL is then added to the notion table 
+const getUrlList = async () => {
+  const databaseId = '1fb726490c0947e9967a285846af19f5';
+  try {
+    const response = await notion.databases.query({
+      database_id: databaseId,
+    });
+    return response.results.map((Val, index) => Val.properties.BiliBili_URL.rich_text[0].text.content)
+  } catch (error) {
+    console.error('Error getting url list:', error);
+  }
+};
+async function GetTodayUpload() {
+  let retries = 0; // Counter for retry attempts
+  const maxRetries = 3; // Set a maximum number of retries
+  let pageNumber = 1
+  while (retries < maxRetries) {
+    try {
+      const getScraper = await Scraper(`https://space.bilibili.com/49748554/video?tid=0&pn=${pageNumber}&keyword=&order=pubdate`);
+      const getList = await getUrlList();
+      const getData = await find_newUpload(getScraper, getList);
 
-const QueryDatabase = async () => {
+      // Check if getData is empty or undefined (no data received)
+      if (!getData) {
+        console.warn('No data received from server. Retrying...');
+        retries++;
+        continue; // Skip to the next iteration
+      }
+      if (getData.length === 0) {
+      // this means that there are no more new videos on the current page, scrape the second page
+        console.log('no more new videos on the current page')
+        pageNumber++;
+        retries++;
+        continue; // Skip to the next iteration
+      }
+      // Successful data retrieval
+      console.log(getData);
+      return CreateInitialData(getData.link, getData.name, 'still no cn desc yet')
+    } catch (error) {
+      console.error('Error retrieving page content:', error);
+      retries = maxRetries; // Stop retrying on actual errors
+    }
+  }
+  // If retries reach the limit, log an error and exit
+  console.error('Failed to retrieve data after', maxRetries, 'retries.');
+  return null; // Or throw an error if appropriate
+}
+const CreateInitialData = async (BiliURL, Chinese_Name, Chinese_Desc) => {
   const databaseId = '1fb726490c0947e9967a285846af19f5';
   try {
     const response = await notion.pages.create({
@@ -22,7 +73,7 @@ const QueryDatabase = async () => {
               {
                   'type': 'text',
                   "text": {
-                      "content": "Tusca34242"
+                      "content": Chinese_Name
                   }
               }
           ]
@@ -32,52 +83,17 @@ const QueryDatabase = async () => {
             {
               'type': 'text',
                 "text": {
-                    "content": "A dark green leafy vegetable"
+                    "content": Chinese_Desc
                 }
             }
         ]
-      },  
-      "English_Name": {
-        "rich_text": [
-            {
-              'type': 'text',
-                "text": {
-                    "content": "A dark green leafy vegetable"
-                }
-            }
-        ]
-      },  
-      "English_Description": {
-        "rich_text": [
-            {
-              'type': 'text',
-                "text": {
-                    "content": "A dark green leafy vegetable"
-                }
-            }
-        ]
-      },  
-      "Youtube_URL": {
-          "rich_text": [
-              {
-                'type': 'text',
-                  "text": {
-                      "content": "A dark green leafy vegetable"
-                  }
-              }
-          ]
-      },
-      "Release_Date": {
-        "date": {
-          "start": "2023-02-23"
-        }
       },  
       "BiliBili_URL": {
         "rich_text": [
             {
               'type': 'text',
                 "text": {
-                    "content": "A dark green leafy vegetable"
+                    "content": BiliURL
                 }
             }
         ]
@@ -89,7 +105,7 @@ const QueryDatabase = async () => {
       },
       "Valid_Upload": {
         "select": {
-          "equals": "Valid"
+          "name": "Valid"
         }
       },  
     },
@@ -100,17 +116,6 @@ const QueryDatabase = async () => {
   }
 };
 //creates the base 
-async function updateUsername(Username, BiliURL) {
-    try {
-      const result =
-        await sql`INSERT INTO public.bilibili_uploader( Username, BiliURL ) VALUES ( ${Username}, ${BiliURL} );`;
-        //insert values for the initial creation here
-      return NextResponse.json({ result }, { status: 200 });
-    } catch (error) {
-      return NextResponse.json({ error }, { status: 500 });
-    }
-}
-//get valid upload will find the suitable video and grab the notion pageId
 async function UpdateStatus(pageId) {
   try {
   const response = await notion.pages.update({
@@ -134,7 +139,7 @@ async function UpdateChinese(pageId, BiliURL, Chinese_Name, Chinese_Desc) {
     const response = await notion.pages.update({
       page_id: pageId,
       properties: {
-        "Name": {
+        "Chinese_Name": {
           "title": [
             {
               "type": "text",
@@ -172,50 +177,144 @@ async function UpdateChinese(pageId, BiliURL, Chinese_Name, Chinese_Desc) {
     console.log('update chinese err' + error)
   }
 }
-async function updateEnglish(Username, BiliURL, Eng_Name, Eng_Desc) {
-    try {
-      const result =
-        await sql`UPDATE public.bilibili_uploader SET Eng_Name = ${Eng_Name} Eng_Desc = ${Eng_Desc} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
-      return NextResponse.json({ result }, { status: 200 });
-    } catch (error) {
-      return NextResponse.json({ error }, { status: 500 });
-    }
+async function updateEnglish(pageId, YoutubeURL, Eng_Name, Eng_Desc) {
+  try {
+    const response = await notion.pages.update({
+      page_id: pageId,
+      properties: {
+        "English_Name": {
+          "title": [
+            {
+              "type": "text",
+              "text": {
+                "content": Eng_Name
+              }
+            }
+          ]
+        },
+        "English_Description": {
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": Eng_Desc
+              }
+            },
+          ]
+        },
+        "Youtube_URL": {
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": YoutubeURL
+              }
+            },
+          ]
+        }
+      },
+    });
+    console.log(response);
+    return response
+  } catch (error) {
+    console.log('update chinese err' + error)
+  }
 }
-async function updateValidUpload(Username, BiliURL, Valid_Upload) {
-    try {
-      const result =
-        await sql`UPDATE public.bilibili_uploader SET Valid_Upload = ${Valid_Upload} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`
-      return NextResponse.json({ result }, { status: 200 });
-    } catch (error) {
-      return NextResponse.json({ error }, { status: 500 });
-    }
+async function updateValidUpload(pageId, Valid_Upload) {
+  try {
+    const response = await notion.pages.update({
+      page_id: pageId,
+      properties: {
+        "Valid_Upload": {
+          "select": {
+            "equals": Valid_Upload
+          }
+        }
+      },
+    });
+    console.log(response);
+    return response
+  } catch (error) {
+    console.log('status err' + error)
+  }
 }
-async function updateUploadDate(Username, BiliURL, Upload_Date) {
-    try {
-      const result =
-        await sql`UPDATE public.bilibili_uploader SET Upload_Date = ${Upload_Date} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
-      return NextResponse.json({ result }, { status: 200 });
-    } catch (error) {
-      return NextResponse.json({ error }, { status: 500 });
-    }
+async function updateUploadDate(pageId, Upload_Date) {
+  try {
+    const response = await notion.pages.update({
+      page_id: pageId,
+      properties: {
+        "Release_Date": {
+          "rich_text": [
+            {
+              'type': 'date',
+              "text": {
+                "content": Upload_Date
+            }
+            }
+          ]
+        },
+      },
+    });
+    console.log(response);
+    return response
+  } catch (error) {
+    console.log('update chinese err' + error)
+  }
 }
-async function updateYoutubeURL(Username, BiliURL, YoutubeURL) {
-    try {
-      const result =
-        await sql`UPDATE public.bilibili_uploader SET YoutubeURL = ${YoutubeURL} WHERE Username = ${Username} AND BiliURL = ${BiliURL};`;
-      return NextResponse.json({ result }, { status: 200 });
-    } catch (error) {
-      return NextResponse.json({ error }, { status: 500 });
-    }
+async function updateYoutubeURL(pageId, YoutubeURL) {
+  try {
+    const response = await notion.pages.update({
+      page_id: pageId,
+      properties: {
+        "Youtube_URL": {
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": YoutubeURL
+              }
+            },
+          ]
+        }
+      },
+    });
+    console.log(response);
+    return response
+  } catch (error) {
+    console.log('update chinese err' + error)
+  }
 }
-
+async function UpdateError(pageId, errorMessage) {
+  try {
+    const response = await notion.pages.update({
+      page_id: pageId,
+      properties: {
+        "Error": {
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": errorMessage
+              }
+            },
+          ]
+        }
+      },
+    });
+  console.log(response);
+  return response
+} catch (error) {
+  console.log('status err' + error)
+}
+}
 export {
-  QueryDatabase,
-  updateUsername,
+  GetTodayUpload,
+  CreateInitialData,
   UpdateChinese,
   updateEnglish,
   UpdateStatus,
   updateUploadDate,
   updateValidUpload,
   updateYoutubeURL,
+  UpdateError,
 }
