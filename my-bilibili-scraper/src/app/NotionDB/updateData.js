@@ -24,13 +24,13 @@ const getUrlList = async () => {
     console.error('Error getting url list:', error);
   }
 };
-async function GetTodayUpload() {
+async function GetTodayUpload(notionDatabaseId) {
   let retries = 0; // Counter for retry attempts
   const maxRetries = 3; // Set a maximum number of retries
   let pageNumber = 1
   while (retries < maxRetries) {
     try {
-      const getScraper = await Scraper(`https://space.bilibili.com/49748554/video?tid=0&pn=${pageNumber}&keyword=&order=pubdate`);
+      const getScraper = await Scraper(`https://space.bilibili.com/${notionDatabaseId}/video?tid=0&pn=${pageNumber}&keyword=&order=pubdate`);
       const getList = await getUrlList();
       const getData = await find_newUpload(getScraper, getList);
 
@@ -48,7 +48,7 @@ async function GetTodayUpload() {
         continue; // Skip to the next iteration
       }
       // Successful data retrieval
-      console.log(getData);
+      // console.log(getData);
       return CreateInitialData(getData.link, getData.name, 'still no cn desc yet')
     } catch (error) {
       console.error('Error retrieving page content:', error);
@@ -110,7 +110,8 @@ const CreateInitialData = async (BiliURL, Chinese_Name, Chinese_Desc) => {
       },  
     },
     });
-    console.log('Page created:', response);
+    // console.log('Page created:', response);
+    return response
   } catch (error) {
     console.error('Error querying database:', error);
   }
@@ -128,7 +129,7 @@ async function UpdateStatus(pageId) {
       }
     },
   });
-  console.log(response);
+  // console.log(response);
   return response
 } catch (error) {
   console.log('status err' + error)
@@ -171,7 +172,7 @@ async function UpdateChinese(pageId, BiliURL, Chinese_Name, Chinese_Desc) {
         }
       },
     });
-    console.log(response);
+    // console.log(response);
     return response
   } catch (error) {
     console.log('update chinese err' + error)
@@ -214,7 +215,7 @@ async function updateEnglish(pageId, YoutubeURL, Eng_Name, Eng_Desc) {
         }
       },
     });
-    console.log(response);
+    // console.log(response);
     return response
   } catch (error) {
     console.log('update chinese err' + error)
@@ -232,7 +233,7 @@ async function updateValidUpload(pageId, Valid_Upload) {
         }
       },
     });
-    console.log(response);
+    // console.log(response);
     return response
   } catch (error) {
     console.log('status err' + error)
@@ -255,7 +256,7 @@ async function updateUploadDate(pageId, Upload_Date) {
         },
       },
     });
-    console.log(response);
+    // console.log(response);
     return response
   } catch (error) {
     console.log('update chinese err' + error)
@@ -278,7 +279,7 @@ async function updateYoutubeURL(pageId, YoutubeURL) {
         }
       },
     });
-    console.log(response);
+    // console.log(response);
     return response
   } catch (error) {
     console.log('update chinese err' + error)
@@ -301,7 +302,7 @@ async function UpdateError(pageId, errorMessage) {
         }
       },
     });
-  console.log(response);
+  // console.log(response);
   return response
 } catch (error) {
   console.log('status err' + error)
