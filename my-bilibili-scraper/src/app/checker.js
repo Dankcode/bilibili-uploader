@@ -79,8 +79,8 @@ const find_newUpload = (filteredScrapedData, previouslyUploadedURLs) => {
       }
     });
     
-    console.log("Original URLs (Modified - Optional Splicing):", originalUrls);
-    console.log("First Non-Matching Upload:", firstNonMatchingUpload);
+    // console.log("Original URLs (Modified - Optional Splicing):", originalUrls);
+    // console.log("First Non-Matching Upload:", firstNonMatchingUpload);
     // returns the name, link, and length for the soon-to-be-uploaded vod
     return firstNonMatchingUpload
     // if returns null then the entire page has been uploaded
@@ -108,4 +108,8 @@ function moveToNextPage (baseUrl) {
         console.log("Full URL (no existing query string):", fullUrl);
         return fullUrl
       }
+}
+
+export {
+  find_newUpload
 }
