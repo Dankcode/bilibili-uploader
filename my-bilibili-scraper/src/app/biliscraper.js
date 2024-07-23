@@ -3,9 +3,9 @@ const puppeteer = require('puppeteer');
   export default async function Scraper(pageUrl) {
     // copy paste the video page URL, but do not replace the /video?tid=0&pn=3&keyword=&order=pubdate part 
     // the {pageNumber} value must be set for each new video
-    const bilibiliUrl = 'https://space.bilibili.com/49748554/video?tid=0&pn=1&keyword=&order=pubdate'; 
+    // const bilibiliUrl = 'https://space.bilibili.com/49748554/video?tid=0&pn=1&keyword=&order=pubdate'; 
     // Replace with target URL make sure the video?tid=0&pn=1&keyword=&order=pubdate is added later
-  
+    const bilibiliUrl = pageUrl; 
     try {
       const browser = await puppeteer.launch();
       const page = await browser.newPage();
