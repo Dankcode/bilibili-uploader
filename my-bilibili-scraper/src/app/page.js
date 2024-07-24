@@ -2,30 +2,37 @@ import React from 'react';
 // import PostForm from './Form';
 import Scraper from './biliscraper';
 import VideoDownloader from './bilibili-downloader';
-import UsernameList from './NotionDB/getUsernames';
-import { QueryDatabase } from './NotionDB/updateData';
+import UsernameList from './NotionDB/getNotionData';
+import { QueryDatabase, updateEnglish } from './NotionDB/updateData';
 import { GetTodayUpload } from './NotionDB/updateData';
 import { UpdateChinese } from './NotionDB/updateData';
-import GetUsernames from './NotionDB/getUsernames'
+import {GetChineseName, GetUsernames } from './NotionDB/getNotionData'
+import getEnglishName from './aiStuff/getEnglish';
 
 export default function myPage() {
-  let notionDatabaseId = GetUsernames()
+  const databaseId = '1fb726490c0947e9967a285846af19f5'
+  let notionDatabaseId = GetUsernames(databaseId)
    const pageId = '9a51f3fc-e89d-40a1-a3f1-594278ad932f'; // Replace with your actual page ID
    const BiliURL = 'https://www.bilibili.com/video/BV1wz4y1F7Vc';
-   const Chinese_Name = '示例名称'; // Example Chinese name
+
    const Chinese_Desc = '这是一个示例描述'; // Example Chinese description
 // first gets today's upload
-  GetTodayUpload(notionDatabaseId)
+  GetTodayUpload(notionDatabaseId);
 // 2nd checks the notion DB for a valid upload with getValidUpload from getvalidupload.js to get the id of the upload
-  let uploadId = GetValidUpload()
+  let uploadId = GetValidUpload();
 // change the selected table to In progress
-  UpdateStatus(uploadId)
+  UpdateStatus(uploadId);
 // run the checker for In progress rows
-  findInProgress()
+  findInProgress();
+  const Chinese_Name = GetChineseName(uploadId); // Example Chinese name
 // Run the videoDownloader with the in progress data
-// Run the AI API to get an Eng Desc and Eng Name
+  VideoDownloader();
 // if download success then update status to "Done"
+  UpdateStatus(uploadId);
+// Run the AI API to get an Eng Desc and Eng Name
+  getEnglishName(Chinese_Name);
 // when AI API is finished, update the Eng Name and decription
+  updateEnglishName();
 // being upload onto youtube
 // if success then return the Youtube URL
 // set upload Date to the date
