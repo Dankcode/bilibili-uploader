@@ -239,7 +239,16 @@ async function updateValidUpload(pageId, Valid_Upload) {
     console.log('status err' + error)
   }
 }
-async function updateUploadDate(pageId, Upload_Date) {
+function getCurrentDate() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are zero-based, so add 1
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+async function updateUploadDate(pageId) {
+  const Upload_Date = getCurrentDate();
   try {
     const response = await notion.pages.update({
       page_id: pageId,

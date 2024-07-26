@@ -41,7 +41,6 @@ async function authenticate() {
       scope: SCOPES,
     });
     console.log('Authorize this app by visiting this URL:', authUrl);
-    // For manual process, you would need to visit the URL and get the code
     const rl = require('readline').createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -123,11 +122,12 @@ async function saveUploadedVideo(fileName) {
 }
 
 // API handler
-export default async function handler(req, res) {
+export default async function uploadYoutubeVideo() {
   try {
     const setOfVideosUploaded = await getUploadedVideos();
     const videoDir = path.join(process.cwd(), 'compilation_vids');
     const files = fs.readdirSync(videoDir);
+    const uploadedVideoUrls = [];
 
     for (const file of files) {
       if (setOfVideosUploaded.has(file)) {
@@ -144,17 +144,21 @@ export default async function handler(req, res) {
       const auth = await authenticate();
       const videoDetails = await uploadVideo(auth, wholePath, details);
       const videoId = videoDetails.id;
-      const thumbnailPath = path.join(process.cwd(), 'final_thumbnails', `${name}.png`);
+      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      uploadedVideoUrls.push(videoUrl);
 
+      const thumbnailPath = path.join(process.cwd(), 'final_thumbnails', `${name}.png`);
       await uploadThumbnail(auth, videoId, thumbnailPath);
       await saveUploadedVideo(file);
-
+      if (uploadedVideoUrls.length > 0) {
+        console.log(uploadedVideoUrls[0])
+        return uploadedVideoUrls[0]
+      }
       console.log('One video cycle completed');
     }
 
-    res.status(200).json({ message: 'All videos processed successfully.' });
+    console.log('All videos processed successfully.', uploadedVideoUrls )
   } catch (error) {
     console.error('Error processing videos:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
   }
 }
