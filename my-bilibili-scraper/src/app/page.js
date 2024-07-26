@@ -3,7 +3,7 @@ import React from 'react';
 import Scraper from './biliscraper';
 import VideoDownloader from './bilibili-downloader';
 import UsernameList from './NotionDB/getNotionData';
-import { QueryDatabase, updateEnglish } from './NotionDB/updateData';
+import { QueryDatabase, updateEnglish, updateYoutubeURL } from './NotionDB/updateData';
 import { GetTodayUpload } from './NotionDB/updateData';
 import { UpdateChinese } from './NotionDB/updateData';
 import {GetChineseName, GetUsernames } from './NotionDB/getNotionData'
@@ -38,6 +38,8 @@ export default function myPage() {
 // being upload onto youtube
   const uploadedYoutubeUrl = await uploadYoutubeVideo();
 // if success then return the Youtube URL
+  await updateYoutubeURL(uploadedYoutubeUrl)
+  // set upload Date to the date
   await updateUploadDate();
    } catch (error) {
     console.log('Error in workflow:', error);
@@ -45,7 +47,7 @@ export default function myPage() {
 
    return executeWorkflow();
   }
-// set upload Date to the date
+
 // a successful upload would look like this
 
 // the npm run dev will serve as a troubleshoot runs the same as above when button is pressed
