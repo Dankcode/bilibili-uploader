@@ -16,25 +16,35 @@ export default function myPage() {
    const BiliURL = 'https://www.bilibili.com/video/BV1wz4y1F7Vc';
 
    const Chinese_Desc = '这是一个示例描述'; // Example Chinese description
+   const executeWorkflow = async () => {
+   try {
 // first gets today's upload
-  GetTodayUpload(notionDatabaseId);
+  await GetTodayUpload(notionDatabaseId);
 // 2nd checks the notion DB for a valid upload with getValidUpload from getvalidupload.js to get the id of the upload
   let uploadId = GetValidUpload();
 // change the selected table to In progress
-  UpdateStatus(uploadId);
+  await UpdateStatus(uploadId);
 // run the checker for In progress rows
-  findInProgress();
-  const Chinese_Name = GetChineseName(uploadId); // Example Chinese name
-// if download success then update status to "Done"
-  UpdateStatus(uploadId);
+  await findInProgress();
+  const Chinese_Name = await GetChineseName(uploadId); // Example Chinese name
 // Run the AI API to get an Eng Desc and Eng Name
-  const English_Name = getEnglishName(Chinese_Name)
+  const English_Name = await getEnglishName(Chinese_Name)
 // when AI API is finished, update the Eng Name and decription
-  updateEnglishName(English_Name);
+  await updateEnglishName(English_Name);
   // Run the videoDownloader with the in progress data
-  VideoDownloader(English_Name);
+  await VideoDownloader(English_Name);
+  // if download success then update status to "Done"
+  await UpdateStatus(uploadId);
 // being upload onto youtube
+  const uploadedYoutubeUrl = await uploadYoutubeVideo();
 // if success then return the Youtube URL
+  await updateUploadDate();
+   } catch (error) {
+    console.log('Error in workflow:', error);
+   }
+
+   return executeWorkflow();
+  }
 // set upload Date to the date
 // a successful upload would look like this
 
