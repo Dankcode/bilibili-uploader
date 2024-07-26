@@ -25,14 +25,14 @@ export default function myPage() {
 // run the checker for In progress rows
   findInProgress();
   const Chinese_Name = GetChineseName(uploadId); // Example Chinese name
-// Run the videoDownloader with the in progress data
-  VideoDownloader();
 // if download success then update status to "Done"
   UpdateStatus(uploadId);
 // Run the AI API to get an Eng Desc and Eng Name
-  getEnglishName(Chinese_Name);
+  const English_Name = getEnglishName(Chinese_Name)
 // when AI API is finished, update the Eng Name and decription
-  updateEnglishName();
+  updateEnglishName(English_Name);
+  // Run the videoDownloader with the in progress data
+  VideoDownloader(English_Name);
 // being upload onto youtube
 // if success then return the Youtube URL
 // set upload Date to the date
