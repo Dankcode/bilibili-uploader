@@ -125,7 +125,7 @@ async function saveUploadedVideo(fileName) {
 export default async function uploadYoutubeVideo() {
   try {
     const setOfVideosUploaded = await getUploadedVideos();
-    const videoDir = path.join(process.cwd(), 'compilation_vids');
+    const videoDir = path.join(process.cwd(), 'Videos');
     const files = fs.readdirSync(videoDir);
     const uploadedVideoUrls = [];
 
@@ -137,7 +137,7 @@ export default async function uploadYoutubeVideo() {
       const wholePath = path.join(videoDir, file);
       const name = path.parse(file).name;
       const details = {
-        desc: `${name.replace(/_/g, ' ')} best of in 2022`,
+        desc: `${name.replace(/_/g, ' ')}`,
         title: name.replace(/_/g, ' '),
       };
 
@@ -147,8 +147,8 @@ export default async function uploadYoutubeVideo() {
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
       uploadedVideoUrls.push(videoUrl);
 
-      const thumbnailPath = path.join(process.cwd(), 'final_thumbnails', `${name}.png`);
-      await uploadThumbnail(auth, videoId, thumbnailPath);
+      // const thumbnailPath = path.join(process.cwd(), 'final_thumbnails', `${name}.png`);
+      // await uploadThumbnail(auth, videoId, thumbnailPath);
       await saveUploadedVideo(file);
       if (uploadedVideoUrls.length > 0) {
         console.log(uploadedVideoUrls[0])

@@ -178,7 +178,7 @@ async function UpdateChinese(pageId, BiliURL, Chinese_Name, Chinese_Desc) {
     console.log('update chinese err' + error)
   }
 }
-async function updateEnglish(pageId, YoutubeURL, Eng_Name, Eng_Desc) {
+async function updateEnglish(pageId, Eng_Name, Eng_Desc) {
   try {
     const response = await notion.pages.update({
       page_id: pageId,
@@ -199,16 +199,6 @@ async function updateEnglish(pageId, YoutubeURL, Eng_Name, Eng_Desc) {
               "type": "text",
               "text": {
                 "content": Eng_Desc
-              }
-            },
-          ]
-        },
-        "Youtube_URL": {
-          "rich_text": [
-            {
-              "type": "text",
-              "text": {
-                "content": YoutubeURL
               }
             },
           ]
