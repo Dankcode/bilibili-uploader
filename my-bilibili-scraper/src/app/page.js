@@ -1,7 +1,7 @@
 import React from 'react';
 // import PostForm from './Form';
 import Scraper from './biliscraper';
-import VideoDownloader from './bilibili-downloader';
+import VideoInput from './bilibili-downloader';
 import UsernameList from './NotionDB/getNotionData';
 import { QueryDatabase, updateEnglish, updateYoutubeURL } from './NotionDB/updateData';
 import { GetTodayUpload } from './NotionDB/updateData';
@@ -13,7 +13,7 @@ export default function myPage() {
   const databaseId = '1fb726490c0947e9967a285846af19f5'
   let notionDatabaseId = GetUsernames(databaseId)
    const pageId = '9a51f3fc-e89d-40a1-a3f1-594278ad932f'; // Replace with your actual page ID
-   const BiliURL = 'https://www.bilibili.com/video/BV1wz4y1F7Vc';
+
 
    const Chinese_Desc = '这是一个示例描述'; // Example Chinese description
    const executeWorkflow = async () => {
@@ -26,13 +26,15 @@ export default function myPage() {
   await UpdateStatus(uploadId);
 // run the checker for In progress rows
   await findInProgress();
-  const Chinese_Name = await GetChineseName(uploadId); // Example Chinese name
+  const Chinese_Name = await getChineseName(uploadId); // Example Chinese name
 // Run the AI API to get an Eng Desc and Eng Name
   const English_Name = await getEnglishName(Chinese_Name)
+  const English_Desc = 'testing'
+  const bilibiliURL = await getBiliBiliUrl(databaseId);
 // when AI API is finished, update the Eng Name and decription
-  await updateEnglishName(English_Name);
+  await updateEnglish(English_Name, English_Desc);
   // Run the videoDownloader with the in progress data
-  await VideoDownloader(English_Name);
+  await VideoInput(English_Name, bilibiliURL);
   // if download success then update status to "Done"
   await UpdateStatus(uploadId);
 // being upload onto youtube

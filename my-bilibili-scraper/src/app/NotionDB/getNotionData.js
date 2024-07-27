@@ -5,7 +5,7 @@ const notion = new Client({
 });
 
 // Function to get a page's content
-const GetUsernames = async (databaseId) => {
+const getUsernames = async (databaseId) => {
   try {
     const response = await notion.databases.retrieve({ database_id: databaseId });
     // console.log('Title name:', response.title[0].text.content);
@@ -15,7 +15,7 @@ const GetUsernames = async (databaseId) => {
   }
 };
 
-const GetChineseName = async (pageId) => {
+const getChineseName = async (pageId) => {
   try {
     const response = await notion.pages.retrieve({
       page_id: pageId
@@ -26,7 +26,19 @@ const GetChineseName = async (pageId) => {
     console.error('Error retrieving page content:', error);
   }
 };
+const getBiliBiliUrl = async (pageId) => {
+  try {
+    const response = await notion.pages.retrieve({
+      page_id: pageId
+      });
+    // console.log('Title name:', response.properties.Chinese_Name.title[0].plain_text);
+    return response.properties.BiliBili_URL.title[0].plain_text
+  } catch (error) {
+    console.error('Error retrieving page content:', error);
+  }
+};
 export {
-  GetUsernames,
-  GetChineseName
+  getUsernames,
+  getChineseName,
+  getBiliBiliUrl,
 }
