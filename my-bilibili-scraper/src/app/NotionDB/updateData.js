@@ -135,6 +135,24 @@ async function UpdateStatus(pageId) {
   console.log('status err' + error)
 }
 }
+async function UpdateCompleted(pageId) {
+  try {
+  const response = await notion.pages.update({
+    page_id: pageId,
+    properties: {
+      "Status": {
+        "status": {
+          "name": "Done"
+        }
+      }
+    },
+  });
+  // console.log(response);
+  return response
+} catch (error) {
+  console.log('status err' + error)
+}
+}
 async function UpdateChinese(pageId, BiliURL, Chinese_Name, Chinese_Desc) {
   try {
     const response = await notion.pages.update({
@@ -317,4 +335,5 @@ export {
   updateValidUpload,
   updateYoutubeURL,
   UpdateError,
+  UpdateCompleted,
 }
