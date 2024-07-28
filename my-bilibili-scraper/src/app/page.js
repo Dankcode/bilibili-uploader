@@ -3,10 +3,10 @@ import React from 'react';
 import Scraper from './biliscraper';
 import VideoInput from './bilibili-downloader';
 import UsernameList from './NotionDB/getNotionData';
-import { QueryDatabase, updateEnglish, updateYoutubeURL } from './NotionDB/updateData';
+import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate } from './NotionDB/updateData';
 import { GetTodayUpload } from './NotionDB/updateData';
 import { UpdateChinese } from './NotionDB/updateData';
-import {GetChineseName, GetUsernames } from './NotionDB/getNotionData'
+import {getChineseName, GetUsernames, getBiliBiliUrl } from './NotionDB/getNotionData'
 import getEnglishName from './aiStuff/getEnglish';
 
 export default function myPage() {
@@ -25,18 +25,18 @@ export default function myPage() {
 // change the selected table to In progress
   await UpdateStatus(uploadId);
 // run the checker for In progress rows
-  await findInProgress();
-  const Chinese_Name = await getChineseName(uploadId); // Example Chinese name
+  let inProgressId = await findInProgress();
+  const Chinese_Name = await getChineseName(inProgressId); // Example Chinese name
 // Run the AI API to get an Eng Desc and Eng Name
   const English_Name = await getEnglishName(Chinese_Name)
   const English_Desc = 'testing'
   const bilibiliURL = await getBiliBiliUrl(databaseId);
 // when AI API is finished, update the Eng Name and decription
-  await updateEnglish(English_Name, English_Desc);
+  await updateEnglish(inProgressId, English_Name, English_Desc);
   // Run the videoDownloader with the in progress data
   await VideoInput(English_Name, bilibiliURL);
   // if download success then update status to "Done"
-  await UpdateStatus(uploadId);
+  await UpdateCompleted(inProgressId);
 // being upload onto youtube
   const uploadedYoutubeUrl = await uploadYoutubeVideo();
 // if success then return the Youtube URL
