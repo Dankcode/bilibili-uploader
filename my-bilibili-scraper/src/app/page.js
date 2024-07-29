@@ -6,12 +6,11 @@ import UsernameList from './NotionDB/getNotionData';
 import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate } from './NotionDB/updateData';
 import { GetTodayUpload } from './NotionDB/updateData';
 import { UpdateChinese } from './NotionDB/updateData';
-import {getChineseName, GetUsernames, getBiliBiliUrl } from './NotionDB/getNotionData'
+import {getChineseName, getUsernames, getBiliBiliUrl } from './NotionDB/getNotionData'
 import getEnglishName from './aiStuff/getEnglish';
 
 export default function myPage() {
   const databaseId = '1fb726490c0947e9967a285846af19f5'
-  let notionDatabaseId = GetUsernames(databaseId)
    const pageId = '9a51f3fc-e89d-40a1-a3f1-594278ad932f'; // Replace with your actual page ID
 
 
@@ -19,7 +18,9 @@ export default function myPage() {
    const executeWorkflow = async () => {
    try {
 // first gets today's upload
+let notionDatabaseId = await getUsernames(databaseId)
   await GetTodayUpload(notionDatabaseId);
+  console.log('step1 comp')
 // 2nd checks the notion DB for a valid upload with getValidUpload from getvalidupload.js to get the id of the upload
   let uploadId = GetValidUpload();
 // change the selected table to In progress
@@ -40,9 +41,9 @@ export default function myPage() {
 // being upload onto youtube
   const uploadedYoutubeUrl = await uploadYoutubeVideo();
 // if success then return the Youtube URL
-  await updateYoutubeURL(uploadedYoutubeUrl)
+  await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
   // set upload Date to the date
-  await updateUploadDate();
+  await updateUploadDate(inProgressId);
    } catch (error) {
     console.log('Error in workflow:', error);
    }
