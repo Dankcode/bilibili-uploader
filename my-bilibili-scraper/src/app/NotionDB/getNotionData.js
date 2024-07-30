@@ -31,7 +31,7 @@ const getBiliBiliUrl = async (pageId) => {
     const response = await notion.pages.retrieve({
       page_id: pageId
       });
-    // console.log('Title name:', response.properties.Chinese_Name.title[0].plain_text);
+    console.log('Title name:', response.properties.Chinese_Name.title[0].plain_text);
     return response.properties.BiliBili_URL.title[0].plain_text
   } catch (error) {
     console.error('Error retrieving page content:', error);
