@@ -25,16 +25,20 @@ export default function myPage() {
 // first gets today's upload
   await GetTodayUpload(notionDatabaseId, databaseId);
 // 2nd checks the notion DB for a valid upload with getValidUpload from getvalidupload.js to get the id of the upload
-  let uploadId = getValidUpload(databaseId);
+  let uploadId = await getValidUpload(databaseId);
+  console.log('uplaod id is' + uploadId)
 // change the selected table to In progress
   await UpdateStatus(uploadId);
 // run the checker for In progress rows
-  let inProgressId = await findInProgress();
+  let inProgressId = await findInProgress(databaseId);
+  console.log('inprogres id ' + inProgressId)
   const Chinese_Name = await getChineseName(inProgressId); // Example Chinese name
+  console.log('chinese name' + Chinese_Name)
 // Run the AI API to get an Eng Desc and Eng Name
   const English_Name = await getEnglishName(Chinese_Name)
   const English_Desc = 'testing'
-  const bilibiliURL = await getBiliBiliUrl(databaseId);
+  const bilibiliURL = await getBiliBiliUrl(uploadId);
+  console.log('bilibili url is ' + bilibiliURL)
 // when AI API is finished, update the Eng Name and decription
   await updateEnglish(inProgressId, English_Name, English_Desc);
   // Run the videoDownloader with the in progress data
