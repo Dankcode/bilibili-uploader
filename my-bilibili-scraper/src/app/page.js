@@ -3,26 +3,29 @@ import React from 'react';
 import Scraper from './biliscraper';
 import VideoInput from './bilibili-downloader';
 import UsernameList from './NotionDB/getNotionData';
-import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate } from './NotionDB/updateData';
+import uploadYoutubeVideo from './uploadYoutube';
+import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, UpdateCompleted } from './NotionDB/updateData';
 import { GetTodayUpload } from './NotionDB/updateData';
-import { UpdateChinese } from './NotionDB/updateData';
+import { getValidUpload, findInProgress } from './NotionDB/getValidUpload';
 import {getChineseName, getUsernames, getBiliBiliUrl } from './NotionDB/getNotionData'
 import getEnglishName from './aiStuff/getEnglish';
 
 export default function myPage() {
-  const databaseId = '1fb726490c0947e9967a285846af19f5'
+
+
    const pageId = '9a51f3fc-e89d-40a1-a3f1-594278ad932f'; // Replace with your actual page ID
 
 
    const Chinese_Desc = '这是一个示例描述'; // Example Chinese description
    const executeWorkflow = async () => {
+      const databaseId = '1fb726490c0947e9967a285846af19f5'
    try {
+    let notionDatabaseId = await getUsernames(databaseId)
+    console.log('gott the notion db id' + notionDatabaseId)
 // first gets today's upload
-let notionDatabaseId = await getUsernames(databaseId)
-  await GetTodayUpload(notionDatabaseId);
-  console.log('step1 comp')
+  await GetTodayUpload(notionDatabaseId, databaseId);
 // 2nd checks the notion DB for a valid upload with getValidUpload from getvalidupload.js to get the id of the upload
-  let uploadId = GetValidUpload();
+  let uploadId = getValidUpload(databaseId);
 // change the selected table to In progress
   await UpdateStatus(uploadId);
 // run the checker for In progress rows
@@ -48,20 +51,20 @@ let notionDatabaseId = await getUsernames(databaseId)
     console.log('Error in workflow:', error);
    }
 
-   return executeWorkflow();
-  }
 
+  }
+  return executeWorkflow();
 // a successful upload would look like this
 
 // the npm run dev will serve as a troubleshoot runs the same as above when button is pressed
-   return (
-    <div>
-      {/* <GetTodayUpload /> */}
-         {/* {response} */}
-       {/* <Scraper /> */}
-       {/* <VideoDownloader /> */}
-    </div>
-   )
+  //  return (
+  //   <div>
+  //     {/* <GetTodayUpload /> */}
+  //        {/* {response} */}
+  //      {/* <Scraper /> */}
+  //      {/* <VideoDownloader /> */}
+  //   </div>
+  //  )
  }
 /*
 make a new button function where it checks for status that are not 'complete'

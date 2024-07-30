@@ -4,7 +4,7 @@ const notion = new Client({
   auth: 'secret_77ntMw7OXmYfiV8SO9Eua0OfjonfAWyXRrOisMnwyDk',
 });
 // finds today's valid upload and tells all the other functions to finish the task
-const GetValidUpload = async (databaseId) => {
+const getValidUpload = async (databaseId) => {
   // const databaseId = '1fb726490c0947e9967a285846af19f5';
   try {
     const response = await notion.databases.query({
@@ -26,7 +26,7 @@ const GetValidUpload = async (databaseId) => {
       ]
       },
     });
-    // console.log(response.results[0].id)
+    console.log(response.results[0].id)
     return response.results[0].id
   } catch (error) {
     console.error('Error retrieving page content:', error);
@@ -61,6 +61,6 @@ const findInProgress = async (databaseId) => {
   }
 };
 export {
-  GetValidUpload,
+  getValidUpload,
   findInProgress,
 }
