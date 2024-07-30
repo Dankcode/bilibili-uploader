@@ -47,7 +47,7 @@ const puppeteer = require('puppeteer');
       //     </ul>
       //   </div>
       // );
-      // console.log(allALinks)
+      console.log(allALinks)
       return allALinks
     } catch (error) {
       console.error('Error scraping data:', error);
