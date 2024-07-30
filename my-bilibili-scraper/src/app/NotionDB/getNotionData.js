@@ -8,7 +8,7 @@ const notion = new Client({
 const getUsernames = async (databaseId) => {
   try {
     const response = await notion.databases.retrieve({ database_id: databaseId });
-    // console.log('Title name:', response.title[0].text.content);
+    console.log('Title name:', response.title[0].text.content);
     return response.title[0].text.content
   } catch (error) {
     console.error('Error retrieving page content:', error);

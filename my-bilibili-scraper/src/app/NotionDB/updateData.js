@@ -13,8 +13,8 @@ const notion = new Client({
 // creates a new array by mapping thru the current notion list 
 //filters the scraped list to remove any existing URLs
 // the remaining URL is then added to the notion table 
-const getUrlList = async () => {
-  const databaseId = '1fb726490c0947e9967a285846af19f5';
+const getUrlList = async (databaseId) => {
+  // const databaseId = '1fb726490c0947e9967a285846af19f5';
   try {
     const response = await notion.databases.query({
       database_id: databaseId,
@@ -24,14 +24,15 @@ const getUrlList = async () => {
     console.error('Error getting url list:', error);
   }
 };
-async function GetTodayUpload(notionDatabaseId) {
+async function GetTodayUpload(notionDatabaseId, databaseId) {
   let retries = 0; // Counter for retry attempts
   const maxRetries = 3; // Set a maximum number of retries
   let pageNumber = 1
   while (retries < maxRetries) {
     try {
+      console.log('gottest db id'+ notionDatabaseId)
       const getScraper = await Scraper(`https://space.bilibili.com/${notionDatabaseId}/video?tid=0&pn=${pageNumber}&keyword=&order=pubdate`);
-      const getList = await getUrlList();
+      const getList = await getUrlList(databaseId);
       const getData = await find_newUpload(getScraper, getList);
 
       // Check if getData is empty or undefined (no data received)
