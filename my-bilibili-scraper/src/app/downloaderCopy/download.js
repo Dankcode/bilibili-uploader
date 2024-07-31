@@ -74,7 +74,7 @@ const downloadConfig = {
     videoResponse.data.pipe(writer);
 
     console.log({
-      id: 'test',
+      id: videoName,
       status: 0,
       progress: 100
     });
