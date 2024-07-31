@@ -50,7 +50,7 @@ async function GetTodayUpload(notionDatabaseId, databaseId) {
       }
       // Successful data retrieval
       // console.log(getData);
-      return CreateInitialData(getData.link, getData.name, 'still no cn desc yet')
+      return CreateInitialData(notionDatabaseId, getData.link, getData.name, 'still no cn desc yet')
     } catch (error) {
       console.error('Error retrieving page content:', error);
       retries = maxRetries; // Stop retrying on actual errors
@@ -60,8 +60,8 @@ async function GetTodayUpload(notionDatabaseId, databaseId) {
   console.error('Failed to retrieve data after', maxRetries, 'retries.');
   return null; // Or throw an error if appropriate
 }
-const CreateInitialData = async (BiliURL, Chinese_Name, Chinese_Desc) => {
-  const databaseId = '1fb726490c0947e9967a285846af19f5';
+const CreateInitialData = async (databaseId, BiliURL, Chinese_Name, Chinese_Desc) => {
+  // const databaseId = '1fb726490c0947e9967a285846af19f5';
   try {
     const response = await notion.pages.create({
       parent: {
