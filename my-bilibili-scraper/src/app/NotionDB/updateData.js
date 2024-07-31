@@ -203,7 +203,7 @@ async function updateEnglish(pageId, Eng_Name, Eng_Desc) {
       page_id: pageId,
       properties: {
         "English_Name": {
-          "title": [
+          "rich_text": [
             {
               "type": "text",
               "text": {

@@ -174,7 +174,8 @@ const VideoInput = async (englishName, bilibiliUrl) => {
       // getDownloadUrl(1288630873, 'BV1wz4y1F7Vc', 64)
       const videoUrl = videoInfo.video[0].url
       const audioUrl = videoInfo.audio[0].url
-      // console.log(videoUrl, audioUrl)
+      console.log('video URL : '+ videoUrl)
+      console.log('audio URL : '+ audioUrl)
       // const config = {
       //   headers: {
       //     'User-Agent': `${UA}`,
