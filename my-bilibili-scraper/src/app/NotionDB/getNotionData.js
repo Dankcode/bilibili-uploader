@@ -9,7 +9,11 @@ const getUsernames = async (databaseId) => {
   try {
     const response = await notion.databases.retrieve({ database_id: databaseId });
     console.log('Title name:', response.title[0].text.content);
-    return response.title[0].text.content
+    const title = response.title[0].text.content;
+    const chinese_name = response.properties.Chinese_Name.title[0].plain_text;
+    const bilibiliUrl = response.properties.BiliBili_URL.title[0].plain_text;
+    const sentData = {title, chinese_name, bilibiliUrl}
+    return sentData
   } catch (error) {
     console.error('Error retrieving page content:', error);
   }
@@ -31,7 +35,7 @@ const getBiliBiliUrl = async (pageId) => {
     const response = await notion.pages.retrieve({
       page_id: pageId
       });
-    console.log('Title name:', response.properties.Chinese_Name.title[0].plain_text);
+    console.log('Title name:', response.properties.BiliBili_URL.title[0].plain_text);
     return response.properties.BiliBili_URL.title[0].plain_text
   } catch (error) {
     console.error('Error retrieving page content:', error);
