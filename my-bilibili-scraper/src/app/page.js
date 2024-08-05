@@ -9,9 +9,7 @@ import uploadYoutubeVideo from './uploadYoutube';
 // import { getValidUpload, findInProgress } from './NotionDB/getValidUpload';
 // import {getDatabaseData, getPageData} from './NotionDB/getNotionData'
 // import getEnglishName from './aiStuff/getEnglish';
-const { exec } = require('child_process');
-const path = require('path');
-const PYTHON_SCRIPT_PATH = path.join('@/bilibili-uploader', 'youtube_video_and_thumbnail_uploader');
+
 export default function myPage() {
 
 
@@ -46,7 +44,7 @@ export default function myPage() {
 //   // if download success then update status to "Done"
 //   await UpdateCompleted(inProgressId);
 // being upload onto youtube
-  uploadYoutubeVideo('../my-bilibili-scraper/Videos/test.mp4', 'test', 'test desc');
+  uploadYoutubeVideo('./Videos/test.mp4', 'test', 'This is a description of my awesome video.');
 // if success then return the Youtube URL
   // await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
   // // set upload Date to the date
