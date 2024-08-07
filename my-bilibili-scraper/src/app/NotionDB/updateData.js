@@ -50,7 +50,7 @@ async function GetTodayUpload(notionDatabaseId, databaseId) {
       }
       // Successful data retrieval
       // console.log(getData);
-      return CreateInitialData(notionDatabaseId, getData.link, getData.name, 'still no cn desc yet')
+      return CreateInitialData(databaseId, getData.link, getData.name, 'still no cn desc yet')
     } catch (error) {
       console.error('Error retrieving page content:', error);
       retries = maxRetries; // Stop retrying on actual errors
