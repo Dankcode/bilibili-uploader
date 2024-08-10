@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -29,7 +30,7 @@ def resumable_upload(insert_request):
             status, response = insert_request.next_chunk()
             if response is not None:
                 if 'id' in response:
-                    print("Video id '%s' was successfully uploaded." % response['id'])
+                    print(json.dumps({"video_id": response['id']}))  # Print the video ID as JSON
                 else:
                     exit("The upload failed with an unexpected response: %s" % response)
         except HttpError as e:
