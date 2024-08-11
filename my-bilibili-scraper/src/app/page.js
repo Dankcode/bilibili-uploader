@@ -3,7 +3,7 @@ import React from 'react';
 // import Scraper from './biliscraper';
 // import VideoInput from './bilibili-downloader';
 // import UsernameList from './NotionDB/getNotionData';
-import uploadYouTubeVideo from './uploadYoutube';
+import uploadYoutubeVideo from './uploadYoutube';
 // import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, UpdateCompleted } from './NotionDB/updateData';
 // import { GetTodayUpload } from './NotionDB/updateData';
 // import { getValidUpload, findInProgress } from './NotionDB/getValidUpload';
@@ -50,10 +50,7 @@ export default function myPage() {
 //   await UpdateCompleted(inProgressId);
 //   console.log('begining uploading process...')
 // being upload onto youtube
-fetch('./client_secret.json')
-    .then((response) => response.json())
-    .then((json) => console.log(json));
-// await uploadYouTubeVideo('./Videos/test.mp4', 'test', 'This is a description of my awesome video.', data)
+await uploadYoutubeVideo('./Videos/test.mp4', 'test', 'This is a description of my awesome video.')
 // if success then return the Youtube URL
   // await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
   // // set upload Date to the date

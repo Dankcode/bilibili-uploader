@@ -2,22 +2,26 @@ const fs = require('fs');
 const readline = require('readline');
 const { google } = require('googleapis');
 const OAuth2 = google.auth.OAuth2;
+const path = require('path');
 
 const SCOPES = ['https://www.googleapis.com/auth/youtube.upload'];
-const TOKEN_PATH = 'youtube-nodejs-quickstart.json';
+const TOKEN_PATH = path.join(process.cwd(), 'token.json');
 
-function authenticate(selectedAccountFile) {
-  return new Promise((resolve, reject) => {
-    const data = require(selectedAccountFile);
-      if (err) return reject('Error loading client secret file:', err);
-      authorize(data.client_secret, data.client_id, data.redirect_uris[0]);
-  });
+function authenticate() {
+    return new Promise((resolve, reject) => {
+        fs.readFile('./client_secret.json', (err, content) => {
+          if (err) return console.log('Error loading client secret file:', err);
+          authorize(JSON.parse(content).web);
+        });
+      });
 }
 
-function authorize(client_secret, client_id, redirect_uris) {
-    console.log(client_id)
+function authorize(credentials) {
   return new Promise((resolve, reject) => {
-    const oauth2Client = new OAuth2( client_secret, client_id, redirect_uris );
+    const client_secret = credentials.client_secret
+    const client_id = credentials.client_id
+    const redirect_uris = credentials.redirect_uris
+    const oauth2Client = new OAuth2(client_id, client_secret, redirect_uris);
 
     fs.readFile(TOKEN_PATH, (err, token) => {
       if (err) {
@@ -67,41 +71,81 @@ function loadClient(auth) {
   });
 }
 
-function uploadVideo(youtube, filePath, title, description) {
-  console.log('Uploading video...');
-  return youtube.videos.insert({
-    part: 'snippet,status',
-    requestBody: {
-      snippet: {
-        title: title,
-        description: description,
-      },
-      status: {
-        privacyStatus: 'private',
-      },
-    },
-    media: {
-      body: fs.createReadStream(filePath),
-    },
-  }).then((response) => {
-    console.log('Upload successful');
-    console.log('Video ID:', response.data.id);
-    return `https://www.youtube.com/watch?v=${response.data.id}`;
-  }).catch((err) => {
-    console.error('Error uploading video:', err);
-    throw err;
-  });
-}
+const uploadVideo = async (videoPath, title, description) => {
+  // Load the client secrets from the client_json file
+  const clientSecrets = JSON.parse(fs.readFileSync('./client_secret.json', 'utf8'));
 
-// Main function to export
-async function uploadYouTubeVideo(filePath, title, description, selectedAccountFile) {
-  return await authenticate(selectedAccountFile)
-    .then((auth) => loadClient(auth))
-    .then((youtube) => uploadVideo(youtube, filePath, title, description))
-    .catch((err) => {
-      console.error('Failed to upload video:', err);
-      throw err;
+  // Load the authorized credentials from the token.pickle file
+  const credentials = JSON.parse(fs.readFileSync('./token.json', 'utf8'));
+
+    const client_secret = clientSecrets.client_secret
+    const client_id = clientSecrets.client_id
+    const redirect_uris = clientSecrets.redirect_uris
+    const oauth2Client = new google.auth.OAuth2
+    (
+      client_id, 
+      client_secret, 
+      redirect_uris
+    );
+    fs.readFile(TOKEN_PATH, (err, token) => {
+      if (err) {
+        getNewToken(oauth2Client).then(resolve).catch(reject);
+      } else {
+        oauth2Client.credentials = JSON.parse(token);
+      }
     });
-}
 
-export default uploadYouTubeVideo;
+
+  // Create a YouTube instance
+  const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+
+  // Prepare video metadata
+  const metadata = {
+    snippet: {
+      title: title,
+      description: description,
+    },
+    status: {
+      privacyStatus: 'private' // Change to 'public' or 'unlisted' as needed
+    }
+  };
+
+  // Create a readable stream for the video file
+  const videoStream = fs.createReadStream(videoPath);
+
+  try {
+    const response = await youtube.videos.insert({
+      part: ['snippet, status'],
+      resource: metadata,
+      media: {
+        body: videoStream
+      }
+    });
+
+    console.log('Video uploaded:', response.data.id);
+    return response.data;
+  } catch (error) {
+    console.error('Error uploading video:', error);
+    throw error;
+  }
+};
+// Main function to export
+async function uploadYoutubeVideo(filePath, title, description) {
+    uploadVideo(filePath, title, description)
+}
+// return new Promise((resolve, reject) => {
+//   fs.readFile('./client_secret.json', (err, content) => {
+// const keys = JSON.parse(content);
+// const key = keys.installed || keys.web;
+// const payload = JSON.stringify({
+//   type: 'authorized_user',
+//   client_id: key.client_id,
+//   client_secret: key.client_secret,
+// });
+// fs.writeFile(TOKEN_PATH, payload, (err, content) => {
+//   console.log('contrent' + content)
+//   return content
+// });
+// });
+// });
+export default uploadYoutubeVideo;
