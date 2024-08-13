@@ -1,9 +1,8 @@
-import React from 'react';
 // import PostForm from './Form';
 // import Scraper from './biliscraper';
 // import VideoInput from './bilibili-downloader';
 // import UsernameList from './NotionDB/getNotionData';
-import uploadYoutubeVideo from './uploadYoutube';
+import UploadVideo from './uploadYoutube';
 // import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, UpdateCompleted } from './NotionDB/updateData';
 // import { GetTodayUpload } from './NotionDB/updateData';
 // import { getValidUpload, findInProgress } from './NotionDB/getValidUpload';
@@ -11,55 +10,9 @@ import uploadYoutubeVideo from './uploadYoutube';
 // import getEnglishName from './aiStuff/getEnglish';
 
 export default function myPage() {
-
-
-   const pageId = '9a51f3fc-e89d-40a1-a3f1-594278ad932f'; // Replace with your actual page ID
-
-
-   const Chinese_Desc = '这是一个示例描述'; // Example Chinese description
-   const executeWorkflow = async () => {
-      const databaseId = '1fb726490c0947e9967a285846af19f5'
-   try {
-//     let notionDatabaseId= await getDatabaseData(databaseId)
-
-//     // console.log('gott the notion db id' + notionDatabaseId)
-// // first gets today's upload
-//   await GetTodayUpload(notionDatabaseId, databaseId);
-// // 2nd checks the notion DB for a valid upload with getValidUpload from getvalidupload.js to get the id of the upload
-//   let uploadId = await getValidUpload(databaseId);
-//   // console.log('uplaod id is' + uploadId)
-// // change the selected table to In progress
-//   await UpdateStatus(uploadId);
-// // run the checker for In progress rows
-//   let inProgressId = await findInProgress(databaseId);
-//   console.log('inprogres id ' + inProgressId)
-
-//   const pageData = await getPageData(inProgressId)
-//   const Chinese_Name = pageData.chinese_name;
-//   const bilibiliURL = pageData.bilibiliUrl;
-//   console.log('chinese name' + Chinese_Name)
-// // Run the AI API to get an Eng Desc and Eng Name
-//   const English_Name = 'test'
-//   // const English_Name = await getEnglishName(Chinese_Name)
-//   const English_Desc = 'testing'
-// // when AI API is finished, update the Eng Name and decription
-//   await updateEnglish(inProgressId, English_Name, English_Desc);
-//   // Run the videoDownloader with the in progress data
-//   await VideoInput(English_Name, bilibiliURL);
-//   // if download success then update status to "Done"
-//   await UpdateCompleted(inProgressId);
-//   console.log('begining uploading process...')
-// being upload onto youtube
-await uploadYoutubeVideo('./Videos/test.mp4', 'test', 'This is a description of my awesome video.')
-// if success then return the Youtube URL
-  // await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
-  // // set upload Date to the date
-  // await updateUploadDate(inProgressId);
-   } catch (error) {
-    console.log('Error in workflow:', error);
-   }
-  }
-  return executeWorkflow();
+return (
+   <UploadVideo videoPath='./my-bilibili-scraper/Videos/test.mp4' title='test' description='This is a description of my awesome video.'/>
+)
 // a successful upload would look like this
 
 // the npm run dev will serve as a troubleshoot runs the same as above when button is pressed
