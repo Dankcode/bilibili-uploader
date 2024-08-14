@@ -4,7 +4,7 @@ const path = require('path');
 
 function runPythonScript(scriptPath, args = []) {
   return new Promise((resolve, reject) => {
-    const python = spawn('python', [scriptPath, ...args]);
+    const python = spawn('py', [scriptPath, ...args]);
     
     let outputData = '';
     let errorData = '';
@@ -24,7 +24,7 @@ function runPythonScript(scriptPath, args = []) {
         try {
           // Assuming the Python script outputs JSON
           console.log(outputData)
-          const result = outputData;
+          const result = JSON.parse(outputData);
           resolve(result);
         } catch (error) {
           console.log(`Failed to parse Python script output: ${error.message}`);
@@ -42,7 +42,7 @@ export default async function UploadVideo(videoPath, title, description) {
     console.log('startin pythno sscript')
     const result = await runPythonScript(scriptPath, [videoPath, title, description]);
     console.log('Video uploaded successfully');
-    console.log('Video ID:', result.video_id);
+    console.log('Video ID:', result);
     return result.video_id;
   } catch (error) {
     console.error('Error uploading video:', error.message);
