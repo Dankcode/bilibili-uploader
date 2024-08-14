@@ -1,6 +1,5 @@
 import os
 import sys
-import json
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -31,12 +30,12 @@ def resumable_upload(insert_request):
             if response is not None:
                 if 'id' in response:
                     print("Video id '%s' was successfully uploaded." % response['id'])
+                    return response
                 else:
                     exit("The upload failed with an unexpected response: %s" % response)
         except HttpError as e:
             if e.resp.status in RETRIABLE_STATUS_CODES:
-                error = "A retriable HTTP error %d occurred:\n%s" % (e.resp.status,
-                                                                     e.content)
+                error = "A retriable HTTP error %d occurred:\n%s" % (e.resp.status,e.content)
             else:
                 raise
         except RETRIABLE_EXCEPTIONS as e:
@@ -104,9 +103,11 @@ def uploads_video_initialisation(video_to_upload, title, description):
         media_body=MediaFileUpload(video_to_upload, chunksize=-1, resumable=True)
     )
     response = resumable_upload(request)
-
     return response
 
-
 if __name__ == '__main__':
-    uploads_video_initialisation('./my-bilibili-scraper/Videos/test.mp4', 'test', 'This is a description of my awesome video.')
+    video_path = sys.argv[1]
+    title = sys.argv[2]
+    description = sys.argv[3]
+
+    uploads_video_initialisation(video_path, title, description)
