@@ -170,7 +170,7 @@ const VideoInput = async (englishName, bilibiliUrl) => {
       // const bfeId = getBfeId();
 // highest quality require sses cookie
       const sses = getCookieSSES()
-      const videoInfo = await parseHtml('https://www.bilibili.com/video/BV1wz4y1F7Vc'); 
+      const videoInfo = await parseHtml(bilibiliUrl); 
       // getDownloadUrl(1288630873, 'BV1wz4y1F7Vc', 64)
       const videoUrl = videoInfo.video[0].url
       const audioUrl = videoInfo.audio[0].url
