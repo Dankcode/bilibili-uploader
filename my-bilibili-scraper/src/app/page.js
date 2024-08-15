@@ -3,7 +3,7 @@ import Scraper from './biliscraper';
 import VideoInput from './bilibili-downloader';
 import UsernameList from './NotionDB/getNotionData';
 import UploadVideo from './uploadYoutube';
-import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, UpdateCompleted } from './NotionDB/updateData';
+import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, UpdateCompleted, getCurrentDate } from './NotionDB/updateData';
 import { GetTodayUpload } from './NotionDB/updateData';
 import { getValidUpload, findInProgress } from './NotionDB/getValidUpload';
 import {getDatabaseData, getPageData} from './NotionDB/getNotionData'
@@ -41,15 +41,16 @@ export default function myPage() {
 //   const English_Name = 'test'
   const English_Name = await getEnglishName(Chinese_Name)
   const English_Desc = 'testing'
+  const date = getCurrentDate()
 // when AI API is finished, update the Eng Name and decription
   await updateEnglish(inProgressId, English_Name, English_Desc);
   // Run the videoDownloader with the in progress data
-  await VideoInput(English_Name, bilibiliURL);
+  await VideoInput(date, bilibiliURL);
   // if download success then update status to "Done"
   await UpdateCompleted(inProgressId);
   console.log('begining uploading process...')
 // being upload onto youtube
-   const uploadedYoutubeUrl = await UploadVideo(`./Videos/${English_Name}.mp4`, `${English_Desc}`, 'This is a description of my awesome video.')
+   const uploadedYoutubeUrl = await UploadVideo(`./Videos/${date}.mp4`, `${English_Name}`, 'This is a description of my awesome video.')
 // if success then return the Youtube URL
   await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
   // set upload Date to the date

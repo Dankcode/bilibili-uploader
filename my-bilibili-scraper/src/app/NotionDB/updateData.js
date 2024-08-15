@@ -337,4 +337,5 @@ export {
   updateYoutubeURL,
   UpdateError,
   UpdateCompleted,
+  getCurrentDate,
 }
