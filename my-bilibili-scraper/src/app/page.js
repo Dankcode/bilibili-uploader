@@ -44,16 +44,16 @@ export default function myPage() {
 // when AI API is finished, update the Eng Name and decription
   await updateEnglish(inProgressId, English_Name, English_Desc);
   // Run the videoDownloader with the in progress data
-//   await VideoInput(English_Name, bilibiliURL);
-//   // if download success then update status to "Done"
-//   await UpdateCompleted(inProgressId);
-//   console.log('begining uploading process...')
-// // being upload onto youtube
-//    const uploadedYoutubeUrl = await UploadVideo('./Videos/test.mp4', 'test', 'This is a description of my awesome video.')
-// // if success then return the Youtube URL
-//   await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
-//   // set upload Date to the date
-//   await updateUploadDate(inProgressId);
+  await VideoInput(English_Name, bilibiliURL);
+  // if download success then update status to "Done"
+  await UpdateCompleted(inProgressId);
+  console.log('begining uploading process...')
+// being upload onto youtube
+   const uploadedYoutubeUrl = await UploadVideo(`./Videos/${English_Name}.mp4`, `${English_Desc}`, 'This is a description of my awesome video.')
+// if success then return the Youtube URL
+  await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
+  // set upload Date to the date
+  await updateUploadDate(inProgressId);
    } catch (error) {
     console.log('Error in workflow:', error);
    }
