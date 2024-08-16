@@ -10,7 +10,7 @@ export default async function getEnglishName(chineseName) {
     const completion = await client.chat.completions.create({
       model: 'moonshot-v1-8k',
       messages: [{
-        role: 'user', content: `Translate the following Chinese video title into English for an english speaking ASMR audience, shorten the English description and add emojis. ${chineseName} Do not add anything else except the best adaptive translation. Omit any hashtags.`,
+        role: 'user', content: `Translate the following Chinese video title into English for an english speaking ASMR audience, shorten the English description and add emojis. ${chineseName} Only return the adaptive translation. Omit any hashtags.`,
         }],
       temperature: 0.3,
     });

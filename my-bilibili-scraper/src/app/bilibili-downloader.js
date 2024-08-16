@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 const { chromium } = require('playwright');
 const fs = require('fs');
 
-async function getCookieSSES() {
+async function getCookieSSES(bilibiliUrl) {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
   const config = {
     headers: {
@@ -30,11 +30,11 @@ async function getCookieSSES() {
     const page = await context.newPage();
   
     // Navigate to a page that requires login
-    await page.goto('https://www.bilibili.com/video/BV1wz4y1F7Vc');
+    await page.goto(bilibiliUrl);
   
     const cookies = await context.cookies();
     const sess = cookies.find(cookie => cookie.name === 'SESSDATA')
-    console.log(sess.value);
+    console.log('sses value' + sess.value);
   
     await page.waitForTimeout(5000); // Adjust this time as needed for your actions
     
@@ -45,17 +45,17 @@ async function getCookieSSES() {
     console.log('Error', error);
   };
 }
-const parseHtml = async (html, type, url) => {
+const parseHtml = async (html, sses) => {
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
 
  try{
     const config = {
       headers: {
         'User-Agent': `${UA}`,
-        cookie: `SESSDATA=f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC`
+        cookie: `SESSDATA=${sses}`
       }
     };
-    const body = await axios.get('https://www.bilibili.com/video/BV1wz4y1F7Vc', config);
+    const body = await axios.get(html, config);
     return parseBV(body.data, html)
   } catch (error) {
     console.log('dank err')
@@ -131,35 +131,32 @@ const getDownloadUrl = async (cid, bvid, quality, sses, bfeId) => {
   };
   // return console.log(response.data.data.dash)
 };
-const getBfeId = async () => {
-  const sses = 'f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'
-  const bfeId = [
-   'buvid3=D3D7FDFE-602A-22C5-5B11-3F858DDBE8F606230infoc; path=/; expires=Thu, 01 Apr 2027 16:33:26 GMT; domain=.bilibili.com',
-   'b_nut=1720197206; path=/; expires=Sat, 05 Jul 2025 16:33:26 GMT; domain=.bilibili.com',
-   'innersign=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.bilibili.com'
- ]
-  const config = {
-   headers: {
-     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15',
-     cookie: `SESSDATA=${sses};`
-   },
-   responseType: 'json'
- };
- const response = await axios.get(
-   'https://www.bilibili.com/video/BV1wz4y1F7Vc',
-   config
- );
- return console.log(response.headers)
-};
+// const getBfeId = async () => {
+//   const sses = 'f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'
+//   const bfeId = [
+//    'buvid3=D3D7FDFE-602A-22C5-5B11-3F858DDBE8F606230infoc; path=/; expires=Thu, 01 Apr 2027 16:33:26 GMT; domain=.bilibili.com',
+//    'b_nut=1720197206; path=/; expires=Sat, 05 Jul 2025 16:33:26 GMT; domain=.bilibili.com',
+//    'innersign=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.bilibili.com'
+//  ]
+//   const config = {
+//    headers: {
+//      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15',
+//      cookie: `SESSDATA=${sses};`
+//    },
+//    responseType: 'json'
+//  };
+//  const response = await axios.get(
+//    'https://www.bilibili.com/video/BV1wz4y1F7Vc',
+//    config
+//  );
+//  return console.log(response.headers)
+// };
 
 // Replace with your actual page ID or database ID
-const pageId = 'https://api.notion.com/v1/pages';
-const databaseId = '735b31852cca438595e68dfac53ed1d7';
+// const pageId = 'https://api.notion.com/v1/pages';
+// const databaseId = '735b31852cca438595e68dfac53ed1d7';
 const VideoInput = async (englishName, bilibiliUrl) => {
-  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
-  const sses = 'f86e83a7%2C1735827586%2C24a85%2A71CjAUMYtYzEbH0e9tXDHK-8R9xA-_YFd8qIkKKK6ckMB62m6xyns9cJ9rpr_FSQejq4ESVjBMbnNlQkQ2UllsQmxWT3QyenBSVjhjSm5nMTVRRFBwXzU3bFMxZkNtZEJ2dTdZV3JDbEFDVTBwQjJ1TlRlMndyeEFOOWhrVnNIU0xhNXNYenYzcHFnIIEC'
-
-    // Perform URL redirection check and parse HTML
+     // Perform URL redirection check and parse HTML
     // const videoUrl ='https://www.bilibili.com/video/BV1wz4y1F7Vc'
     // const bfeId = [
     //   'buvid3=D3D7FDFE-602A-22C5-5B11-3F858DDBE8F606230infoc; path=/; expires=Thu, 01 Apr 2027 16:33:26 GMT; domain=.bilibili.com',
@@ -169,8 +166,8 @@ const VideoInput = async (englishName, bilibiliUrl) => {
     try {
       // const bfeId = getBfeId();
 // highest quality require sses cookie
-      const sses = getCookieSSES()
-      const videoInfo = await parseHtml(bilibiliUrl); 
+      const sses = await getCookieSSES(bilibiliUrl)
+      const videoInfo = await parseHtml(bilibiliUrl, sses); 
       // getDownloadUrl(1288630873, 'BV1wz4y1F7Vc', 64)
       const videoUrl = videoInfo.video[0].url
       const audioUrl = videoInfo.audio[0].url

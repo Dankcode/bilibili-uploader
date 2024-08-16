@@ -42,6 +42,7 @@ const mergeVideoAudio = (videoPath, audioPath, out) => {
               if (error) {
         reject(error);
       } else {
+        console.log('merged compelte')
         resolve(stdout ? stdout : stderr);
       }
     });
@@ -93,7 +94,7 @@ const downloadConfig = {
     const writer = fs.createWriteStream(audioPath)
     audioResponse.data.pipe(writer);
     console.log({
-      id: 'test',
+      id: videoName,
       status: 0,
       progress: 100
     });
