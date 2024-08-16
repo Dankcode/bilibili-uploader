@@ -24,7 +24,7 @@ function runPythonScript(scriptPath, args = []) {
         try {
           // Assuming the Python script outputs JSON
           console.log(outputData)
-          const result = JSON.parse(outputData);
+          const result = outputData;
           resolve(result);
         } catch (error) {
           console.log(`Failed to parse Python script output: ${error.message}`);
@@ -40,6 +40,7 @@ export default async function UploadVideo(videoPath, title, description) {
   
   try {
     console.log('startin pythno sscript')
+    console.log('vid path' + videoPath + 'title' + title)
     const result = await runPythonScript(scriptPath, [videoPath, title, description]);
     console.log('Video uploaded successfully');
     console.log('Video ID:', result);
