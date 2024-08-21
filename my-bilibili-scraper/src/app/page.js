@@ -15,7 +15,7 @@ export default function myPage() {
     let uploadId = await getValidUpload(databaseId);
     let inProgressId = await findInProgress(databaseId);
     console.log('inprogres id ' + inProgressId)
-  if (inProgressId) {
+  if (inProgressId.length > 0) {
     const pageData = await getPageData(inProgressId)
     const Chinese_Name = pageData.chinese_name;
     const bilibiliURL = pageData.bilibiliUrl;
