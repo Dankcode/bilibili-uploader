@@ -6,7 +6,7 @@ import { promisify } from 'util';
 import stream from 'stream';
 import { exec } from 'child_process';
 import ffmpeg from 'fluent-ffmpeg';
-
+const { spawn } = require('child_process');
 
 
 const pipeline = promisify(stream.pipeline);
@@ -34,20 +34,28 @@ const sleep = (timeoutMS) => new Promise((resolve) => setTimeout(resolve, timeou
 //     });
 //   });
 // };
-const mergeVideoAudio = (videoPath, audioPath, out) => {
-    return new Promise((resolve, reject) => {
-      ffmpeg()
-      const command = `ffmpeg -i ${videoPath} -i ${audioPath} -c copy -movflags frag_keyframe+empty_moov -f mp4 ${out}`;
-      exec(command, (error, stdout, stderr) => {
-              if (error) {
-        reject(error);
+const mergeVideoAudio = async (videoPath, audioPath, out) => {
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', videoPath, 
+      '-i', audioPath, 
+      '-map', '0:v:0',
+      '-map', '1:a:0',
+      out
+    ]);
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0) {
+        resolve(out);
       } else {
-        console.log('merged compelte')
-        resolve(stdout ? stdout : stderr);
+        reject(new Error(`FFmpeg exited with code ${code}`));
       }
     });
+    ffmpeg.stderr.on('data', (data) => {
+      console.error(`FFmpeg error: ${data}`);
     });
-  };
+  });
+};
 
 export default async function Downloader(videoName, bilibiliUrl, videoURL, audioURL) {
     const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
@@ -67,44 +75,50 @@ const downloadConfig = {
   const videoPath = path.join(downloadsFolder, `${videoName}.mp4`);
   const audioPath = path.join(downloadsFolder, `${videoName}.m4a`);
   const outputPath = path.join(MergedFolder, `${videoName}.mp4`);
-  // Download video
-  try {
-    const videoResponse = await axios.get(videoURL, downloadConfig);
-    const writer = fs.createWriteStream(videoPath)
 
-    videoResponse.data.pipe(writer);
-
-    console.log({
-      id: videoName,
-      status: 0,
-      progress: 100
+  // Function to handle download progress
+  const downloadWithProgress = async (url, filePath) => {
+    return new Promise((resolve, reject) => {
+      axios.get(url, {
+        ...downloadConfig,
+        onDownloadProgress: (progressEvent) => {
+          const totalLength = progressEvent.lengthComputable 
+            ? progressEvent.total 
+            : progressEvent.target.getResponseHeader('content-length');
+          
+          if (totalLength !== null) {
+            const progress = Math.round((progressEvent.loaded * 100) / totalLength);
+            console.log(`${filePath} progress: ${progress}%`);
+          }
+        }
+      })
+      .then((response) => {
+        const writer = fs.createWriteStream(filePath);
+        response.data.pipe(writer);
+        writer.on('finish', () => resolve(filePath));
+        writer.on('error', reject);
+      })
+      .catch(reject);
     });
+  };
 
-    console.log('Download completed successfully' );
-  } catch (error) {
-    console.error(`Download failed: ${error.message}`);
-  }
-
-  await sleep(500);
-
-  // Download audio
   try {
-    const audioResponse = await axios.get(audioURL, downloadConfig);
+    // Download video and audio in parallel
+    const [videoFile, audioFile] = await Promise.all([
+      downloadWithProgress(videoURL, videoPath),
+      downloadWithProgress(audioURL, audioPath)
+    ]);
 
-    const writer = fs.createWriteStream(audioPath)
-    audioResponse.data.pipe(writer);
-    console.log({
-      id: videoName,
-      status: 0,
-      progress: 100
-    });
+    console.log('Both downloads completed successfully');
 
-    console.log('Download completed successfully' );
+    // Wait for a moment before merging
+    await sleep(500);
+
+    // Merge video and audio
+    const mergedFilePath = await mergeVideoAudio(videoFile, audioFile, outputPath);
+    return mergedFilePath;
+
   } catch (error) {
-    console.error(`Download failed: ${error.message}`);
+    console.error(`Error during download or merge: ${error.message}`);
   }
-
-  await sleep(500);
-
-  return mergeVideoAudio(videoPath, audioPath, outputPath)
 }

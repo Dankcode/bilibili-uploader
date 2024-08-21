@@ -79,6 +79,7 @@ try {
     video: downLoadData.data.dash.video,
     audio: downLoadData.data.dash.audio
   };
+  console.log(acceptQuality)
 } catch (error) {
   // acceptQuality = await getAcceptQuality(videoData.cid, videoData.bvid);
 }
@@ -186,7 +187,7 @@ const VideoInput = async (englishName, bilibiliUrl) => {
       // );
       // console.log((await response).headers)
       // getBfeId();
-      return Downloader(englishName, bilibiliUrl, videoUrl, audioUrl);
+      return await Downloader(englishName, bilibiliUrl, videoUrl, audioUrl);
       // return queryDatabase();
     } catch (error) {
       console.log(`解析错误：${error}`);
