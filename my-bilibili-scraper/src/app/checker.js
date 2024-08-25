@@ -111,5 +111,6 @@ function moveToNextPage (baseUrl) {
 }
 
 export {
-  find_newUpload
+  videoLengthChecker,
+  find_newUpload,
 }

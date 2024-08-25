@@ -1,116 +1,91 @@
 import VideoInput from './bilibili-downloader';
+import fs from 'fs';
 import UploadVideo from './uploadYoutube';
 import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, UpdateCompleted, getCurrentDate } from './NotionDB/updateData';
 import { GetTodayUpload } from './NotionDB/updateData';
 import { getValidUpload, findInProgress } from './NotionDB/getValidUpload';
 import {getDatabaseData, getPageData} from './NotionDB/getNotionData'
 import getEnglishName from './aiStuff/getEnglish';
-
+const fileExists = (filePath) => {
+  return new Promise((resolve, reject) => {
+    fs.access(filePath, fs.constants.F_OK, (err) => {
+      if (err) {
+        reject(new Error(`File not found: ${filePath}`));
+      } else {
+        resolve(true);
+      }
+    });
+  });
+};
 export default function myPage() {
+  const databaseId = '1fb726490c0947e9967a285846af19f5';
+  const executeWorkflow = async () => {
+    try {
+      const notionDatabaseId = await getDatabaseData(databaseId);
+      
+      // Check for uploadId first
+      let uploadId = await getValidUpload(databaseId);
+      if (uploadId) {
+        console.log('Upload ID found:', uploadId);
+        await UpdateStatus(uploadId);
   
-   const executeWorkflow = async () => {
-      const databaseId = '1fb726490c0947e9967a285846af19f5'
-   try {
-    let notionDatabaseId= await getDatabaseData(databaseId)
-    let uploadId = await getValidUpload(databaseId);
-    let inProgressId = await findInProgress(databaseId);
-    console.log('inprogres id ' + inProgressId)
-  if (inProgressId.length > 0) {
-    const pageData = await getPageData(inProgressId)
-    const Chinese_Name = pageData.chinese_name;
-    const bilibiliURL = pageData.bilibiliUrl;
-    console.log('chinese name' + Chinese_Name)
-  // Run the AI API to get an Eng Desc and Eng Name
-  //   const English_Name = 'test'
-    const English_Name = await getEnglishName(Chinese_Name)
-    const English_Desc = 'testing'
-    const date = getCurrentDate()
-  // when AI API is finished, update the Eng Name and decription
-    await updateEnglish(inProgressId, English_Name, English_Desc);
-    // Run the videoDownloader with the in progress data
-    await VideoInput(date, bilibiliURL);
-    // if download success then update status to "Done"
-    console.log('updating db with complete status')
-    await UpdateCompleted(inProgressId);
-    console.log('begining uploading process...')
-  // being upload onto youtube
-    const uploadedYoutubeUrl = await UploadVideo(`./Videos/${date}.mp4`, `${English_Name}`, 'This is a description of my awesome video.')
-  // if success then return the Youtube URL
-    await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
-    // set upload Date to the date
-    await updateUploadDate(inProgressId);
-  }
-  if (uploadId && !inProgressId) {
-    // 2nd checks the notion DB for a valid upload with getValidUpload from getvalidupload.js to get the id of the upload
-    await UpdateStatus(uploadId);
-    const pageData = await getPageData(inProgressId)
-    const Chinese_Name = pageData.chinese_name;
-    const bilibiliURL = pageData.bilibiliUrl;
-    console.log('chinese name' + Chinese_Name)
-  // Run the AI API to get an Eng Desc and Eng Name
-  //   const English_Name = 'test'
-    const English_Name = await getEnglishName(Chinese_Name)
-    const English_Desc = 'testing'
-    const date = getCurrentDate()
-  // when AI API is finished, update the Eng Name and decription
-    await updateEnglish(inProgressId, English_Name, English_Desc);
-    // Run the videoDownloader with the in progress data
-    await VideoInput(date, bilibiliURL);
-    // if download success then update status to "Done"
-    console.log('updating db with complete status')
-    await UpdateCompleted(inProgressId);
-    console.log('begining uploading process...')
-  // being upload onto youtube
-    const uploadedYoutubeUrl = await UploadVideo(`./Videos/${date}.mp4`, `${English_Name}`, 'This is a description of my awesome video.')
-  // if success then return the Youtube URL
-    await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
-    // set upload Date to the date
-    await updateUploadDate(inProgressId);
+        const pageData = await getPageData(uploadId);
+        const Chinese_Name = pageData.chinese_name;
+        const bilibiliURL = pageData.bilibiliUrl;
+        console.log('Chinese name:', Chinese_Name);
+        
+        const English_Name = await getEnglishName(Chinese_Name);
+        const English_Desc = 'testing';
+        const date = getCurrentDate();
+  
+        await updateEnglish(uploadId, English_Name, English_Desc);
+        await VideoInput(date, bilibiliURL);
+        await UpdateCompleted(uploadId);
+  
+        console.log('Beginning upload process...');
+        const videoPath = `./Videos/${date}.mp4`;
+        await fileExists(videoPath);
+        const uploadedYoutubeUrl = await UploadVideo(videoPath, `${English_Name}`, 'This is a description of my awesome video.');
+        
+        await updateYoutubeURL(uploadId, uploadedYoutubeUrl);
+        await updateUploadDate(uploadId);
+  
+      } else {
+          // If neither uploadId nor inProgressId is found, execute the else branch
+          console.log('Neither upload ID nor in-progress ID found. Running else branch...');
+          
+          await GetTodayUpload(notionDatabaseId, databaseId);
+          uploadId = await getValidUpload(databaseId);
+          await UpdateStatus(uploadId);
+          
+          const pageData = await getPageData(uploadId);
+          const Chinese_Name = pageData.chinese_name;
+          const bilibiliURL = pageData.bilibiliUrl;
+          console.log('Chinese name:', Chinese_Name);
+          
+          const English_Name = await getEnglishName(Chinese_Name);
+          const English_Desc = 'testing';
+          const date = getCurrentDate();
+  
+          await updateEnglish(uploadId, English_Name, English_Desc);
+          await VideoInput(date, bilibiliURL);
+          await UpdateCompleted(uploadId);
+  
+          console.log('Beginning upload process...');
+          const videoPath = `./Videos/${date}.mp4`;
+          await fileExists(videoPath);
+          const uploadedYoutubeUrl = await UploadVideo(videoPath, `${English_Name}`, 'This is a description of my awesome video.');
+          
+          await updateYoutubeURL(uploadId, uploadedYoutubeUrl);
+          await updateUploadDate(uploadId);
+        }
+    } catch (error) {
+      console.log('Error in workflow:', error);
     }
-    else {
-      await GetTodayUpload(notionDatabaseId, databaseId);
-      await UpdateStatus(uploadId);
-      const pageData = await getPageData(inProgressId)
-      const Chinese_Name = pageData.chinese_name;
-      const bilibiliURL = pageData.bilibiliUrl;
-      console.log('chinese name' + Chinese_Name)
-    // Run the AI API to get an Eng Desc and Eng Name
-    //   const English_Name = 'test'
-      const English_Name = await getEnglishName(Chinese_Name)
-      const English_Desc = 'testing'
-      const date = getCurrentDate()
-    // when AI API is finished, update the Eng Name and decription
-      await updateEnglish(inProgressId, English_Name, English_Desc);
-      // Run the videoDownloader with the in progress data
-      await VideoInput(date, bilibiliURL);
-      // if download success then update status to "Done"
-      console.log('updating db with complete status')
-      await UpdateCompleted(inProgressId);
-      console.log('begining uploading process...')
-    // being upload onto youtube
-      const uploadedYoutubeUrl = await UploadVideo(`./Videos/${date}.mp4`, `${English_Name}`, 'This is a description of my awesome video.')
-    // if success then return the Youtube URL
-      await updateYoutubeURL(inProgressId, uploadedYoutubeUrl)
-      // set upload Date to the date
-      await updateUploadDate(inProgressId);
-    }
-   } catch (error) {
-    console.log('Error in workflow:', error);
-   }
-  }
+  };
+  
   return executeWorkflow();
-// a successful upload would look like this
-
-// the npm run dev will serve as a troubleshoot runs the same as above when button is pressed
-  //  return (
-  //   <div>
-  //     {/* <GetTodayUpload /> */}
-  //        {/* {response} */}
-  //      {/* <Scraper /> */}
-  //      {/* <VideoDownloader /> */}
-  //   </div>
-  //  )
- }
+}
 /*
 make a new button function where it checks for status that are not 'complete'
 */

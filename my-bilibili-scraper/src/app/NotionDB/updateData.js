@@ -1,6 +1,6 @@
 import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
-import { find_newUpload } from '@/app/checker';
+import { videoLengthChecker, find_newUpload } from '@/app/checker';
 import Scraper from '../biliscraper';
 const { Client } = require('@notionhq/client');
 
@@ -32,8 +32,9 @@ async function GetTodayUpload(notionDatabaseId, databaseId) {
     try {
       console.log('gottest db id'+ notionDatabaseId)
       const getScraper = await Scraper(`https://space.bilibili.com/${notionDatabaseId}/video?tid=0&pn=${pageNumber}&keyword=&order=pubdate`);
+      const approvedUsers = videoLengthChecker(getScraper)
       const getList = await getUrlList(databaseId);
-      const getData = await find_newUpload(getScraper, getList);
+      const getData = await find_newUpload(approvedUsers, getList);
 
       // Check if getData is empty or undefined (no data received)
       if (!getData) {

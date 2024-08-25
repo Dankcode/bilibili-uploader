@@ -39,8 +39,7 @@ const mergeVideoAudio = async (videoPath, audioPath, out) => {
     const ffmpeg = spawn('ffmpeg', [
       '-i', videoPath, 
       '-i', audioPath, 
-      '-map', '0:v:0',
-      '-map', '1:a:0',
+      '-c', 'copy',
       out
     ]);
 
