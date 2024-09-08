@@ -2,11 +2,12 @@ import fs from 'fs';
 import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 var ffmpeg = require('fluent-ffmpeg');
+var command = ffmpeg();
 
 export async function POST(req) {
   try {
-    const videoPath = './VideoAudioMix/2024-09-05.mp4';
-    const audioPath = './VideoAudioMix/2024-09-05.m4a';
+    const videoPath = './VideoAudioMix/2024-09-08.mp4';
+    const audioPath = './VideoAudioMix/2024-09-08.m4a';
     const outputPath = path.join('./Videos', `merged-output-${Date.now()}.mp4`);
 
     await new Promise((resolve, reject) => {
