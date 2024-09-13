@@ -6,9 +6,9 @@ var command = ffmpeg();
 
 export async function POST(req) {
   try {
-    const videoPath = './VideoAudioMix/2024-08-23.mp4';
-    const audioPath = './VideoAudioMix/2024-08-23.m4a';
-    const outputPath = path.join('./Videos', `merged-output-${Date.now()}.mp4`);  
+    const videoPath = './VideoAudioMix/2024-09-08.mp4';
+    const audioPath = './VideoAudioMix/2024-09-08.m4a';
+    const outputPath = path.join('./Videos', `merged-output-${Date.now()}.mp4`);
 
     await new Promise((resolve, reject) => {
       ffmpeg()
