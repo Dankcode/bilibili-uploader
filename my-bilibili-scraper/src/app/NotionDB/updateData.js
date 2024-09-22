@@ -27,39 +27,61 @@ const getUrlList = async (databaseId) => {
 async function GetTodayUpload(notionDatabaseId, databaseId) {
   let retries = 0; // Counter for retry attempts
   const maxRetries = 3; // Set a maximum number of retries
-  let pageNumber = 1
+  const retryDelay = 2000; // Initial delay in milliseconds (2 seconds)
+  let baseUrl = `https://space.bilibili.com/${notionDatabaseId}/video?tid=0&pn=1&keyword=&order=pubdate`; // Initial URL
+
   while (retries < maxRetries) {
     try {
-      console.log('gottest db id'+ notionDatabaseId)
-      const getScraper = await Scraper(`https://space.bilibili.com/${notionDatabaseId}/video?tid=0&pn=${pageNumber}&keyword=&order=pubdate`);
-      const approvedUsers = videoLengthChecker(getScraper)
-      const getList = await getUrlList(databaseId);
-      const getData = await find_newUpload(approvedUsers, getList);
+      console.log('Fetching from database ID:', notionDatabaseId);
 
-      // Check if getData is empty or undefined (no data received)
-      if (!getData) {
-        console.warn('No data received from server. Retrying...');
+      // Retry the Scraper function with exponential backoff if it fails
+      const getScraper = await retryScraper(baseUrl, retries, retryDelay);
+
+      // const approvedUsers = videoLengthChecker(getScraper);
+      const approvedUsers = getScraper;
+      const getList = await getUrlList(databaseId);
+      const getData = await find_newUpload(approvedUsers, getList, baseUrl);
+
+      // Check if getData.newUpload is null (no new upload found)
+      if (!getData.newUpload) {
+        console.log('No new videos found on this page, moving to next page.');
+        baseUrl = moveToNextPage(baseUrl); // Generate the URL for the next page
         retries++;
         continue; // Skip to the next iteration
       }
-      if (getData.length === 0) {
-      // this means that there are no more new videos on the current page, scrape the second page
-        console.log('no more new videos on the current page')
-        pageNumber++;
-        retries++;
-        continue; // Skip to the next iteration
-      }
+
       // Successful data retrieval
-      // console.log(getData);
-      return CreateInitialData(databaseId, getData.link, getData.name, 'still no cn desc yet')
+      console.log('New upload found:', getData.newUpload);
+      return CreateInitialData(databaseId, getData.newUpload.link, getData.newUpload.name, 'still no cn desc yet');
     } catch (error) {
       console.error('Error retrieving page content:', error);
       retries = maxRetries; // Stop retrying on actual errors
     }
   }
+
   // If retries reach the limit, log an error and exit
   console.error('Failed to retrieve data after', maxRetries, 'retries.');
   return null; // Or throw an error if appropriate
+}
+
+// Retry wrapper for Scraper function with exponential backoff
+async function retryScraper(url, retryCount, delay) {
+  try {
+    return await Scraper(url); // Attempt the scraper
+  } catch (error) {
+    console.error(`Scraper failed (attempt ${retryCount + 1}):`, error);
+
+    if (retryCount >= 5) {
+      throw new Error('Max retries reached, failing scraper.');
+    }
+
+    // Exponential backoff
+    const backoffTime = delay * (2 ** retryCount);
+    console.log(`Retrying in ${backoffTime / 1000} seconds...`);
+
+    await new Promise(resolve => setTimeout(resolve, backoffTime));
+    return retryScraper(url, retryCount + 1, delay); // Retry with increased count and delay
+  }
 }
 const CreateInitialData = async (databaseId, BiliURL, Chinese_Name, Chinese_Desc) => {
   // const databaseId = '1fb726490c0947e9967a285846af19f5';

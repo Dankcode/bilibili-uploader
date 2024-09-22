@@ -29,17 +29,17 @@ def resumable_upload(insert_request):
             status, response = insert_request.next_chunk()
             if response is not None:
                 if 'id' in response:
-                    print("Video id '%s' was successfully uploaded." % response['id'])
-                    return response
+                    print(f"Video id '{response['id']}' was successfully uploaded.")
+                    return response['id']  # Return the video id instead of response
                 else:
-                    exit("The upload failed with an unexpected response: %s" % response)
+                    exit(f"The upload failed with an unexpected response: {response}")
         except HttpError as e:
             if e.resp.status in RETRIABLE_STATUS_CODES:
-                error = "A retriable HTTP error %d occurred:\n%s" % (e.resp.status,e.content)
+                error = f"A retriable HTTP error {e.resp.status} occurred:\n{e.content}"
             else:
                 raise
         except RETRIABLE_EXCEPTIONS as e:
-            error = "A retriable error occurred: %s" % e
+            error = f"A retriable error occurred: {e}"
 
         if error is not None:
             print(error)
@@ -49,10 +49,10 @@ def resumable_upload(insert_request):
 
             max_sleep = 2 ** retry
             sleep_seconds = random.random() * max_sleep
-            print("Sleeping %f seconds and then retrying..." % sleep_seconds)
+            print(f"Sleeping {sleep_seconds:.2f} seconds and then retrying...")
             time.sleep(sleep_seconds)
 
-    return response
+    return None  # Explicitly return None if no response after retries
 
 def authenticate():
     credentials = None
@@ -83,7 +83,7 @@ def authenticate():
 
     return credentials
 
-def uploads_video_initialisation(video_to_upload, title, description):
+def uploads_video_initialisation(video_to_upload, title, description, tags):
     credentials = authenticate()
 
     youtube = build('youtube', 'v3', credentials=credentials)
@@ -92,9 +92,10 @@ def uploads_video_initialisation(video_to_upload, title, description):
         part="snippet,status",
         body={
             "snippet": {
-                "categoryId": "22",
+                "categoryId": "22",  # You can change the category ID if needed
                 "description": description,
-                "title": title
+                "title": title,
+                "tags": tags  # Add tags as a list of strings
             },
             "status": {
                 "privacyStatus": "private"
@@ -109,5 +110,6 @@ if __name__ == '__main__':
     video_path = sys.argv[1]
     title = sys.argv[2]
     description = sys.argv[3]
+    tags = sys.argv[4]
 
-    uploads_video_initialisation(video_path, title, description)
+    uploads_video_initialisation(video_path, title, description, tags)

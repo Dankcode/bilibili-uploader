@@ -5,7 +5,7 @@ import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, Update
 import { GetTodayUpload } from './NotionDB/updateData';
 import { getValidUpload, findInProgress } from './NotionDB/getValidUpload';
 import {getDatabaseData, getPageData} from './NotionDB/getNotionData'
-import getEnglishName from './aiStuff/getEnglish';
+import {getEnglishData} from './aiStuff/getEnglish';
 import {removeVideoAudioMix, removeVideos} from './cleanFolder';
 
 const fileExists = (filePath) => {
@@ -21,6 +21,7 @@ const fileExists = (filePath) => {
 };
 export default function myPage() {
   const databaseId = '1fb726490c0947e9967a285846af19f5';
+  const defaultDesc = 'Hey there, I just wanted to say thank you so much for watching my video! I hope the soothing sounds my gentle whispers helped you find some peace and relaxation. If you enjoyed this, please don\'t hesitate to hit that like button and subscribe for more content.'
   const executeWorkflow = async () => {
     try {
       const notionDatabaseId = await getDatabaseData(databaseId);
@@ -28,33 +29,41 @@ export default function myPage() {
       // Check for uploadId first
       let uploadId = await getValidUpload(databaseId);
       if (uploadId) {
+        // upload id is present, continue the upload 
+        try {
         console.log('Upload ID found:', uploadId);
         await UpdateStatus(uploadId);
   
         const pageData = await getPageData(uploadId);
         const Chinese_Name = pageData.chinese_name;
         const bilibiliURL = pageData.bilibiliUrl;
-        console.log('Chinese name:', Chinese_Name);
         
-        const English_Name = await getEnglishName(Chinese_Name);
-        const English_Desc = 'testing';
+        const getAiData = await getEnglishData(Chinese_Name, defaultDesc)
+        const generatedData = JSON.parse(getAiData.toString())
+        const English_Name = generatedData["Title"];
+        const English_Desc = generatedData["Description"];
+        const videoTags = generatedData["Tags"].join(' ');
         const date = getCurrentDate();
-  
+
         await updateEnglish(uploadId, English_Name, English_Desc);
         await VideoInput(date, bilibiliURL);
         await UpdateCompleted(uploadId);
-  
+
         console.log('Beginning upload process...');
         const videoPath = `./Videos/${date}.mp4`;
         await fileExists(videoPath);
-        const uploadedYoutubeUrl = await UploadVideo(videoPath, `${English_Name}`, 'This is a description of my awesome video.');
+        const uploadedYoutubeUrl = await UploadVideo(videoPath, `${English_Name}`, `${English_Desc}`,`${videoTags}`);
         
         await updateYoutubeURL(uploadId, uploadedYoutubeUrl);
+
         await updateUploadDate(uploadId);
-        removeVideoAudioMix();
-        removeVideos();
+        } catch (error) {
+          console.error('Error in workflow:', error);
+          await UpdateError(uploadId, `Error in workflow: ${error.message}`); 
+        }
       } else {
           // If neither uploadId nor inProgressId is found, execute the else branch
+          try{
           console.log('Neither upload ID nor in-progress ID found. Running else branch...');
           
           await GetTodayUpload(notionDatabaseId, databaseId);
@@ -66,8 +75,11 @@ export default function myPage() {
           const bilibiliURL = pageData.bilibiliUrl;
           console.log('Chinese name:', Chinese_Name);
           
-          const English_Name = await getEnglishName(Chinese_Name);
-          const English_Desc = 'testing';
+          const getAiData = await getEnglishData(Chinese_Name, defaultDesc)
+          const generatedData = JSON.parse(getAiData.toString())
+          const English_Name = generatedData["Title"];
+          const English_Desc = generatedData["Description"];
+          const videoTags = generatedData["Tags"].join(' ');
           const date = getCurrentDate();
   
           await updateEnglish(uploadId, English_Name, English_Desc);
@@ -77,62 +89,43 @@ export default function myPage() {
           console.log('Beginning upload process...');
           const videoPath = `./Videos/${date}.mp4`;
           await fileExists(videoPath);
-          const uploadedYoutubeUrl = await UploadVideo(videoPath, `${English_Name}`, 'This is a description of my awesome video.');
+          const uploadedYoutubeUrl = await UploadVideo(videoPath, `${English_Name}`, `${English_Desc}`,`${videoTags}`);
           
           await updateYoutubeURL(uploadId, uploadedYoutubeUrl);
+
           await updateUploadDate(uploadId);
-          removeVideoAudioMix();
-          removeVideos();
+          } catch (error) {
+            console.error('Error in workflow:', error);
+            await UpdateError(uploadId, `Error in workflow: ${error.message}`);
+          }
         }
     } catch (error) {
+      console.error('Error in everything', error);
+    }
+    await removeVideoAudioMix();
+    await removeVideos();
+  };
+  
+  return executeWorkflow();
+}
+// ai test
+/*
+export default function myPage() {
+  const databaseId = '1fb726490c0947e9967a285846af19f5';
+  const executeWorkflow = async () => {
+    try {
+      const notionDatabaseId = await getDatabaseData(databaseId);
+      
+          const Chinese_Name = await GetTodayUpload(notionDatabaseId, databaseId);
+          console.log('Chinese name:', Chinese_Name);
+          
+          const English_Name = await getEnglishName(Chinese_Name[0].title);
+          console.log(English_Name)
+    } catch (error) {
       console.error('Error in workflow:', error);
-      if (uploadId) {
-        await UpdateError(uploadId, `Error in workflow: ${error.message}`);
-      }
     }
   };
   
   return executeWorkflow();
 }
-/*
-make a new button function where it checks for status that are not 'complete'
 */
-
-// import React, { useState, useEffect }from 'react';
-// import UsernameList from './postgreSQL-stuff/getUsernames';
-// import getAllData from './postgreSQL-stuff/getAllData';
-
-// const TableList = () => {
-//   const [users, setUsers] = useState([]);
-
-//   useEffect(() => {
-//     async function fetchData() {
-//         const retrievedUsers = UsernameList();
-//         setUsers(retrievedUsers);
-//     };
-//     fetchData();
-//   },[users]);
-
-//   console.log(users)
-//   return (
-//     <div>
-//       <ul>
-//           <h1>Tables for Users</h1>
-//           {users.length > 0 ? (
-//             <ul>
-//               {users.map((val, index) => (
-//                 <li key={index} onClick={(e) => {getAllData(val)}}>
-//                   {val}
-//                 </li>
-//               ))}
-//             </ul>
-//           ) : (
-//             <p>No tables found for users.</p>
-//           )}
-//       </ul>
-//     </div>
-//     );
-// };
-
-
-// export default TableList;
