@@ -1,6 +1,6 @@
 import React from 'react';
 import axios from 'axios';
-import Downloader from './downloaderCopy/download';
+import Downloader from './downloader';
 import { cookies } from 'next/headers';
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -34,7 +34,7 @@ async function getCookieSSES(bilibiliUrl) {
   
     const cookies = await context.cookies();
     const sess = cookies.find(cookie => cookie.name === 'SESSDATA')
-    console.log('sses value' + sess.value);
+    // console.log('sses value' + sess.value);
   
     await page.waitForTimeout(5000); // Adjust this time as needed for your actions
     
@@ -79,7 +79,7 @@ try {
     video: downLoadData.data.dash.video,
     audio: downLoadData.data.dash.audio
   };
-  console.log(acceptQuality)
+  // console.log(acceptQuality)
 } catch (error) {
   // acceptQuality = await getAcceptQuality(videoData.cid, videoData.bvid);
 }
@@ -172,8 +172,8 @@ const VideoInput = async (englishName, bilibiliUrl) => {
       // getDownloadUrl(1288630873, 'BV1wz4y1F7Vc', 64)
       const videoUrl = videoInfo.video[0].url
       const audioUrl = videoInfo.audio[0].url
-      console.log('video URL : '+ videoUrl)
-      console.log('audio URL : '+ audioUrl)
+      // console.log('video URL : '+ videoUrl)
+      // console.log('audio URL : '+ audioUrl)
       // const config = {
       //   headers: {
       //     'User-Agent': `${UA}`,

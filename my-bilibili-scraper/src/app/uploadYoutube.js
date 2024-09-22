@@ -23,7 +23,7 @@ function runPythonScript(scriptPath, args = []) {
       } else {
         try {
           // Assuming the Python script outputs JSON
-          console.log(outputData)
+          // console.log(outputData)
           const result = outputData;
           resolve(result);
         } catch (error) {
@@ -35,15 +35,21 @@ function runPythonScript(scriptPath, args = []) {
 }
 
 
-export default async function UploadVideo(videoPath, title, description) {
+export default async function UploadVideo(videoPath, title, description, tags) {
   const scriptPath = path.join('../', 'youtube_video_and_thumbnail_uploader.py');
-  
   try {
-    console.log('startin pythno sscript')
-    console.log('vid path' + videoPath + 'title' + title)
-    const result = await runPythonScript(scriptPath, [videoPath, title, description]);
+    console.log('Starting Python script');
+    console.log('Video Path:', videoPath);
+    console.log('Title:', title);
+
+    // Run the Python script and wait for the result
+    const result = await runPythonScript(scriptPath, [videoPath, title, description, tags]);
+
+    // Log success and extract video ID
     console.log('Video uploaded successfully');
-    console.log('Video ID:', result);
+    console.log('Video ID:', result.video_id);
+
+    // Return the video ID from the Python script result
     return result.video_id;
   } catch (error) {
     console.error('Error uploading video:', error.message);
