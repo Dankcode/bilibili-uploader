@@ -21,7 +21,7 @@ const fileExists = (filePath) => {
 };
 export default function myPage() {
   const databaseId = '1fb726490c0947e9967a285846af19f5';
-  const defaultDesc = 'Hey there, I just wanted to say thank you so much for watching my video! I hope the soothing sounds my gentle whispers helped you find some peace and relaxation. If you enjoyed this, please don\'t hesitate to hit that like button and subscribe for more content.'
+  const defaultDesc = 'Hi, my name is, nice to meet you! I\'m an ASMR artist and I hope you like it here ⸜(｡ &gt; ᵕ &lt; )⸝♡ An autonomous sensory meridian response (ASMR) is a tingling sensation that usually begins on the scalp and moves down the back of the neck and upper spine. A pleasant form of paresthesia, it has been compared with auditory-tactile synesthesia and may overlap with frisson. DISCLAIMER! The only purpose of my videos is to help you fall asleep and nothing more, let\'s respect each other and I\'m sure we\'ll become friends (づ๑•ᴗ•๑)づ♡'
   const executeWorkflow = async () => {
     try {
       const notionDatabaseId = await getDatabaseData(databaseId);
@@ -37,12 +37,12 @@ export default function myPage() {
         const pageData = await getPageData(uploadId);
         const Chinese_Name = pageData.chinese_name;
         const bilibiliURL = pageData.bilibiliUrl;
-        
+
         const getAiData = await getEnglishData(Chinese_Name, defaultDesc)
         const generatedData = JSON.parse(getAiData.toString())
         const English_Name = generatedData["Title"];
         const English_Desc = generatedData["Description"];
-        const videoTags = generatedData["Tags"].join(' ');
+        const videoTags = `[${generatedData["Tags"].join(' ')}]`;
         const date = getCurrentDate();
 
         await updateEnglish(uploadId, English_Name, English_Desc);
