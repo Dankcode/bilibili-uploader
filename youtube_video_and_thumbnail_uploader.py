@@ -54,37 +54,39 @@ def resumable_upload(insert_request):
 
     return None  # Explicitly return None if no response after retries
 
-def authenticate():
+def authenticate(id):
     credentials = None
+    path_to_pickle = f'./{id}_token.pickle'  # Use the id to define a specific token path
 
-    path_to_pickle = './token.pickle'
     if os.path.exists(path_to_pickle):
-        print('loading credentials from file..')
+        print('Loading credentials from file...')
         with open(path_to_pickle, 'rb') as token:
             credentials = pickle.load(token)
 
     if not credentials or not credentials.valid:
         if credentials and credentials.expired and credentials.refresh_token:
-            print('refreshing access token...')
+            print('Refreshing access token...')
             credentials.refresh(Request())
         else:
-            print('fetching new tokens...')
+            print('Fetching new tokens...')
+            # Use the id to load the specific client_secret.json file
             flow = InstalledAppFlow.from_client_secrets_file(
-                './client_secret.json',
+                f'./{id}_client_secret.json',  # Dynamically load client_secret.json using id
                 scopes=['https://www.googleapis.com/auth/youtube.upload']
             )
             flow.run_local_server(port=8080, prompt='consent', authorization_prompt_message='')
 
             credentials = flow.credentials
 
+            # Save credentials for future use
             with open(path_to_pickle, 'wb') as f:
-                print('saving credentials for the future use...')
+                print('Saving credentials for future use...')
                 pickle.dump(credentials, f)
 
     return credentials
 
-def uploads_video_initialisation(video_to_upload, title, description, tags):
-    credentials = authenticate()
+def uploads_video_initialisation(id, video_to_upload, title, description, tags):
+    credentials = authenticate(id)
 
     youtube = build('youtube', 'v3', credentials=credentials)
 
@@ -111,5 +113,7 @@ if __name__ == '__main__':
     title = sys.argv[2]
     description = sys.argv[3]
     tags = sys.argv[4]
+    id = sys.argv[5]  # New id parameter
 
-    uploads_video_initialisation(video_path, title, description, tags)
+    # Pass the id parameter to uploads_video_initialisation
+    uploads_video_initialisation(id, video_path, title, description, tags)
