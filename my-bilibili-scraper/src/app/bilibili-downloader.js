@@ -171,7 +171,7 @@ const VideoInput = async (englishName, bilibiliUrl) => {
       const videoInfo = await parseHtml(bilibiliUrl, sses); 
       // getDownloadUrl(1288630873, 'BV1wz4y1F7Vc', 64)
       const videoUrl = videoInfo.video[0].url
-      const audioUrl = videoInfo.audio[0].url
+      const audioUrl = videoInfo.audio[0].url 
       // console.log('video URL : '+ videoUrl)
       // console.log('audio URL : '+ audioUrl)
       // const config = {

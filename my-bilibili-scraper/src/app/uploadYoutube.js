@@ -35,15 +35,15 @@ function runPythonScript(scriptPath, args = []) {
 }
 
 
-export default async function UploadVideo(videoPath, title, description, tags) {
+export default async function UploadVideo(videoPath, title, description, tags, databaseId) {
   const scriptPath = path.join('../', 'youtube_video_and_thumbnail_uploader.py');
   try {
     console.log('Starting Python script');
     console.log('Video Path:', videoPath);
     console.log('Title:', title);
-
+    console.log('database ID:', databaseId);
     // Run the Python script and wait for the result
-    const result = await runPythonScript(scriptPath, [videoPath, title, description, tags]);
+    const result = await runPythonScript(scriptPath, [videoPath, title, description, tags, databaseId]);
 
     // Log success and extract video ID
     console.log('Video uploaded successfully');
