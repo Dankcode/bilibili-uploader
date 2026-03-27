@@ -4,7 +4,7 @@ const path = require('path');
 
 function runPythonScript(scriptPath, args = []) {
   return new Promise((resolve, reject) => {
-    const python = spawn('py', [scriptPath, ...args]);
+    const python = spawn('python3', [scriptPath, ...args]);
     
     let outputData = '';
     let errorData = '';
@@ -36,7 +36,7 @@ function runPythonScript(scriptPath, args = []) {
 
 
 export default async function UploadVideo(videoPath, title, description, tags, databaseId) {
-  const scriptPath = path.join('../', 'youtube_video_and_thumbnail_uploader.py');
+  const scriptPath = path.join(process.cwd(), 'scripts', 'python', 'youtube_video_and_thumbnail_uploader.py');
   try {
     console.log('Starting Python script');
     console.log('Video Path:', videoPath);
