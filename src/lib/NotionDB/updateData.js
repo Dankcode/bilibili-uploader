@@ -1,7 +1,7 @@
 import { sql } from '@vercel/postgres';
 import { NextResponse } from 'next/server';
 import { videoLengthChecker, find_newUpload } from '@/app/checker';
-import Scraper from '../biliscraper';
+import Scraper from '@/app/biliscraper';
 const { Client } = require('@notionhq/client');
 
 const notion = new Client({

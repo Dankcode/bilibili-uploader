@@ -4,6 +4,7 @@ import Downloader from './downloader';
 import { cookies } from 'next/headers';
 const { chromium } = require('playwright');
 const fs = require('fs');
+const path = require('path');
 
 async function getCookieSSES(bilibiliUrl) {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15'
@@ -19,7 +20,7 @@ async function getCookieSSES(bilibiliUrl) {
     const context = await browser.newContext();
   
     // Load cookies and local storage from a file
-    const storage = JSON.parse(fs.readFileSync('storage.json', 'utf8'));
+    const storage = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'storage.json'), 'utf8'));
     await context.addCookies(storage.cookies);
     await context.addInitScript(storage => {
       for (const [key, value] of Object.entries(storage)) {

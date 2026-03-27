@@ -1,11 +1,11 @@
 import VideoInput from './bilibili-downloader';
 import fs from 'fs';
 import UploadVideo from './uploadYoutube';
-import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, UpdateCompleted, getCurrentDate, UpdateError } from './NotionDB/updateData';
-import { GetTodayUpload } from './NotionDB/updateData';
-import { getValidUpload, findInProgress } from './NotionDB/getValidUpload';
-import { getDatabaseData, getPageData } from './NotionDB/getNotionData';
-import { getEnglishData } from './aiStuff/getEnglish';
+import { UpdateStatus, updateEnglish, updateYoutubeURL, updateUploadDate, UpdateCompleted, getCurrentDate, UpdateError } from '../lib/NotionDB/updateData';
+import { GetTodayUpload } from '../lib/NotionDB/updateData';
+import { getValidUpload, findInProgress } from '../lib/NotionDB/getValidUpload';
+import { getDatabaseData, getPageData } from '../lib/NotionDB/getNotionData';
+import { getEnglishData } from '../lib/aiStuff/getEnglish';
 import { removeVideoAudioMix, removeVideos } from './cleanFolder';
 import { useRouter } from 'next/router';
 
