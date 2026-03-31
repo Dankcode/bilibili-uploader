@@ -1,5 +1,3 @@
-/* Existing base styles remain, adding new components */
-
 .container {
   min-height: 100vh;
   background: #0a0a0c;
@@ -10,81 +8,22 @@
 }
 
 .header {
-  padding: 2rem 3rem 1rem;
+  padding: 1.5rem 3rem 0;
   background: #111;
   border-bottom: 1px solid #222;
 }
-
-.tabBar {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 2rem;
-  padding-bottom: 0.5rem;
-  overflow-x: auto;
-}
-
-.tab {
-  padding: 0.6rem 1.2rem;
-  background: #1a1a1c;
-  border-radius: 0.75rem 0.75rem 0 0;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #666;
-  border: 1px solid #222;
-  border-bottom: none;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.activeTab {
-  background: #222;
-  color: #00c6ff;
-  border-color: #333;
-}
-
-.tabDelete {
-  background: transparent;
-  color: #444;
-  border: none;
-  font-size: 1.2rem;
-  line-height: 1;
-  padding: 0;
-  cursor: pointer;
-}
-
-.tabDelete:hover { color: #f44336; }
-
-.addTabBtn {
-  padding: 0.6rem 1.2rem;
-  background: transparent;
-  color: #888;
-  border: 1px dashed #444;
-  border-radius: 0.75rem 0.75rem 0 0;
-  font-size: 0.85rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.addTabBtn:hover { border-color: #666; color: #aaa; }
 
 .logoRow {
   display: flex;
   align-items: center;
   gap: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .title {
   font-size: 1.8rem;
   font-weight: 800;
   letter-spacing: -1px;
-  background: linear-gradient(135deg, #eee 0%, #888 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .title span {
@@ -94,108 +33,209 @@
   -webkit-text-fill-color: transparent;
 }
 
-.currentSpaceInfo {
-  font-size: 0.85rem;
-  color: #555;
+.badge {
+  background: rgba(0, 198, 255, 0.1);
+  color: #00c6ff;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 2rem;
+  border: 1px solid rgba(0, 198, 255, 0.2);
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
-.currentSpaceInfo span { color: #888; }
+/* -- YouTube Channel Tabs (TOP LAYER) -- */
+.ytTabBar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  border-bottom: 1px solid #222;
+  padding-bottom: 0.5rem;
+}
 
-/* Modal Styles */
-.modalOverlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.8);
-  backdrop-filter: blur(5px);
+.ytTab {
+  padding: 0.5rem 1rem;
+  background: #1a1a1c;
+  border-radius: 0.5rem;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 1000;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #555;
+  transition: all 0.2s;
 }
 
-.modal {
+.activeYtTab {
+  background: #f44336; /* YouTube Red */
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(244, 67, 54, 0.3);
+}
+
+.ytIcon { font-size: 0.9rem; }
+
+/* -- Bilibili Space Tabs (SECOND LAYER) -- */
+.tabBar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding-bottom: 0.5rem;
+}
+
+.tab {
+  padding: 0.5rem 1rem;
   background: #1a1a1c;
-  border: 1px solid #333;
-  padding: 2rem;
-  border-radius: 1.5rem;
-  width: 100%;
-  max-width: 400px;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #555;
+  transition: all 0.2s;
 }
 
-.modalInput {
+.activeTab {
+  background: #00c6ff; /* Bilibili Blue */
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(0, 198, 255, 0.3);
+}
+
+.label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  color: #444;
+  font-weight: 800;
+  margin-right: 0.5rem;
+  letter-spacing: 1px;
+}
+
+.tabDelete {
+  background: transparent;
+  color: rgba(255,255,255,0.2);
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 0 0 0.5rem;
+}
+
+.tabDelete:hover { color: #fff; }
+
+.addTabBtn {
+  background: transparent;
+  color: #444;
+  border: 1px dashed #333;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.addTabBtn:hover { border-color: #666; color: #888; }
+
+/* -- Actions Bar -- */
+.actionsBar {
+  background: #0d0d0f;
+  border-bottom: 1px solid #222;
+  padding: 1rem 3rem;
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.infoGroup {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.75rem;
+  color: #444;
+}
+
+.infoGroup strong { color: #888; }
+
+.globalStatus {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #444;
+}
+
+.globalStatus span { color: #00c6ff; font-weight: 700; }
+
+.buttonPrimary, .buttonSecondary {
+  padding: 0.6rem 1.2rem;
+  border-radius: 0.4rem;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.buttonPrimary { background: #0072ff; color: #fff; }
+.buttonSecondary { background: #1a1a1c; color: #aaa; }
+
+/* -- Main Table Content -- */
+.mainFull {
+  padding: 2rem 3rem;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.tableCard {
   background: #111;
   border: 1px solid #222;
-  color: #fff;
-  padding: 1rem;
-  border-radius: 0.8rem;
-  width: 100%;
-  margin: 1rem 0;
+  border-radius: 1rem;
+  overflow: hidden;
 }
 
-.modalButtons {
+.cardHeader {
+  padding: 1.5rem 2rem;
+  background: #151518;
+  border-bottom: 1px solid #222;
   display: flex;
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-/* Table Enhancements */
-.titleWrapper {
-  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 0.75rem;
 }
 
-.scheduledInd, .editedInd {
-  font-size: 0.9rem;
-}
+.legend { display: flex; gap: 1rem; }
+.legendItem { font-size: 0.7rem; color: #444; display: flex; align-items: center; gap: 0.4rem; }
+.dotScheduled { background: #00c6ff; width: 6px; height: 6px; border-radius: 50%; display: block; }
+.dotEdited { background: #4caf50; width: 6px; height: 6px; border-radius: 50%; display: block; }
 
-.dotScheduled, .dotEdited {
-  display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  margin-right: 5px;
-}
-.dotScheduled { background: #00c6ff; }
-.dotEdited { background: #4caf50; }
-
-.legend {
-  display: flex;
-  gap: 1rem;
-  font-size: 0.75rem;
-  color: #666;
-}
-
-.emptyRow {
-  text-align: center;
-  padding: 4rem !important;
-  color: #444;
-  font-style: italic;
-}
-
-/* Rest of standard styles... */
-.actionsBar { padding: 1rem 3rem; background: #0a0a0c; border-bottom: 1px solid #222; display: flex; gap: 1rem; align-items: center; }
-.globalStatus { margin-left: auto; font-size: 0.8rem; color: #555; }
-.globalStatus span { color: #00c6ff; font-weight: 700; }
-.buttonPrimary, .buttonSecondary { padding: 0.7rem 1.4rem; border-radius: 0.6rem; font-weight: 600; cursor: pointer; border: none; font-size: 0.85rem; }
-.buttonPrimary { background: #0072ff; color: #fff; }
-.buttonSecondary { background: #222; color: #eee; }
-
-.mainFull { padding: 2rem 3rem; max-width: 1600px; margin: 0 auto; width: 100%; }
-.tableCard { background: #111; border: 1px solid #222; border-radius: 1rem; }
-.cardHeader { padding: 1.5rem 2rem; border-bottom: 1px solid #222; display: flex; justify-content: space-between; align-items: center; }
 .tableWrapper { overflow-x: auto; }
-.table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
-.table th { background: #151518; padding: 1rem 1.5rem; color: #555; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 1px; }
-.table td { padding: 1rem 1.5rem; border-bottom: 1px solid #1a1a1c; color: #aaa; }
-.pathText, .timeText { color: #666; font-size: 0.8rem; }
-.ytUrl a { color: #00c6ff; text-decoration: none; font-weight: 600; }
-.statusLabel { padding: 0.25rem 0.6rem; border-radius: 0.4rem; font-size: 0.7rem; font-weight: 800; }
-.notstarted { background: #222; color: #666; }
-.inprogress { background: #0072ff11; color: #00c6ff; }
-.done { background: #4caf5011; color: #4caf50; }
-.input, .select { background: #0a0a0c; border: 1px solid #222; color: #eee; padding: 0.4rem; border-radius: 0.4rem; font-size: 0.85rem; }
-.editBtn, .saveBtn { padding: 0.4rem 0.8rem; border-radius: 0.4rem; font-size: 0.75rem; font-weight: 600; border: none; cursor: pointer; }
-.editBtn { background: #1a1a1c; color: #888; }
+.table { width: 100%; border-collapse: collapse; text-align: left; }
+.table th { padding: 1.2rem; color: #333; font-size: 0.65rem; text-transform: uppercase; font-weight: 800; border-bottom: 2px solid #222; }
+.table td { padding: 1.2rem; border-bottom: 1px solid #1a1a1c; color: #999; font-size: 0.85rem; }
+
+.titleWrapper { display: flex; align-items: center; gap: 0.8rem; font-weight: 500; color: #eee; }
+.iconScheduled { color: #00c6ff; font-size: 1rem; }
+
+.statusLabel { padding: 0.3rem 0.6rem; border-radius: 0.4rem; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; }
+.notstarted { background: #222; color: #444; }
+.inprogress { background: #0072ff15; color: #00c6ff; }
+.done { background: #4caf5015; color: #4caf50; }
+
+.pathColumn { font-family: monospace; font-size: 0.75rem; max-width: 200px; }
+.muted { color: #333; }
+.timeText { font-size: 0.75rem; color: #555; }
+
+.operationRow { display: flex; gap: 0.5rem; }
+.editBtn, .saveBtn, .uploadNowBtn { padding: 0.4rem 0.8rem; border-radius: 0.4rem; font-size: 0.7rem; font-weight: 700; border: none; cursor: pointer; }
+.editBtn { background: #1a1a1c; color: #555; }
 .saveBtn { background: #4caf50; color: #fff; }
-.footer { padding: 2rem; text-align: center; color: #333; font-size: 0.75rem; }
+.uploadNowBtn { background: #00c6ff; color: #fff; }
+.uploadNowBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Modals */
+.modalOverlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal { background: #151518; border: 1px solid #222; padding: 2.5rem; border-radius: 1.5rem; width: 100%; max-width: 420px; text-shadow: none; }
+.modal h3 { font-size: 1.2rem; margin-bottom: 0.5rem; font-weight: 800; }
+.modalSub { font-size: 0.75rem; color: #444; margin-bottom: 1.5rem; }
+.modalInput { width: 100%; background: #0a0a0c; border: 1px solid #222; color: #fff; padding: 1rem; border-radius: 0.8rem; margin-bottom: 1rem; font-size: 0.85rem; }
+.modalButtons { display: flex; gap: 1rem; margin-top: 1rem; }

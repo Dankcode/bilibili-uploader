@@ -21,11 +21,20 @@ export function initDB() {
     console.log('SQLite Database connected at:', dbPath);
   }
   db.exec(`
-    CREATE TABLE IF NOT EXISTS spaces (
+    CREATE TABLE IF NOT EXISTS youtube_channels (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      space_id TEXT UNIQUE,
+      channel_id TEXT UNIQUE,
       name TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS spaces (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      youtube_channel_id INTEGER, -- Link to youtube_channels table
+      space_id TEXT UNIQUE,
+      name TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (youtube_channel_id) REFERENCES youtube_channels(id)
     );
 
     CREATE TABLE IF NOT EXISTS videos (
@@ -61,18 +70,47 @@ export function getVideos(spaceId = null) {
 }
 
 /**
- * Fetch all spaces for tabs.
+ * Fetch all YouTube Channels.
  */
-export function getSpaces() {
+export function getYouTubeChannels() {
+  return db.prepare('SELECT * FROM youtube_channels ORDER BY id ASC').all();
+}
+
+/**
+ * Add a new YouTube Channel.
+ */
+export function addYouTubeChannel(channelId, name) {
+  const stmt = db.prepare('INSERT INTO youtube_channels (channel_id, name) VALUES (?, ?)');
+  return stmt.run(channelId, name);
+}
+
+/**
+ * Delete a YouTube Channel and its associated spaces/videos.
+ */
+export function deleteYouTubeChannel(id) {
+  const spaces = db.prepare('SELECT id FROM spaces WHERE youtube_channel_id = ?').all(id);
+  for (const space of spaces) {
+    deleteSpace(space.id);
+  }
+  db.prepare('DELETE FROM youtube_channels WHERE id = ?').run(id);
+}
+
+/**
+ * Fetch spaces for a specific YouTube Channel.
+ */
+export function getSpaces(youtubeChannelId = null) {
+  if (youtubeChannelId) {
+    return db.prepare('SELECT * FROM spaces WHERE youtube_channel_id = ? ORDER BY id ASC').all(youtubeChannelId);
+  }
   return db.prepare('SELECT * FROM spaces ORDER BY id ASC').all();
 }
 
 /**
- * Add a new space (tab).
+ * Add a new space (tab) linked to a YouTube Channel.
  */
-export function addSpace(spaceId, name) {
-  const stmt = db.prepare('INSERT INTO spaces (space_id, name) VALUES (?, ?)');
-  return stmt.run(spaceId, name);
+export function addSpace(youtubeChannelId, spaceId, name) {
+  const stmt = db.prepare('INSERT INTO spaces (youtube_channel_id, space_id, name) VALUES (?, ?, ?)');
+  return stmt.run(youtubeChannelId, spaceId, name);
 }
 
 /**
