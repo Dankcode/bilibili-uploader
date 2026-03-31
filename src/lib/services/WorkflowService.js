@@ -94,17 +94,21 @@ export class WorkflowService {
     }
   }
 
-  async processSpecificVideo(video) {
+  async processSpecificVideo(video, force = false) {
     const { id, chinese_name: chineseName, bilibili_url: bilibiliUrl, auto_upload_time: scheduledTime } = video;
 
-    // Check if it's too early for scheduled upload
-    if (scheduledTime) {
+    // Check if it's too early for scheduled upload (unless forced)
+    if (!force && scheduledTime) {
       const now = new Date();
       const scheduled = new Date(scheduledTime);
       if (now < scheduled) {
         console.log(`[Workflow] Video ${id} is scheduled for ${scheduledTime}. Current time is ${now.toISOString()}. Skipping.`);
         return;
       }
+    }
+
+    if (force) {
+      console.log(`[Workflow] FORCE UPLOAD triggered for video ${id}`);
     }
 
     try {
