@@ -3,74 +3,142 @@
 import { useState, useEffect } from 'react';
 import { 
   triggerWorkflow, triggerContinuousWorkflow, fetchVideos, updateVideo, 
-  fetchSpaces, createSpace, modifySpace, removeSpace, startupCheck 
+  fetchYouTubeChannels, createYouTubeChannel, removeYouTubeChannel,
+  fetchSpaces, createSpace, removeSpace, startupCheck, triggerSpecificVideo 
 } from './actions';
 import styles from './page.module.css';
 
 export default function Dashboard() {
+  // Navigation State
+  const [channels, setChannels] = useState([]);
+  const [activeChannelId, setActiveChannelId] = useState(null);
   const [spaces, setSpaces] = useState([]);
   const [activeSpaceId, setActiveSpaceId] = useState(null);
   const [videos, setVideos] = useState([]);
+  
+  // UI State
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('Idle');
-  
-  // Modal/Editing State
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Management Modals
+  const [showAddChannel, setShowAddChannel] = useState(false);
   const [showAddSpace, setShowAddSpace] = useState(false);
-  const [newSpace, setNewSpace] = useState({ id: '', name: '' });
+  const [newItem, setNewItem] = useState({ id: '', name: '' });
 
   useEffect(() => {
-    // Initial startup check for due uploads
     startupCheck();
-    loadSpaces();
-    
-    const interval = setInterval(() => {
+    loadChannels();
+  }, []);
+
+  useEffect(() => {
+    if (activeChannelId) {
+      loadSpaces(activeChannelId);
+    } else {
+      setSpaces([]);
+      setActiveSpaceId(null);
+    }
+  }, [activeChannelId]);
+
+  useEffect(() => {
+    if (activeSpaceId) {
       loadVideos(activeSpaceId);
+    } else {
+      setVideos([]);
+    }
+    const interval = setInterval(() => {
+      if (activeSpaceId) loadVideos(activeSpaceId);
     }, 5000);
     return () => clearInterval(interval);
   }, [activeSpaceId]);
 
-  const loadSpaces = async () => {
-    const data = await fetchSpaces();
+  // --- Data Loading ---
+
+  const loadChannels = async () => {
+    const data = await fetchYouTubeChannels();
+    setChannels(data);
+    if (data.length > 0 && !activeChannelId) {
+      setActiveChannelId(data[0].id);
+    }
+  };
+
+  const loadSpaces = async (channelId) => {
+    const data = await fetchSpaces(channelId);
     setSpaces(data);
-    if (data.length > 0 && !activeSpaceId) {
+    if (data.length > 0) {
       setActiveSpaceId(data[0].space_id);
+    } else {
+      setActiveSpaceId(null);
     }
   };
 
   const loadVideos = async (spaceId) => {
-    if (!spaceId) return;
     const data = await fetchVideos(spaceId);
     setVideos(data);
   };
 
-  const handleAddSpace = async () => {
-    if (!newSpace.id) return;
-    const res = await createSpace(newSpace.id, newSpace.name || `Space ${newSpace.id}`);
+  // --- Management Actions ---
+
+  const handleCreateChannel = async () => {
+    if (!newItem.id) return;
+    const res = await createYouTubeChannel(newItem.id, newItem.name || `Channel ${newItem.id}`);
     if (res.success) {
-      setShowAddSpace(false);
-      setNewSpace({ id: '', name: '' });
-      loadSpaces();
+      setShowAddChannel(false);
+      setNewItem({ id: '', name: '' });
+      loadChannels();
     }
   };
 
-  const handleDeleteSpace = async (id) => {
-    if (window.confirm('WARNING: Are you sure you want to delete this tab and all its video records?')) {
-      const res = await removeSpace(id);
+  const handleDeleteChannel = async (id) => {
+    if (window.confirm('WARNING: Deleting this channel will remove all its Bilibili Spaces and video records. Proceed?')) {
+      const res = await removeYouTubeChannel(id);
       if (res.success) {
-        setActiveSpaceId(null);
-        loadSpaces();
+        setActiveChannelId(null);
+        loadChannels();
       }
     }
   };
 
-  const handleRunWorkflow = async () => {
+  const handleCreateSpace = async () => {
+    if (!newItem.id || !activeChannelId) return;
+    const res = await createSpace(activeChannelId, newItem.id, newItem.name || `Space ${newItem.id}`);
+    if (res.success) {
+      setShowAddSpace(false);
+      setNewItem({ id: '', name: '' });
+      loadSpaces(activeChannelId);
+    }
+  };
+
+  const handleDeleteSpace = async (id) => {
+    if (window.confirm('Are you sure you want to delete this Bilibili tab and its records?')) {
+      const res = await removeSpace(id);
+      if (res.success) {
+        setActiveSpaceId(null);
+        loadSpaces(activeChannelId);
+      }
+    }
+  };
+
+  // --- Workflow Actions ---
+
+  const handleManualUpload = async (videoId) => {
+    setLoading(videoId);
+    setStatus('Force Uploading...');
+    const res = await triggerSpecificVideo(videoId);
+    if (res.success) setStatus('Upload Finished');
+    else setStatus('Upload Failed');
+    setLoading(null);
+    loadVideos(activeSpaceId);
+  };
+
+  const handleSyncSpace = async () => {
     setLoading(true);
-    setStatus('Processing...');
+    setStatus('Syncing Space...');
     const res = await triggerWorkflow(activeSpaceId);
-    if (res.success) setStatus('Success');
-    else setStatus('Error');
+    if (res.success) setStatus('Sync Finished');
+    else setStatus('Sync Failed');
     setLoading(false);
     loadVideos(activeSpaceId);
   };
@@ -88,23 +156,36 @@ export default function Dashboard() {
     }
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setEditData(prev => ({ ...prev, [name]: value }));
-  };
-
+  const activeChannel = channels.find(c => c.id === activeChannelId);
   const activeSpace = spaces.find(s => s.space_id === activeSpaceId);
 
   return (
     <div className={styles.container}>
       <header className={styles.header}>
         <div className={styles.logoRow}>
-          <h1 className={styles.title}>Bilibili <span>Studio Suite 3.0</span></h1>
-          <div className={styles.badge}>Multi-Space Engine</div>
+          <h1 className={styles.title}>Studio <span>Suite 4.0</span></h1>
+          <div className={styles.badge}>Hierarchical Hub</div>
         </div>
         
-        {/* Tab Bar */}
+        {/* YouTube Channel Level Tabs */}
+        <div className={styles.ytTabBar}>
+          <div className={styles.label}>YouTube Channels</div>
+          {channels.map(c => (
+            <div 
+              key={c.id} 
+              className={`${styles.ytTab} ${activeChannelId === c.id ? styles.activeYtTab : ''}`}
+              onClick={() => setActiveChannelId(c.id)}
+            >
+              <span className={styles.ytIcon}>📹</span> {c.name}
+              <button onClick={(e) => { e.stopPropagation(); handleDeleteChannel(c.id); }} className={styles.tabDelete}>×</button>
+            </div>
+          ))}
+          <button onClick={() => setShowAddChannel(true)} className={styles.addTabBtn}>+ Channel</button>
+        </div>
+
+        {/* Bilibili Space Level Tabs */}
         <div className={styles.tabBar}>
+          <div className={styles.label}>Bilibili Sources</div>
           {spaces.map(s => (
             <div 
               key={s.id} 
@@ -115,43 +196,52 @@ export default function Dashboard() {
               <button onClick={(e) => { e.stopPropagation(); handleDeleteSpace(s.id); }} className={styles.tabDelete}>×</button>
             </div>
           ))}
-          <button onClick={() => setShowAddSpace(true)} className={styles.addTabBtn}>+ New Tab</button>
+          <button 
+            onClick={() => setShowAddSpace(true)} 
+            className={styles.addTabBtn}
+            disabled={!activeChannelId}
+          >
+            + Bilibili Tab
+          </button>
         </div>
 
         <div className={styles.actionsBar}>
-          <div className={styles.currentSpaceInfo}>
-            Channel ID: <span>{activeSpaceId || '--'}</span>
+          <div className={styles.infoGroup}>
+             <span>YT: <strong>{activeChannel?.channel_id || '--'}</strong></span>
+             <span>Space: <strong>{activeSpaceId || '--'}</strong></span>
           </div>
-          <button onClick={handleRunWorkflow} disabled={loading || !activeSpaceId} className={styles.buttonPrimary}>
-            {loading ? 'Processing...' : 'Sync & Upload'}
+          <button onClick={handleSyncSpace} disabled={loading || !activeSpaceId} className={styles.buttonPrimary}>
+            {loading === true ? 'Syncing...' : 'Sync & Scrape'}
           </button>
           <button onClick={() => triggerContinuousWorkflow(activeSpaceId)} disabled={!activeSpaceId} className={styles.buttonSecondary}>
-            Start Auto Loop
+            Continuous Loop
           </button>
-          <div className={styles.globalStatus}>Global Status: <span>{status}</span></div>
+          <div className={styles.globalStatus}>Global: <span>{status}</span></div>
         </div>
       </header>
 
       <main className={styles.mainFull}>
-        {showAddSpace && (
+        {/* Modals for Management */}
+        {(showAddChannel || showAddSpace) && (
           <div className={styles.modalOverlay}>
             <div className={styles.modal}>
-              <h3>Add New Bilibili Space</h3>
+              <h3>Add {showAddChannel ? 'YouTube Channel' : 'Bilibili Space Source'}</h3>
+              <p className={styles.modalSub}>Linking to {showAddSpace ? `YouTube Channel: ${activeChannel?.name}` : 'Main Dashboard'}</p>
               <input 
-                placeholder="Bilibili Space ID (Numbers)" 
-                value={newSpace.id} 
-                onChange={(e) => setNewSpace(p => ({ ...p, id: e.target.value }))}
+                placeholder={showAddChannel ? "YouTube Channel/User ID" : "Bilibili Space ID (Numbers)"}
+                value={newItem.id} 
+                onChange={(e) => setNewItem(p => ({ ...p, id: e.target.value }))}
                 className={styles.modalInput}
               />
               <input 
-                placeholder="Tab Name (e.g. ASMR Artist)" 
-                value={newSpace.name} 
-                onChange={(e) => setNewSpace(p => ({ ...p, name: e.target.value }))}
+                placeholder="Custom Display Name" 
+                value={newItem.name} 
+                onChange={(e) => setNewItem(p => ({ ...p, name: e.target.value }))}
                 className={styles.modalInput}
               />
               <div className={styles.modalButtons}>
-                <button onClick={handleAddSpace} className={styles.buttonPrimary}>Add Tab</button>
-                <button onClick={() => setShowAddSpace(false)} className={styles.buttonSecondary}>Cancel</button>
+                <button onClick={showAddChannel ? handleCreateChannel : handleCreateSpace} className={styles.buttonPrimary}>Create Tab</button>
+                <button onClick={() => { setShowAddChannel(false); setShowAddSpace(false); setNewItem({id:'', name:''}); }} className={styles.buttonSecondary}>Cancel</button>
               </div>
             </div>
           </div>
@@ -159,10 +249,10 @@ export default function Dashboard() {
 
         <section className={styles.tableCard}>
           <div className={styles.cardHeader}>
-            <h3>{activeSpace?.name || 'Video Queue'}</h3>
+            <h3>{activeSpace?.name || 'Content Queue'}</h3>
             <div className={styles.legend}>
-              <span className={styles.dotScheduled}></span> Scheduled
-              <span className={styles.dotEdited}></span> Local File Provided
+               <span className={styles.legendItem}><i className={styles.dotScheduled}></i> Scheduled</span>
+               <span className={styles.legendItem}><i className={styles.dotEdited}></i> Edited File</span>
             </div>
           </div>
           
@@ -170,31 +260,29 @@ export default function Dashboard() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th>Title (Chinese)</th>
+                  <th>Title</th>
                   <th>Status</th>
-                  <th>Edited File Path</th>
-                  <th>Auto Upload Time</th>
-                  <th>YouTube URL</th>
-                  <th>Actions</th>
+                  <th>Edited File</th>
+                  <th>Scheduled Upload</th>
+                  <th style={{width: '240px'}}>Operations</th>
                 </tr>
               </thead>
               <tbody>
                 {videos.map(vid => (
                   <tr key={vid.id}>
-                    <td className={styles.titleColumn}>
+                    <td>
                       {editingId === vid.id ? (
-                        <input name="chinese_name" value={editData.chinese_name} onChange={handleChange} className={styles.input} />
+                        <input name="chinese_name" value={editData.chinese_name} onChange={(e) => setEditData(p => ({...p, chinese_name: e.target.value}))} className={styles.input} />
                       ) : (
                         <div className={styles.titleWrapper}>
-                          {vid.auto_upload_time && <span className={styles.scheduledInd}>⏱</span>}
-                          {vid.edited_video_path && <span className={styles.editedInd}>📁</span>}
-                          {vid.chinese_name}
+                           {vid.auto_upload_time && <span className={styles.iconScheduled} title="Scheduled Upload">⏱</span>}
+                           {vid.chinese_name}
                         </div>
                       )}
                     </td>
                     <td>
                       {editingId === vid.id ? (
-                        <select name="status" value={editData.status} onChange={handleChange} className={styles.select}>
+                        <select value={editData.status} onChange={(e) => setEditData(p => ({...p, status: e.target.value}))} className={styles.select}>
                           <option value="Not started">Not started</option>
                           <option value="In progress">In progress</option>
                           <option value="Done">Done</option>
@@ -205,44 +293,45 @@ export default function Dashboard() {
                         </span>
                       )}
                     </td>
-                    <td>
+                    <td className={styles.pathColumn}>
                       {editingId === vid.id ? (
-                        <input name="edited_video_path" value={editData.edited_video_path || ''} onChange={handleChange} placeholder="Absolute path to file" className={styles.input} />
+                        <input value={editData.edited_video_path || ''} onChange={(e) => setEditData(p => ({...p, edited_video_path: e.target.value}))} placeholder="Absolute Path" className={styles.input} />
                       ) : (
-                        <span className={styles.pathText}>{vid.edited_video_path ? 'Custom Path Set' : '--'}</span>
+                        <div className={styles.editedPath}>
+                          {vid.edited_video_path ? <span title={vid.edited_video_path}>✅ Provided</span> : <span className={styles.muted}>No Edited File</span>}
+                        </div>
                       )}
                     </td>
                     <td>
                       {editingId === vid.id ? (
-                        <input type="datetime-local" name="auto_upload_time" value={editData.auto_upload_time ? editData.auto_upload_time.slice(0, 16) : ''} onChange={handleChange} className={styles.input} />
+                        <input type="datetime-local" value={editData.auto_upload_time ? editData.auto_upload_time.slice(0, 16) : ''} onChange={(e) => setEditData(p => ({...p, auto_upload_time: e.target.value}))} className={styles.input} />
                       ) : (
-                        <span className={styles.timeText}>{vid.auto_upload_time ? new Date(vid.auto_upload_time).toLocaleString() : '--'}</span>
+                        <span className={styles.timeText}>{vid.auto_upload_time ? new Date(vid.auto_upload_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '--'}</span>
                       )}
                     </td>
-                    <td className={styles.ytUrl}>
-                      {vid.youtube_url ? <a href={vid.youtube_url} target="_blank">YouTube</a> : '--'}
-                    </td>
-                    <td>
+                    <td className={styles.operationRow}>
                       {editingId === vid.id ? (
-                        <button onClick={handleSave} className={styles.saveBtn}>Submit</button>
+                        <button onClick={handleSave} className={styles.saveBtn}>Save</button>
                       ) : (
-                        <button onClick={() => handleEdit(vid)} className={styles.editBtn}>Edit</button>
+                        <>
+                          <button onClick={() => handleEdit(vid)} className={styles.editBtn}>Edit</button>
+                          <button 
+                            onClick={() => handleManualUpload(vid.id)} 
+                            disabled={loading === vid.id} 
+                            className={styles.uploadNowBtn}
+                          >
+                            {loading === vid.id ? 'Uploading...' : 'Upload Now'}
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>
                 ))}
-                {videos.length === 0 && (
-                  <tr><td colSpan="6" className={styles.emptyRow}>No videos found for this space. Run Sync to fetch new content.</td></tr>
-                )}
               </tbody>
             </table>
           </div>
         </section>
       </main>
-
-      <footer className={styles.footer}>
-        <p>Bilibili Studio Suite 3.0 - Managed Multi-Channel Hub</p>
-      </footer>
     </div>
   );
 }

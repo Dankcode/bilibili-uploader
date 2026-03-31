@@ -25,8 +25,20 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
-.env*.local
+# API keys and secrets
+.env
+.env.*
+api_keys.json
+secrets.json
+config/*.json
+config/*.pickle
+config/*.db
+config/keys.json
+config/client_secret.json
+config/token.json
+config/storage.json
+videos/
+compilation_vids/
 
 # vercel
 .vercel
@@ -34,28 +46,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-BilibiliVideoDownload-master/src/views/HomeView.vue
-BilibiliVideoDownload-master/src/views/DownloadView.vue
-BilibiliVideoDownload-master/src/utils/sleep.ts
-BilibiliVideoDownload-master/src/utils/index.ts
-BilibiliVideoDownload-master/src/utils/handleOldVerSetting.ts
-BilibiliVideoDownload-master/src/utils/formatSeconed.ts
-BilibiliVideoDownload-master/src/utils/filterTitle.ts
-BilibiliVideoDownload-master/src/typing.d.ts
-BilibiliVideoDownload-master/src/type/index.ts
-BilibiliVideoDownload-master/src/store/task.ts
-BilibiliVideoDownload-master/src/store/setting.ts
-BilibiliVideoDownload-master/src/store/index.ts
-BilibiliVideoDownload-master/src/store/base.ts
-BilibiliVideoDownload-master/src/shims-vue.d.ts
-BilibiliVideoDownload-master/src/router/index.ts
-BilibiliVideoDownload-master/src/preload.js
-BilibiliVideoDownload-master/src/main.ts
-BilibiliVideoDownload-master/src/core/subtitle.ts
-BilibiliVideoDownload-master/src/core/media.ts
-BilibiliVideoDownload-master/src/core/download.ts
-BilibiliVideoDownload-master/src/core/danmaku/xml-utils.ts
-BilibiliVideoDownload-master/src/core/danmaku/xml-danmaku.ts
-BilibiliVideoDownload-master/src/core/danmaku/utils/sort.ts
-BilibiliVideoDownload-master/src/core/danmaku/utils/fixed.ts
-BilibiliVideoDownload-master/src/core/danmaku/index.ts
