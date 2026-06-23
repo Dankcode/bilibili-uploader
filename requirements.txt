@@ -4,6 +4,8 @@ openai
 moviepy
 selenium
 webdriver-manager
+pyautogui
+pyperclip
 bs4
 google-api-python-client
 google-auth
