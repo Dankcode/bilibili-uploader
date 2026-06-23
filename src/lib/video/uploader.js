@@ -4,7 +4,10 @@ const path = require('path');
 
 function runPythonScript(scriptPath, args = []) {
   return new Promise((resolve, reject) => {
-    const python = spawn('python3', [scriptPath, ...args]);
+    const safeArgs = args
+      .filter((arg) => arg !== undefined && arg !== null)
+      .map((arg) => String(arg));
+    const python = spawn('python3', [scriptPath, ...safeArgs]);
     
     let outputData = '';
     let errorData = '';
@@ -19,16 +22,9 @@ function runPythonScript(scriptPath, args = []) {
 
     python.on('close', (code) => {
       if (code !== 0) {
-        console.log(`Python script exited with code ${code}\nError: ${errorData}`);
+        reject(new Error(`Python script exited with code ${code}\nError: ${errorData || outputData}`));
       } else {
-        try {
-          // Assuming the Python script outputs JSON
-          // console.log(outputData)
-          const result = outputData;
-          resolve(result);
-        } catch (error) {
-          console.log(`Failed to parse Python script output: ${error.message}`);
-        }
+        resolve(outputData.trim());
       }
     });
   });
@@ -36,21 +32,33 @@ function runPythonScript(scriptPath, args = []) {
 
 
 export default async function UploadVideo(videoPath, title, description, tags, databaseId) {
-  const scriptPath = path.join(process.cwd(), 'scripts', 'python', 'youtube_video_and_thumbnail_uploader.py');
+  const uploadMethod = (process.env.YOUTUBE_UPLOAD_METHOD || 'api').toLowerCase();
+  const scriptName = uploadMethod === 'pygui'
+    ? 'youtube_pygui_uploader.py'
+    : 'youtube_video_and_thumbnail_uploader.py';
+  const scriptPath = path.join(process.cwd(), 'scripts', 'python', scriptName);
+  const channelId = databaseId || process.env.YOUTUBE_CHANNEL_ID;
+
+  if (uploadMethod !== 'pygui' && !channelId) {
+    throw new Error('Missing YouTube channel id. Set YOUTUBE_CHANNEL_ID or pass databaseId.');
+  }
+
   try {
-    console.log('Starting Python script');
+    console.log(`Starting Python ${uploadMethod} uploader`);
     console.log('Video Path:', videoPath);
     console.log('Title:', title);
-    console.log('database ID:', databaseId);
-    // Run the Python script and wait for the result
-    const result = await runPythonScript(scriptPath, [videoPath, title, description, tags, databaseId]);
+    console.log('database ID:', channelId);
 
-    // Log success and extract video ID
+    const args = uploadMethod === 'pygui'
+      ? [videoPath, title, description, tags]
+      : [videoPath, title, description, tags, channelId];
+    const result = await runPythonScript(scriptPath, args);
+    const videoIdOrUrl = result.split(/\r?\n/).filter(Boolean).pop() || '';
+
     console.log('Video uploaded successfully');
-    console.log('Video ID:', result.video_id);
+    console.log('Video ID/URL:', videoIdOrUrl);
 
-    // Return the video ID from the Python script result
-    return result.video_id;
+    return videoIdOrUrl;
   } catch (error) {
     console.error('Error uploading video:', error.message);
     throw error;

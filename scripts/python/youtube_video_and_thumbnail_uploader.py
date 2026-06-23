@@ -87,6 +87,7 @@ def authenticate(id):
 
 def uploads_video_initialisation(id, video_to_upload, title, description, tags):
     credentials = authenticate(id)
+    tag_list = tags if isinstance(tags, list) else [tag for tag in str(tags).split() if tag]
 
     youtube = build('youtube', 'v3', credentials=credentials)
 
@@ -97,7 +98,7 @@ def uploads_video_initialisation(id, video_to_upload, title, description, tags):
                 "categoryId": "22",  # You can change the category ID if needed
                 "description": description,
                 "title": title,
-                "tags": tags  # Add tags as a list of strings
+                "tags": tag_list
             },
             "status": {
                 "privacyStatus": "private"
@@ -115,5 +116,6 @@ if __name__ == '__main__':
     tags = sys.argv[4]
     id = sys.argv[5]  # New id parameter
 
-    # Pass the id parameter to uploads_video_initialisation
-    uploads_video_initialisation(id, video_path, title, description, tags)
+    video_id = uploads_video_initialisation(id, video_path, title, description, tags)
+    if video_id:
+        print(video_id)
