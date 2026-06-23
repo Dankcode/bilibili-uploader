@@ -6,6 +6,7 @@ selenium
 webdriver-manager
 pyautogui
 pyperclip
+keyring
 bs4
 google-api-python-client
 google-auth
