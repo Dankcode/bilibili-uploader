@@ -28,8 +28,15 @@ yarn-error.log*
 # API keys and secrets
 .env
 .env.*
+!.env.example
 api_keys.json
 secrets.json
+*_client_secret.json
+client_secret*.json
+*_token.pickle
+token*.pickle
+*.credentials.json
+credentials*.json
 config/*.json
 config/*.pickle
 config/*.db
