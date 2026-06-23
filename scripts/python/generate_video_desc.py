@@ -1,87 +1,68 @@
+import os
+import sys
+
 from openai import OpenAI
- 
-client = OpenAI(
-    api_key = "sk-2CY5RG9FJS1SfS7AY5CuVwNEAdX6eRx4tGAup8UhyVwjII6O",
-    base_url = "https://api.moonshot.cn/v1",
-)
- 
-completion = client.chat.completions.create(
-    model = "moonshot-v1-8k",
-    messages = [
-        {"role": "system", "content": "You are creating a youtube title, firstly rewrite and summarize the input and then translates it from Chinese to English for an english speaking ASMR audience. Return just the answer with the best adaptive translation only."},
-        {"role": "user", "content": "【泡饭助眠】不同的刷子来刷你的脸部各种部位｜轻语｜带走你的疲惫"}
-    ],
-    temperature = 0.3,
-)
- 
-print(completion.choices[0].message.content)
 
-#grabs the input to fill out the table for the SQL after  
 
-# """
-# gemini api is a dud
-# Install the Google AI Python SDK
+PROVIDERS = {
+    "codex": {
+        "api_key_env": "OPENAI_API_KEY",
+        "model_env": "OPENAI_MODEL",
+        "default_model": "gpt-5.5",
+        "base_url": None,
+    },
+    "kimi": {
+        "api_key_env": "KIMI_API_KEY",
+        "model_env": "KIMI_MODEL",
+        "default_model": "moonshot-v1-8k",
+        "base_url": os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1"),
+    },
+}
 
-# $ pip install google-generativeai
 
-# See the getting started guide for more information:
-# https://ai.google.dev/gemini-api/docs/get-started/python
-# """
+def provider_config():
+    provider_name = os.getenv("AI_PROVIDER", "codex").lower()
+    provider = PROVIDERS.get(provider_name)
 
-# import google.generativeai as genai
-# genai.configure(api_key="AIzaSyC-z8Kk7VnKQATzORmIwgWiK2ct99K4TVk")
+    if provider is None:
+        raise ValueError(f'Unsupported AI_PROVIDER "{provider_name}". Use "codex" or "kimi".')
 
-# # Create the model
-# # See https://ai.google.dev/api/python/google/generativeai/GenerativeModel
-# generation_config = {
-#   "temperature": 1,
-#   "top_p": 0.95,
-#   "top_k": 64,
-#   "max_output_tokens": 1000,
-#   "response_mime_type": "text/plain",
-# }
-# safety_settings = [
-#   {
-#     "category": "HARM_CATEGORY_HARASSMENT",
-#     "threshold": "BLOCK_MEDIUM_AND_ABOVE",
-#   },
-#   {
-#     "category": "HARM_CATEGORY_HATE_SPEECH",
-#     "threshold": "BLOCK_MEDIUM_AND_ABOVE",
-#   },
-#   {
-#     "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-#     "threshold": "BLOCK_NONE",
-#   },
-#   {
-#     "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-#     "threshold": "BLOCK_MEDIUM_AND_ABOVE",
-#   },
-# ]
+    api_key = os.getenv(provider["api_key_env"])
+    if not api_key:
+        raise ValueError(f'Missing {provider["api_key_env"]} for AI_PROVIDER={provider_name}.')
 
-# model = genai.GenerativeModel(
-#   model_name="gemini-1.5-pro",
-#   safety_settings=safety_settings,
-#   generation_config=generation_config,
-# )
+    return {
+        "provider_name": provider_name,
+        "api_key": api_key,
+        "base_url": provider["base_url"],
+        "model": os.getenv(provider["model_env"], provider["default_model"]),
+    }
 
-# chat_session = model.start_chat(
-#   history=[
-#     # {
-#     #   "role": "user",
-#     #   "parts": [
-#     #     "Translate and generate the following from Chinese to English for a youtube video ASMR title 木勺吸吸糖｜炼乳｜超好听 and select the most adaptive translation\n",
-#     #   ],
-#     # },
-#   ]
-# )
-# # Translate and generate the following from Chinese to English for a youtube video ASMR title 木勺吸吸糖｜炼乳｜超好听 and select the most adaptive translation 
-# # seems to be the best fit for the AI
 
-# video_title = '木勺吸吸糖｜炼乳｜超好听'
-# #change video title to whatever is grabbed from sql
-# chat_session.send_message(
-#     "Translate and generate the following from Chinese to English for a youtube video ASMR title {video_title} and select the most adaptive translation"
-#     )
+def generate_title(video_title):
+    config = provider_config()
+    client = OpenAI(
+        api_key=config["api_key"],
+        base_url=config["base_url"],
+    )
 
-# print(chat_session.last.text)
+    completion = client.chat.completions.create(
+        model=config["model"],
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Rewrite, summarize, and translate Chinese video titles into natural "
+                    "English YouTube ASMR titles. Return only the title."
+                ),
+            },
+            {"role": "user", "content": video_title},
+        ],
+        temperature=0.3,
+    )
+    return completion.choices[0].message.content
+
+
+if __name__ == "__main__":
+    title = sys.argv[1] if len(sys.argv) > 1 else "【泡饭助眠】不同的刷子来刷你的脸部各种部位｜轻语｜带走你的疲惫"
+    print(generate_title(title))

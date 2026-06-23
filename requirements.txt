@@ -1,5 +1,6 @@
 Pillow
 requests
+openai
 moviepy
 selenium
 webdriver-manager
