@@ -1,0 +1,40 @@
+/**
+ * /api/pipeline/jobs — pipeline job CRUD.
+ * GET  ?status=&limit=  → { jobs: listJobs(filter) }   (dashboard polls 3s)
+ * POST { action, ... }  → explicit whitelist:
+ *   'create' { sourceId, sourceInput, processorIds, uploaderId, options }
+ *   'retry'  { jobId }        'cancel' { jobId }
+ * Unknown action → 400 + valid list. Validate every id against
+ * lib/pipeline/registry.js before touching lib/pipeline/pipeline.js.
+ */
+import { NextResponse } from 'next/server';
+import { createJob, listJobs, retryJob, cancelJob } from '../../../../lib/pipeline/pipeline';
+
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+  return NextResponse.json({
+    jobs: listJobs({
+      status: searchParams.get('status') || '',
+      limit: searchParams.get('limit') || 100,
+    }),
+  });
+}
+
+export async function POST(request) {
+  try {
+    const body = await request.json();
+    if (body.action === 'create') {
+      const job = createJob(body);
+      return NextResponse.json({ job });
+    }
+    if (body.action === 'retry') {
+      return NextResponse.json({ job: retryJob(body.jobId) });
+    }
+    if (body.action === 'cancel') {
+      return NextResponse.json({ job: cancelJob(body.jobId) });
+    }
+    return NextResponse.json({ error: 'Unknown action. Valid actions: create|retry|cancel' }, { status: 400 });
+  } catch (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+}

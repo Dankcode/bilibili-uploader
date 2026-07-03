@@ -1,6 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react';
+import DouyinImporter from '@/components/DouyinImporter';
+import PipelineDashboard from '@/components/PipelineDashboard';
+import SceneRepository from '@/components/SceneRepository';
+import ServiceConnections from '@/components/ServiceConnections';
+import Troubleshooter from '@/components/Troubleshooter';
 import { 
   triggerWorkflow, triggerContinuousWorkflow, fetchVideos, updateVideo, 
   fetchYouTubeChannels, createYouTubeChannel, removeYouTubeChannel,
@@ -22,6 +27,7 @@ export default function Dashboard() {
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeView, setActiveView] = useState('content');
 
   // Management Modals
   const [showAddChannel, setShowAddChannel] = useState(false);
@@ -210,6 +216,24 @@ export default function Dashboard() {
              <span>YT: <strong>{activeChannel?.channel_id || '--'}</strong></span>
              <span>Space: <strong>{activeSpaceId || '--'}</strong></span>
           </div>
+          <div className={styles.viewTabs}>
+            {[
+              ['content', 'Content'],
+              ['douyin', 'Douyin'],
+              ['pipeline', 'Pipeline'],
+              ['scenes', 'Scenes'],
+              ['settings', 'Settings'],
+              ['troubleshooter', 'Troubleshooter'],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                className={`${styles.viewTab} ${activeView === id ? styles.activeViewTab : ''}`}
+                onClick={() => setActiveView(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button onClick={handleSyncSpace} disabled={loading || !activeSpaceId} className={styles.buttonPrimary}>
             {loading === true ? 'Syncing...' : 'Sync & Scrape'}
           </button>
@@ -247,6 +271,12 @@ export default function Dashboard() {
           </div>
         )}
 
+        {activeView === 'douyin' && <DouyinImporter onCreated={() => setActiveView('pipeline')} />}
+        {activeView === 'pipeline' && <PipelineDashboard />}
+        {activeView === 'scenes' && <SceneRepository />}
+        {activeView === 'settings' && <ServiceConnections />}
+        {activeView === 'troubleshooter' && <Troubleshooter />}
+        {activeView === 'content' && (
         <section className={styles.tableCard}>
           <div className={styles.cardHeader}>
             <h3>{activeSpace?.name || 'Content Queue'}</h3>
@@ -331,6 +361,7 @@ export default function Dashboard() {
             </table>
           </div>
         </section>
+        )}
       </main>
     </div>
   );
