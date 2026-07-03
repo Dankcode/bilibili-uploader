@@ -49,7 +49,7 @@ async function downloadFile(url, destPath, config, type, maxRetries = 3) {
 /**
  * Core Downloader function to fetch video/audio and merge them.
  */
-export default async function Downloader(videoName, referer, videoURL, audioURL) {
+export default async function Downloader(videoName, referer, videoURL, audioURL, options = {}) {
   const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15';
   
   const config = {
@@ -60,19 +60,21 @@ export default async function Downloader(videoName, referer, videoURL, audioURL)
     responseType: 'stream',
   };
 
-  const mixFolder = path.join(process.cwd(), 'VideoAudioMix');
-  const finalFolder = path.join(process.cwd(), 'Videos');
+  const mixFolder = options.mixFolder || path.join(process.cwd(), 'VideoAudioMix');
+  const finalFolder = options.finalFolder || path.join(process.cwd(), 'Videos');
   
   if (!fs.existsSync(mixFolder)) fs.mkdirSync(mixFolder, { recursive: true });
   if (!fs.existsSync(finalFolder)) fs.mkdirSync(finalFolder, { recursive: true });
 
   const videoPath = path.join(mixFolder, `${videoName}.mp4`);
   const audioPath = path.join(mixFolder, `${videoName}.m4a`);
-  const outputPath = path.join(finalFolder, `${videoName}.mp4`);
+  const outputFileName = options.outputFileName || `${videoName}.mp4`;
+  const outputPath = path.join(finalFolder, outputFileName);
 
   await downloadFile(videoURL, videoPath, config, 'Video');
   await downloadFile(audioURL, audioPath, config, 'Audio');
 
   console.log('Merging video and audio...');
-  return mergeVideoAudio(videoPath, audioPath, outputPath);
+  await mergeVideoAudio(videoPath, audioPath, outputPath);
+  return outputPath;
 }

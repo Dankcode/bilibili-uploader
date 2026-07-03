@@ -2,12 +2,32 @@ const { spawn } = require('child_process');
 
 const path = require('path');
 
-function runPythonScript(scriptPath, args = []) {
+const DEFAULT_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000;
+
+function parseUploadResult(output) {
+  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const urlLine = [...lines].reverse().find((line) => /^https?:\/\/\S+$/i.test(line));
+  if (urlLine) return urlLine;
+  const idLine = [...lines].reverse().find((line) => /^[A-Za-z0-9_-]{8,}$/.test(line));
+  if (idLine) return idLine;
+  return lines[lines.length - 1] || '';
+}
+
+function runPythonScript(scriptPath, args = [], timeoutMs = DEFAULT_UPLOAD_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const safeArgs = args
       .filter((arg) => arg !== undefined && arg !== null)
       .map((arg) => String(arg));
     const python = spawn('python3', [scriptPath, ...safeArgs]);
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      python.kill('SIGTERM');
+      setTimeout(() => {
+        if (!python.killed) python.kill('SIGKILL');
+      }, 5000);
+      reject(new Error(`Python uploader timed out after ${Math.round(timeoutMs / 60000)} minutes`));
+    }, timeoutMs);
     
     let outputData = '';
     let errorData = '';
@@ -21,11 +41,21 @@ function runPythonScript(scriptPath, args = []) {
     });
 
     python.on('close', (code) => {
+      clearTimeout(timeout);
+      if (settled) return;
+      settled = true;
       if (code !== 0) {
         reject(new Error(`Python script exited with code ${code}\nError: ${errorData || outputData}`));
       } else {
         resolve(outputData.trim());
       }
+    });
+
+    python.on('error', (error) => {
+      clearTimeout(timeout);
+      if (settled) return;
+      settled = true;
+      reject(error);
     });
   });
 }
@@ -53,7 +83,8 @@ export default async function UploadVideo(videoPath, title, description, tags, d
       ? [videoPath, title, description, tags]
       : [videoPath, title, description, tags, channelId];
     const result = await runPythonScript(scriptPath, args);
-    const videoIdOrUrl = result.split(/\r?\n/).filter(Boolean).pop() || '';
+    const videoIdOrUrl = parseUploadResult(result);
+    if (!videoIdOrUrl) throw new Error('Uploader completed without printing a video URL or ID');
 
     console.log('Video uploaded successfully');
     console.log('Video ID/URL:', videoIdOrUrl);
