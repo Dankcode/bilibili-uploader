@@ -144,6 +144,7 @@
   display: flex;
   gap: 1.5rem;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .infoGroup {
@@ -174,6 +175,29 @@
 
 .buttonPrimary { background: #0072ff; color: #fff; }
 .buttonSecondary { background: #1a1a1c; color: #aaa; }
+
+.viewTabs {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.viewTab {
+  background: #151518;
+  color: #777;
+  border: 1px solid #25252a;
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.activeViewTab {
+  color: #fff;
+  background: #243b2f;
+  border-color: #4caf50;
+}
 
 /* -- Main Table Content -- */
 .mainFull {
@@ -227,6 +251,183 @@
 .saveBtn { background: #4caf50; color: #fff; }
 .uploadNowBtn { background: #00c6ff; color: #fff; }
 .uploadNowBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.panelBody {
+  padding: 1.5rem 2rem;
+}
+
+.filterBar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.filterChip {
+  background: #101014;
+  border: 1px solid #25252a;
+  color: #777;
+  border-radius: 0.4rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.activeFilterChip {
+  color: #fff;
+  border-color: #00c6ff;
+}
+
+.jobList {
+  display: grid;
+  gap: 1rem;
+}
+
+.jobRow, .connectionRow, .checkItem {
+  border: 1px solid #232329;
+  background: #0d0d10;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.jobTopLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.jobSource {
+  color: #666;
+  font-size: 0.75rem;
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+.stepGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.stepBlock {
+  background: #151518;
+  border-radius: 0.4rem;
+  padding: 0.75rem;
+}
+
+.stepHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #aaa;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.progressTrack {
+  height: 0.4rem;
+  background: #24242a;
+  border-radius: 1rem;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.progressFill {
+  height: 100%;
+  background: #4caf50;
+}
+
+.stepNote {
+  color: #777;
+  font-size: 0.72rem;
+  margin-top: 0.45rem;
+}
+
+.errorText {
+  color: #ff6b6b;
+  font-size: 0.78rem;
+  margin-top: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.textarea {
+  width: 100%;
+  resize: vertical;
+  background: #0a0a0c;
+  border: 1px solid #222;
+  color: #eee;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.input, .select {
+  width: 100%;
+  background: #0a0a0c;
+  border: 1px solid #222;
+  color: #eee;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.4rem;
+  font-size: 0.82rem;
+  min-width: 0;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #888;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.connectionGroup {
+  display: grid;
+  gap: 0.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.connectionGroup h4 {
+  margin: 0;
+  color: #ddd;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.connectionMeta {
+  color: #666;
+  font-size: 0.72rem;
+  margin-left: 0.75rem;
+}
+
+.checkDot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  margin-right: 0.55rem;
+  background: #777;
+}
+
+.check_ok { background: #4caf50; }
+.check_warn { background: #ffc857; }
+.check_fail { background: #ff6b6b; }
+
+.queued { background: #222; color: #aaa; }
+.running { background: #0072ff15; color: #00c6ff; }
+.failed, .fail { background: #ff6b6b15; color: #ff6b6b; }
+.canceled, .warn { background: #ffc85715; color: #ffc857; }
+.ok { background: #4caf5015; color: #4caf50; }
 
 /* Modals */
 .modalOverlay {

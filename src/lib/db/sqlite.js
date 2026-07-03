@@ -12,6 +12,29 @@ if (!fs.existsSync(configDir)) {
 
 let db = null;
 
+function hasColumn(tableName, columnName) {
+  return db.prepare(`PRAGMA table_info(${tableName})`).all().some((column) => column.name === columnName);
+}
+
+function addColumnIfMissing(tableName, columnName, definition) {
+  if (!hasColumn(tableName, columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+}
+
+function normalizeAutoUploadTime(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('auto_upload_time must be a valid ISO datetime');
+  }
+  return parsed.toISOString();
+}
+
+function coalesceValue(nextValue, previousValue, fallback = null) {
+  return nextValue === undefined ? (previousValue ?? fallback) : (nextValue ?? fallback);
+}
+
 /**
  * Initialize the database schema and ensure connection is open.
  */
@@ -50,12 +73,68 @@ export function initDB() {
       release_date TEXT,
       youtube_url TEXT,
       edited_video_path TEXT, -- New column
-      auto_upload_time TEXT,  -- New column (ISO format or HH:mm)
+      auto_upload_time TEXT,  -- ISO datetime
+      tags TEXT DEFAULT '[]',
       error TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
+    );
+
+    CREATE TABLE IF NOT EXISTS video_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_id TEXT NOT NULL,
+      source_input TEXT NOT NULL,
+      processor_ids_json TEXT DEFAULT '[]',
+      uploader_id TEXT DEFAULT '',
+      options_json TEXT DEFAULT '{}',
+      status TEXT DEFAULT 'queued',
+      current_step TEXT DEFAULT '',
+      error TEXT DEFAULT '',
+      video_row_id INTEGER,
+      scene_script_id INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS video_job_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id INTEGER NOT NULL,
+      step TEXT NOT NULL,
+      attempt INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'pending',
+      progress REAL DEFAULT 0,
+      progress_note TEXT DEFAULT '',
+      log TEXT DEFAULT '',
+      started_at TEXT,
+      finished_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS video_assets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      meta_json TEXT DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS service_connections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      service_id TEXT NOT NULL UNIQUE,
+      credentials_json TEXT NOT NULL DEFAULT '{}',
+      enabled INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'untested',
+      last_tested_at TEXT DEFAULT '',
+      last_error TEXT DEFAULT '',
+      updated_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_video_jobs_status_created ON video_jobs(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_video_job_steps_job_id ON video_job_steps(job_id);
+    CREATE INDEX IF NOT EXISTS idx_video_assets_job_id ON video_assets(job_id);
   `);
+  addColumnIfMissing('videos', 'tags', "TEXT DEFAULT '[]'");
   console.log('SQLite Database initialized at:', dbPath);
 }
 
@@ -154,7 +233,13 @@ export function getValidUploadSearch(spaceId = null) {
  */
 export function getDueUploads() {
   const now = new Date().toISOString();
-  return db.prepare("SELECT * FROM videos WHERE status = 'Not started' AND auto_upload_time IS NOT NULL AND auto_upload_time <= ?").all(now);
+  return db.prepare(`
+    SELECT * FROM videos
+    WHERE status = 'Not started'
+      AND auto_upload_time IS NOT NULL
+      AND auto_upload_time LIKE '____-__-__T%'
+      AND auto_upload_time <= ?
+  `).all(now);
 }
 
 /**
@@ -172,12 +257,27 @@ export function addVideo(data) {
  * Update video metadata (AI generated info).
  */
 export function updateVideoMetadata(id, data) {
+  const existing = getVideoById(id);
+  if (!existing) throw new Error(`Video not found: ${id}`);
+  const nextAutoUploadTime = data.auto_upload_time === undefined
+    ? existing.auto_upload_time
+    : normalizeAutoUploadTime(data.auto_upload_time);
+  const nextTags = Array.isArray(data.tags)
+    ? JSON.stringify(data.tags)
+    : (data.tags === undefined ? (existing.tags || '[]') : JSON.stringify([]));
   const stmt = db.prepare(`
     UPDATE videos 
-    SET english_name = ?, english_description = ?, edited_video_path = ?, auto_upload_time = ?, updated_at = CURRENT_TIMESTAMP
+    SET english_name = ?, english_description = ?, tags = ?, edited_video_path = ?, auto_upload_time = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `);
-  return stmt.run(data.english_name, data.english_description, data.edited_video_path || null, data.auto_upload_time || null, id);
+  return stmt.run(
+    coalesceValue(data.english_name, existing.english_name),
+    coalesceValue(data.english_description, existing.english_description),
+    nextTags,
+    coalesceValue(data.edited_video_path, existing.edited_video_path),
+    nextAutoUploadTime,
+    id
+  );
 }
 
 /**
@@ -212,13 +312,22 @@ export function logError(id, error) {
  * Manual edit from the dashboard.
  */
 export function manualEdit(id, data) {
-  const { chinese_name, english_name, english_description, status, edited_video_path, auto_upload_time } = data;
+  const existing = getVideoById(id);
+  if (!existing) throw new Error(`Video not found: ${id}`);
   const stmt = db.prepare(`
     UPDATE videos 
     SET chinese_name = ?, english_name = ?, english_description = ?, status = ?, edited_video_path = ?, auto_upload_time = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `);
-  return stmt.run(chinese_name, english_name, english_description, status, edited_video_path, auto_upload_time, id);
+  return stmt.run(
+    coalesceValue(data.chinese_name, existing.chinese_name),
+    coalesceValue(data.english_name, existing.english_name),
+    coalesceValue(data.english_description, existing.english_description),
+    coalesceValue(data.status, existing.status, 'Not started'),
+    coalesceValue(data.edited_video_path, existing.edited_video_path),
+    data.auto_upload_time === undefined ? existing.auto_upload_time : normalizeAutoUploadTime(data.auto_upload_time),
+    id
+  );
 }
 
 // Auto-initialize on import

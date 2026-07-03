@@ -73,14 +73,14 @@ const parseVideoInfo = async (bilibiliUrl, sessData) => {
 /**
  * Main Bilibili entry point for getting info and starting download.
  */
-export const processBilibiliUrl = async (videoName, bilibiliUrl) => {
+export const processBilibiliUrl = async (videoName, bilibiliUrl, options = {}) => {
   try {
     console.log(`Processing Bilibili URL: ${bilibiliUrl}`);
     const sessData = await getSessData(bilibiliUrl);
     const info = await parseVideoInfo(bilibiliUrl, sessData);
     
     console.log(`Starting download for: ${info.title} (as ${videoName})`);
-    return await Downloader(videoName, bilibiliUrl, info.videoUrl, info.audioUrl);
+    return await Downloader(videoName, bilibiliUrl, info.videoUrl, info.audioUrl, options);
   } catch (error) {
     console.error('Bilibili Process Error:', error.message);
     throw error;
