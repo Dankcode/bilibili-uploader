@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import styles from '../app/page.module.css';
+import ProgressTree from './ProgressTree';
 
 const FILTERS = ['all', 'queued', 'running', 'failed', 'done', 'canceled'];
 
@@ -80,20 +81,7 @@ export default function PipelineDashboard() {
                 <span className={`${styles.statusLabel} ${styles[job.status] || ''}`}>{job.status}</span>
               </div>
               <div className={styles.jobSource}>{job.sourceInput}</div>
-              <div className={styles.stepGrid}>
-                {job.steps.map((step) => (
-                  <div key={step.id} className={styles.stepBlock}>
-                    <div className={styles.stepHeader}>
-                      <span>{step.step}</span>
-                      <span>{Math.round(step.progress || 0)}%</span>
-                    </div>
-                    <div className={styles.progressTrack}>
-                      <div className={styles.progressFill} style={{ width: `${Math.max(0, Math.min(100, step.progress || 0))}%` }} />
-                    </div>
-                    <div className={styles.stepNote}>{step.progressNote || step.status}</div>
-                  </div>
-                ))}
-              </div>
+              <ProgressTree job={job} />
               {job.error && <div className={styles.errorText}>{job.error}</div>}
               <div className={styles.operationRow}>
                 {job.status === 'failed' && <button className={styles.saveBtn} onClick={() => postAction('retry', job.id)}>Retry</button>}
