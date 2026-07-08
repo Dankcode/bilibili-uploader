@@ -5,6 +5,7 @@ import * as douyinSource from './sources/douyin';
 import * as voiceoverProcessor from './processors/voiceover';
 import * as aiEditorProcessor from './processors/aiEditor';
 import * as sceneCutProcessor from './processors/sceneCut';
+import * as faceFusionProcessor from './processors/faceFusion';
 import * as youtubeUploader from './uploaders/youtube';
 
 const SERVICES = [
@@ -19,6 +20,7 @@ const ADAPTERS = {
   voiceover: voiceoverProcessor,
   aiEditor: aiEditorProcessor,
   sceneCut: sceneCutProcessor,
+  faceFusion: faceFusionProcessor,
   youtube: youtubeUploader,
 };
 
