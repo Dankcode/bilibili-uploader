@@ -33,19 +33,28 @@ let cachedModule = null;
 
 async function loadLiveModule() {
   if (cachedModule) return cachedModule;
-  const explicitPath = process.env.LIVE_TRANSLATION_PATH;
+  const { pathToFileURL } = await import('url');
+  const path = await import('path');
+  const fs = await import('fs');
+  const explicitPath = process.env.LIVE_TRANSLATION_PATH
+    ? path.resolve(process.env.LIVE_TRANSLATION_PATH)
+    : '';
   const candidates = [
     explicitPath,
-    // Vendored copy inside this repo (recommended):
-    '../../../../vendor/live-translation/index.js',
-    '../../../../vendor/live-translation',
+    path.join(process.cwd(), 'vendor', 'live-translation', 'index.js'),
+    path.join(process.cwd(), 'vendor', 'live-translation'),
   ].filter(Boolean);
 
   const errors = [];
   for (const candidate of candidates) {
     try {
+      const target = fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()
+        ? path.join(candidate, 'index.js')
+        : candidate;
+      if (!fs.existsSync(target)) throw new Error('path does not exist');
+      const href = pathToFileURL(target).href;
       // eslint-disable-next-line no-await-in-loop
-      const mod = await import(candidate);
+      const mod = await import(/* webpackIgnore: true */ href);
       cachedModule = mod?.default && Object.keys(mod).length === 1 ? mod.default : mod;
       return cachedModule;
     } catch (error) {

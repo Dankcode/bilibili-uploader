@@ -74,6 +74,40 @@ function resolveCreds(credentials = {}) {
   };
 }
 
+function secondsFromTimestamp(value) {
+  if (typeof value === 'number') return value;
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  if (/^\d+(\.\d+)?$/.test(text)) return Number(text);
+  const parts = text.split(':').map((part) => Number(part));
+  if (parts.some((part) => Number.isNaN(part))) return 0;
+  return parts.reduce((total, part) => (total * 60) + part, 0);
+}
+
+function normalizeExistingTranscript(existingTranscript) {
+  const rawSegments = Array.isArray(existingTranscript)
+    ? existingTranscript
+    : existingTranscript?.segments;
+  if (!Array.isArray(rawSegments) || rawSegments.length === 0) return null;
+  const segments = rawSegments.map((seg, index) => {
+    const start = secondsFromTimestamp(seg.start ?? seg.tStart);
+    const rawEnd = secondsFromTimestamp(seg.end ?? seg.tEnd ?? seg.start ?? seg.tStart);
+    return {
+      index: Number(seg.index ?? index),
+      start,
+      end: rawEnd > start ? rawEnd : start + 3,
+      text: String(seg.text ?? seg.textEn ?? seg.voiceoverEn ?? '').trim(),
+      textEn: String(seg.textEn ?? seg.voiceoverEn ?? '').trim(),
+    };
+  }).filter((seg) => seg.text || seg.textEn);
+  if (!segments.length) return null;
+  return {
+    language: existingTranscript?.language || 'script',
+    fullText: segments.map((seg) => seg.text || seg.textEn).join('\n'),
+    segments,
+  };
+}
+
 /** Verify transcription + the SELECTED tts backend. */
 export async function testConnection(credentials = {}) {
   const creds = resolveCreds(credentials);
@@ -103,7 +137,7 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
 
   // 1) Transcribe (or reuse a transcript the scene pipeline already produced).
   onProgress(5, 'Extracting audio');
-  let transcript = options.existingTranscript;
+  let transcript = normalizeExistingTranscript(options.existingTranscript);
   if (!transcript?.segments?.length) {
     const audioPath = path.join(tmpDir, 'source.wav');
     await extractAudio(inputPath, audioPath);
@@ -118,14 +152,26 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
 
   // 2) Translate (+ transliterate). Pluggable backend.
   onProgress(32, 'Translating segments');
-  const translated = await translateTranscript({
-    segments: transcript.segments,
-    sourceLang: options.sourceLang || transcript.language,
-    targetLang: options.targetLang || 'English',
-    backend: creds.translationBackend,
-    style: options.style,
-    transliterate: options.showTransliteration !== false,
-  });
+  let translated;
+  const scriptedSegments = transcript.segments.filter((seg) => seg.textEn);
+  if (scriptedSegments.length === transcript.segments.length) {
+    translated = {
+      backend: 'existingTranscript',
+      segments: scriptedSegments,
+      transcriptSource: transcript.fullText,
+      transcriptEn: scriptedSegments.map((seg) => seg.textEn).join('\n'),
+      partial: false,
+    };
+  } else {
+    translated = await translateTranscript({
+      segments: transcript.segments,
+      sourceLang: options.sourceLang || transcript.language,
+      targetLang: options.targetLang || 'English',
+      backend: creds.translationBackend,
+      style: options.style,
+      transliterate: options.showTransliteration !== false,
+    });
+  }
 
   // 3) Re-script the literal translation into narration (Kimi). Non-fatal:
   //    if re-scripting fails we fall back to the literal translation.

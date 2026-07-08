@@ -82,6 +82,21 @@ export default function PipelineDashboard() {
               </div>
               <div className={styles.jobSource}>{job.sourceInput}</div>
               <ProgressTree job={job} />
+              {!!job.assets?.length && (
+                <div className={styles.assetList}>
+                  {job.assets.map((asset) => (
+                    <a
+                      key={asset.id}
+                      className={styles.assetChip}
+                      href={`/api/pipeline/assets/${asset.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {asset.kind} #{asset.id}
+                    </a>
+                  ))}
+                </div>
+              )}
               {job.error && <div className={styles.errorText}>{job.error}</div>}
               <div className={styles.operationRow}>
                 {job.status === 'failed' && <button className={styles.saveBtn} onClick={() => postAction('retry', job.id)}>Retry</button>}
