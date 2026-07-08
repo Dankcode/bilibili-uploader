@@ -725,11 +725,23 @@
 }
 
 /* ---------- Troubleshooter checks ---------- */
-.checkRow,
+.checkRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.checkRow input {
+  accent-color: var(--accent);
+}
+
 .checkItem {
   display: flex;
-  align-items: flex-start;
-  gap: var(--sp-3);
+  flex-direction: column;
+  gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -904,6 +916,30 @@
   border-radius: 50%;
   display: inline-block;
   background: var(--idle);
+}
+
+.assetList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.assetChip {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.assetChip:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
 }
 
 /* ---- Progress tree (n8n / HF style) ---- */
