@@ -8,6 +8,7 @@ import * as douyinSource from './sources/douyin';
 import * as voiceoverProcessor from './processors/voiceover';
 import * as aiEditorProcessor from './processors/aiEditor';
 import * as sceneCutProcessor from './processors/sceneCut';
+import * as faceFusionProcessor from './processors/faceFusion';
 import * as youtubeUploader from './uploaders/youtube';
 
 const SOURCE_ADAPTERS = {
@@ -19,6 +20,7 @@ const PROCESSOR_ADAPTERS = {
   voiceover: voiceoverProcessor,
   aiEditor: aiEditorProcessor,
   sceneCut: sceneCutProcessor,
+  faceFusion: faceFusionProcessor,
 };
 
 const UPLOADER_ADAPTERS = {
@@ -197,7 +199,7 @@ async function runStep(job, step, currentFilePath, currentMeta) {
   } else if (role === 'processor') {
     const adapter = PROCESSOR_ADAPTERS[id];
     if (!adapter) throw new Error(`Processor adapter unavailable: ${id}`);
-    result = await adapter.process(currentFilePath, options[id] || {}, onProgress);
+    result = await adapter.process(currentFilePath, options[id] || {}, onProgress, credentials);
     if (!result?.outputPath) throw new Error(`Processor ${id} did not return outputPath`);
     saveAsset(job.id, id, result.outputPath, result.artifacts || {});
     currentFilePath = result.outputPath;

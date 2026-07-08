@@ -49,13 +49,59 @@ export const SOURCES = [
 export const PROCESSORS = [
   {
     id: 'voiceover',
-    label: 'English Voiceover (Whisper clone)',
+    label: 'AI Voiceover (Whisper → translate → Kimi re-script → TTS)',
+    // Automated dub: transcribe → translate (+transliterate) → Kimi re-script →
+    // ElevenLabs OR CosyVoice(local) TTS → ffmpeg duck+overlay. Server-side.
+    // Only the fields for the chosen tts/translation backend need filling.
     credentialFields: [
-      { key: 'endpoint', label: 'Voice Service URL (LAN)', type: 'text', placeholder: 'http://192.168.x.x:9000' },
-      { key: 'voiceId', label: 'Cloned Voice ID', type: 'text' },
-      { key: 'apiKey', label: 'API Key (optional)', type: 'secret' },
+      // -- transcription --
+      { key: 'transcribeApiKey', label: 'Whisper API Key (OpenAI-compatible)', type: 'secret' },
+      { key: 'transcribeBaseUrl', label: 'Whisper Base URL', type: 'text', required: false, placeholder: 'https://api.openai.com/v1 (or Groq / self-hosted)' },
+      { key: 'transcribeModel', label: 'Whisper Model', type: 'text', required: false, placeholder: 'whisper-1' },
+      // -- translation + re-scripting --
+      { key: 'translationBackend', label: 'Translation Backend', type: 'text', required: false, placeholder: 'aiProvider | liveTranslation' },
+      { key: 'rescript', label: 'Kimi Re-script (on/off)', type: 'text', required: false, placeholder: 'on' },
+      { key: 'rescriptStyle', label: 'Re-script Voice/Style', type: 'text', required: false, placeholder: 'e.g. calm, documentary narrator' },
+      // -- tts selection --
+      { key: 'ttsBackend', label: 'TTS Backend', type: 'text', required: false, placeholder: 'elevenlabs | cosyvoice | qwen3' },
+      // -- elevenlabs --
+      { key: 'elevenApiKey', label: 'ElevenLabs API Key', type: 'secret', required: false },
+      { key: 'voiceId', label: 'ElevenLabs Voice ID', type: 'text', required: false },
+      { key: 'modelId', label: 'ElevenLabs Model', type: 'text', required: false, placeholder: 'eleven_multilingual_v2' },
+      // -- cosyvoice (Alibaba, local) --
+      { key: 'cosyEndpoint', label: 'CosyVoice Endpoint (local)', type: 'text', required: false, placeholder: 'http://127.0.0.1:50000' },
+      { key: 'cosyMode', label: 'CosyVoice Mode', type: 'text', required: false, placeholder: 'zero_shot | sft | cross_lingual | instruct' },
+      { key: 'cosySpeakerId', label: 'CosyVoice Speaker (sft)', type: 'text', required: false },
+      { key: 'cosyPromptWav', label: 'CosyVoice Reference WAV path (zero_shot)', type: 'text', required: false },
+      { key: 'cosyPromptText', label: 'CosyVoice Reference Transcript', type: 'text', required: false },
+      // -- qwen3-tts (Alibaba: DashScope cloud OR local server) --
+      { key: 'qwenApiKey', label: 'Qwen3-TTS DashScope API Key', type: 'secret', required: false },
+      { key: 'qwenVoice', label: 'Qwen3-TTS Voice', type: 'text', required: false, placeholder: 'Cherry / Ethan / Serena …' },
+      { key: 'qwenModel', label: 'Qwen3-TTS Model', type: 'text', required: false, placeholder: 'qwen3-tts-flash' },
+      { key: 'qwenBaseUrl', label: 'DashScope Base URL', type: 'text', required: false, placeholder: 'https://dashscope-intl.aliyuncs.com for intl' },
+      { key: 'qwenLocalEndpoint', label: 'Qwen3-TTS Local Server (optional)', type: 'text', required: false, placeholder: 'http://127.0.0.1:8000' },
     ],
     adapterPath: 'src/lib/pipeline/processors/voiceover.js',
+  },
+  {
+    id: 'faceFusion',
+    label: 'FaceFusion (automated targeted face swap)',
+    // Wraps the facefusion headless CLI. Auto-clones the repo on first Test.
+    // Run scripts/install_facefusion.sh once to install models/deps (GPU).
+    credentialFields: [
+      { key: 'facefusionDir', label: 'FaceFusion Repo Path', type: 'text', placeholder: '/path/to/facefusion' },
+      { key: 'sourcePaths', label: 'Replacement Face Image(s) — ; separated', type: 'text' },
+      { key: 'pythonBin', label: 'Python Binary', type: 'text', required: false, placeholder: 'python' },
+      { key: 'executionProviders', label: 'Execution Provider', type: 'text', required: false, placeholder: 'cuda | cpu' },
+      { key: 'faceSwapperModel', label: 'Face Swapper Model', type: 'text', required: false, placeholder: 'inswapper_128_fp16' },
+      { key: 'faceEnhancer', label: 'Face Enhancer (on/off)', type: 'text', required: false, placeholder: 'off' },
+      { key: 'faceSelectorMode', label: 'Face Selector Mode', type: 'text', required: false, placeholder: 'reference | one | many' },
+      { key: 'faceSelectorGender', label: 'Target Gender (optional)', type: 'text', required: false, placeholder: 'male | female' },
+      { key: 'referenceFacePosition', label: 'Reference Face Position', type: 'text', required: false, placeholder: '0' },
+      { key: 'referenceFaceDistance', label: 'Reference Face Distance', type: 'text', required: false, placeholder: '0.6' },
+      { key: 'referenceFrameNumber', label: 'Reference Frame Number', type: 'text', required: false, placeholder: '0' },
+    ],
+    adapterPath: 'src/lib/pipeline/processors/faceFusion.js',
   },
   {
     id: 'aiEditor',

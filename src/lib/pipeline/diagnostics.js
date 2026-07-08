@@ -4,12 +4,37 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import db from '../db/sqlite';
 import { getCredentials } from './connections';
+import * as bilibili from './sources/bilibili';
 import * as douyin from './sources/douyin';
 import * as youtube from './uploaders/youtube';
 import * as voiceover from './processors/voiceover';
 import * as aiEditor from './processors/aiEditor';
+import * as sceneCut from './processors/sceneCut';
+import * as faceFusion from './processors/faceFusion';
 
 const execFileAsync = promisify(execFile);
+
+// Every adapter that can be a pipeline step, keyed by service id — used by the
+// run-specific preflight so "the steps you'll run" are exactly what gets tested.
+const STEP_ADAPTERS = {
+  bilibili, douyin,
+  voiceover, aiEditor, sceneCut, faceFusion,
+  youtube,
+};
+const STEP_LABELS = {
+  bilibili: 'Bilibili source', douyin: 'Douyin source',
+  voiceover: 'AI Voiceover', aiEditor: 'AI Editor', sceneCut: 'Scene Cut', faceFusion: 'Face Fusion',
+  youtube: 'YouTube upload',
+};
+const STEP_FIX = {
+  bilibili: 'Add your SESSDATA cookie in Settings ▸ bilibili for HD downloads.',
+  douyin: 'Start the Douyin sidecar and set its URL/cookie in Settings ▸ douyin.',
+  voiceover: 'In Settings ▸ voiceover set the Whisper key + your TTS backend (ElevenLabs / CosyVoice / Qwen3), then Test.',
+  faceFusion: 'Run scripts/install_facefusion.sh, set facefusionDir + a source face image in Settings ▸ faceFusion, then Test.',
+  aiEditor: 'Set and Test the HuggingFace editor endpoint in Settings ▸ aiEditor.',
+  sceneCut: 'No external service — this runs locally with ffmpeg.',
+  youtube: 'Configure the Python OAuth uploader / YOUTUBE_CHANNEL_ID.',
+};
 
 function ok(id, label, detail = 'OK', fixHint = '') {
   return { id, label, status: 'ok', detail, fixHint };
@@ -97,7 +122,11 @@ export async function runDiagnostics() {
     },
     async () => {
       const result = await voiceover.testConnection(getCredentials('voiceover'));
-      return result.ok ? ok('voiceover_lan', 'Voiceover LAN service', 'Reachable') : warn('voiceover_lan', 'Voiceover LAN service', result.error, 'Save and test the voiceover endpoint in Settings.');
+      return result.ok ? ok('voiceover', 'AI Voiceover (Whisper + TTS)', 'Transcription + TTS backend ready') : warn('voiceover', 'AI Voiceover (Whisper + TTS)', result.error, STEP_FIX.voiceover);
+    },
+    async () => {
+      const result = await faceFusion.testConnection(getCredentials('faceFusion'));
+      return result.ok ? ok('faceFusion', 'Face Fusion', 'Repo + Python ready') : warn('faceFusion', 'Face Fusion', result.error, STEP_FIX.faceFusion);
     },
     async () => {
       const result = await aiEditor.testConnection(getCredentials('aiEditor'));
@@ -108,12 +137,70 @@ export async function runDiagnostics() {
   return Promise.all(checks.map(settle));
 }
 
+/**
+ * RUN-SPECIFIC PREFLIGHT — "show me the steps and check each one BEFORE I turn
+ * on full automation." Given the chain a job would run, returns one row per
+ * step (in execution order) plus the shared system checks each step needs,
+ * so the operator can eyeball readiness and fix issues first.
+ *
+ * @param {{sourceId?:string, processorIds?:string[], uploaderId?:string}} plan
+ * @returns {Promise<{ready:boolean, steps:Array}>}
+ */
+export async function runPreflight(plan = {}) {
+  const sourceId = plan.sourceId ? String(plan.sourceId) : '';
+  const processorIds = Array.isArray(plan.processorIds) ? plan.processorIds.map(String) : [];
+  const uploaderId = plan.uploaderId ? String(plan.uploaderId) : '';
+
+  const order = [
+    ...(sourceId ? [{ role: 'source', id: sourceId }] : []),
+    ...processorIds.map((id) => ({ role: 'processor', id })),
+    ...(uploaderId ? [{ role: 'uploader', id: uploaderId }] : []),
+  ];
+
+  // System checks the run depends on (media processing needs ffmpeg + disk).
+  const needsFfmpeg = processorIds.some((id) => ['voiceover', 'faceFusion', 'sceneCut'].includes(id));
+  const system = [];
+  if (needsFfmpeg) {
+    system.push(await settle(() => checkCommand('ffmpeg', 'ffmpeg (media processing)', 'ffmpeg', ['-version'], 'Install ffmpeg and keep it on PATH.')));
+  }
+  system.push(settleSync(checkDisk));
+
+  const steps = await Promise.all(order.map(async ({ role, id }) => {
+    const adapter = STEP_ADAPTERS[id];
+    const label = STEP_LABELS[id] || id;
+    if (!adapter?.testConnection) {
+      return { id, role, label, status: 'warn', detail: 'No automated check for this step.', fixHint: STEP_FIX[id] || '' };
+    }
+    try {
+      const result = await adapter.testConnection(getCredentials(id));
+      return result.ok
+        ? { id, role, label, status: 'ok', detail: 'Ready', fixHint: '' }
+        : { id, role, label, status: 'fail', detail: String(result.error || 'Not ready').slice(0, 240), fixHint: STEP_FIX[id] || '' };
+    } catch (error) {
+      return { id, role, label, status: 'fail', detail: String(error.message || error).slice(0, 240), fixHint: STEP_FIX[id] || '' };
+    }
+  }));
+
+  const all = [...system, ...steps];
+  const ready = all.every((c) => c.status === 'ok');
+  return { ready, steps: all };
+}
+
+function settleSync(check) {
+  try {
+    return check();
+  } catch (error) {
+    return fail('unknown', 'Check failure', error.message, 'Check server logs.');
+  }
+}
+
 export function classifyError(errorText = '') {
   const text = String(errorText).toLowerCase();
   if (text.includes('ffmpeg')) return { checkId: 'ffmpeg', fixHint: 'Run diagnostics and fix the ffmpeg install.' };
   if (text.includes('python') || text.includes('uploader')) return { checkId: 'python', fixHint: 'Check Python and YouTube uploader diagnostics.' };
   if (text.includes('douyin') || text.includes('sidecar')) return { checkId: 'douyin_sidecar', fixHint: 'Start the Douyin sidecar and test the connection.' };
-  if (text.includes('voice')) return { checkId: 'voiceover_lan', fixHint: 'Test the voiceover LAN service.' };
+  if (text.includes('voice') || text.includes('tts') || text.includes('whisper') || text.includes('elevenlabs') || text.includes('cosyvoice') || text.includes('qwen')) return { checkId: 'voiceover', fixHint: 'Test the AI Voiceover service in Settings.' };
+  if (text.includes('facefusion') || text.includes('face swap')) return { checkId: 'faceFusion', fixHint: 'Test Face Fusion; run scripts/install_facefusion.sh.' };
   if (text.includes('editor') || text.includes('gradio') || text.includes('hf')) return { checkId: 'hf_editor_lan', fixHint: 'Test the HF editor LAN service.' };
   if (text.includes('ai metadata') || text.includes('api_key')) return { checkId: 'ai_key', fixHint: 'Check the AI provider key.' };
   return { checkId: 'unknown', fixHint: 'Run full diagnostics.' };
