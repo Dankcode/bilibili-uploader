@@ -4,21 +4,65 @@ import { useEffect, useMemo, useState } from 'react';
 import styles from '../app/page.module.css';
 import ProgressTree from './ProgressTree';
 
-const FILTERS = ['all', 'queued', 'running', 'failed', 'done', 'canceled'];
+const FILTERS = ['all', 'queued', 'running', 'review', 'failed', 'done', 'canceled'];
+
+function MetadataReview({ job, onApprove }) {
+  const asset = (job.assets || []).slice().reverse().find((item) => item.kind === 'metadata');
+  const metadata = asset?.meta || {};
+  const [titleEn, setTitleEn] = useState(metadata.titleEn || '');
+  const [descriptionEn, setDescriptionEn] = useState(metadata.descriptionEn || '');
+  const [tags, setTags] = useState((metadata.tags || []).join(', '));
+  const [saving, setSaving] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+
+  const approve = async () => {
+    setSaving(true);
+    setReviewError('');
+    try {
+      await onApprove(job.id, {
+        titleEn,
+        descriptionEn,
+        tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+      });
+    } catch (error) {
+      setReviewError(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!asset) return <div className={styles.errorText}>Metadata review data is missing.</div>;
+  return (
+    <div className={styles.metadataReview}>
+      <label><span>Title</span><input className={styles.input} value={titleEn} onChange={(event) => setTitleEn(event.target.value)} /></label>
+      <label><span>Description</span><textarea className={styles.textarea} value={descriptionEn} onChange={(event) => setDescriptionEn(event.target.value)} /></label>
+      <label><span>Tags</span><input className={styles.input} value={tags} onChange={(event) => setTags(event.target.value)} /></label>
+      {reviewError && <div className={styles.errorText}>{reviewError}</div>}
+      <button className={styles.saveBtn} onClick={approve}
+        disabled={saving || !titleEn.trim() || !descriptionEn.trim() || !tags.trim()}>{saving ? 'Approving...' : 'Approve and resume'}</button>
+    </div>
+  );
+}
 
 export default function PipelineDashboard() {
   const [jobs, setJobs] = useState([]);
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [usage, setUsage] = useState([]);
 
   const loadJobs = async () => {
     try {
       const query = filter === 'all' ? '' : `?status=${encodeURIComponent(filter)}`;
-      const response = await fetch(`/api/pipeline/jobs${query}`, { cache: 'no-store' });
+      const [response, usageResponse] = await Promise.all([
+        fetch(`/api/pipeline/jobs${query}`, { cache: 'no-store' }),
+        fetch('/api/pipeline/usage', { cache: 'no-store' }),
+      ]);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to load jobs');
+      const usageData = await usageResponse.json().catch(() => ({}));
       setJobs(data.jobs || []);
+      if (usageResponse.ok) setUsage(usageData.usage || []);
       setError('');
     } catch (err) {
       setError(err.message);
@@ -41,12 +85,25 @@ export default function PipelineDashboard() {
   }, {}), [jobs]);
 
   const postAction = async (action, jobId) => {
-    await fetch('/api/pipeline/jobs', {
+    const response = await fetch('/api/pipeline/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, jobId }),
     });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) setError(data.error || 'Pipeline action failed');
     loadJobs();
+  };
+
+  const approveMetadata = async (jobId, metadata) => {
+    const response = await fetch('/api/pipeline/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approveMetadata', jobId, metadata }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Could not approve metadata');
+    await loadJobs();
   };
 
   return (
@@ -66,6 +123,16 @@ export default function PipelineDashboard() {
         </div>
       </div>
       <div className={styles.panelBody}>
+        {!!usage.length && (
+          <div className={styles.usageGrid}>
+            {usage.map((row) => (
+              <div key={`${row.service}-${row.keyHash}`} className={styles.usageItem}>
+                <div><strong>{row.service}</strong><span>{Math.round(row.seconds / 60)} / {Math.round(row.maxDailySeconds / 60)} min</span></div>
+                <div className={styles.progressTrack}><div className={styles.progressFill} style={{ width: `${Math.min(100, row.ratio * 100)}%` }} /></div>
+              </div>
+            ))}
+          </div>
+        )}
         {loading && <div className={styles.muted}>Loading jobs...</div>}
         {error && <div className={styles.errorText}>{error}</div>}
         {!loading && jobs.length === 0 && <div className={styles.muted}>No pipeline jobs yet.</div>}
@@ -82,6 +149,7 @@ export default function PipelineDashboard() {
               </div>
               <div className={styles.jobSource}>{job.sourceInput}</div>
               <ProgressTree job={job} />
+              {job.status === 'review' && <MetadataReview job={job} onApprove={approveMetadata} />}
               {!!job.assets?.length && (
                 <div className={styles.assetList}>
                   {job.assets.map((asset) => (
@@ -100,7 +168,7 @@ export default function PipelineDashboard() {
               {job.error && <div className={styles.errorText}>{job.error}</div>}
               <div className={styles.operationRow}>
                 {job.status === 'failed' && <button className={styles.saveBtn} onClick={() => postAction('retry', job.id)}>Retry</button>}
-                {(job.status === 'queued' || job.status === 'running') && <button className={styles.editBtn} onClick={() => postAction('cancel', job.id)}>Cancel</button>}
+                {(job.status === 'queued' || job.status === 'running' || job.status === 'review') && <button className={styles.editBtn} onClick={() => postAction('cancel', job.id)}>Cancel</button>}
               </div>
             </article>
           ))}

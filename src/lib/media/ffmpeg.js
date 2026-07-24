@@ -4,6 +4,7 @@
  * place that builds filtergraphs.
  */
 
+import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
 
 /** Extract a mono 16 kHz WAV suitable for Whisper transcription. */
@@ -29,6 +30,41 @@ export function probeDuration(filePath) {
       resolve(Number(data?.format?.duration) || 0);
     });
   });
+}
+
+function atempoChain(speed) {
+  const filters = [];
+  let remaining = speed;
+  while (remaining > 2) {
+    filters.push('atempo=2');
+    remaining /= 2;
+  }
+  filters.push(`atempo=${Math.max(0.75, Math.min(2, remaining)).toFixed(5)}`);
+  return filters.join(',');
+}
+
+/** Fit a generated voice clip into its subtitle window without changing pitch. */
+export async function fitClipToWindow(clipPath, windowSeconds, outPath) {
+  const target = Math.max(0.08, Number(windowSeconds) || 0);
+  const duration = await probeDuration(clipPath);
+  if (!duration || duration <= target * 1.05) {
+    if (pathOrSame(clipPath, outPath)) return clipPath;
+    fs.copyFileSync(clipPath, outPath);
+    return outPath;
+  }
+  const speed = duration / target;
+  return new Promise((resolve, reject) => {
+    ffmpeg(clipPath)
+      .noVideo()
+      .audioFilters(atempoChain(speed))
+      .on('error', (error) => reject(new Error(`Voice clip fitting failed: ${error.message}`)))
+      .on('end', () => resolve(outPath))
+      .save(outPath);
+  });
+}
+
+function pathOrSame(left, right) {
+  return !right || left === right;
 }
 
 /**

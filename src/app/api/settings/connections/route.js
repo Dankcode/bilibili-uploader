@@ -21,6 +21,7 @@ export async function GET() {
       credentialFields: connection?.credentialFields || [],
       status: connection?.status || 'untested',
       lastTestedAt: connection?.lastTestedAt || '',
+      defaults: connection?.preferences || {},
     };
   });
   return NextResponse.json({ checklist });
