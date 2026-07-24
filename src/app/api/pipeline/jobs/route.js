@@ -8,7 +8,9 @@
  * lib/pipeline/registry.js before touching lib/pipeline/pipeline.js.
  */
 import { NextResponse } from 'next/server';
-import { createJob, listJobs, retryJob, cancelJob } from '../../../../lib/pipeline/pipeline';
+import {
+  approveMetadata, cancelJob, createJob, listJobs, retryJob,
+} from '../../../../lib/pipeline/pipeline';
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -33,7 +35,10 @@ export async function POST(request) {
     if (body.action === 'cancel') {
       return NextResponse.json({ job: cancelJob(body.jobId) });
     }
-    return NextResponse.json({ error: 'Unknown action. Valid actions: create|retry|cancel' }, { status: 400 });
+    if (body.action === 'approveMetadata') {
+      return NextResponse.json({ job: approveMetadata(body.jobId, body.metadata) });
+    }
+    return NextResponse.json({ error: 'Unknown action. Valid actions: create|retry|cancel|approveMetadata' }, { status: 400 });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }

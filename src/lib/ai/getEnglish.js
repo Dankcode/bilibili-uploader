@@ -1,4 +1,5 @@
-const OpenAI = require("openai");
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 
 const PROVIDERS = {
   codex: {
@@ -12,17 +13,32 @@ const PROVIDERS = {
     defaultModel: "moonshot-v1-8k",
     baseURL: process.env.KIMI_BASE_URL || "https://api.moonshot.cn/v1",
   },
+  gemini: {
+    apiKeyEnv: 'GEMINI_API_KEY',
+    modelEnv: 'GEMINI_MODEL',
+    defaultModel: 'gemini-2.0-flash',
+    kind: 'gemini',
+  },
 };
 
-function getProviderConfig(overrideProvider) {
+function credentialValue(providerName, key, credentials = {}) {
+  const aliases = {
+    codex: { apiKey: ['openaiApiKey', 'apiKey'], model: ['openaiModel', 'model'], baseURL: ['openaiBaseURL'] },
+    kimi: { apiKey: ['kimiApiKey'], model: ['kimiModel'], baseURL: ['kimiBaseURL'] },
+    gemini: { apiKey: ['geminiApiKey'], model: ['geminiModel'] },
+  };
+  return aliases[providerName]?.[key]?.map((name) => credentials[name]).find(Boolean);
+}
+
+function getProviderConfig(overrideProvider, credentials = {}) {
   const providerName = (overrideProvider || process.env.AI_PROVIDER || "codex").toLowerCase();
   const provider = PROVIDERS[providerName];
 
   if (!provider) {
-    throw new Error(`Unsupported AI provider "${providerName}". Use "codex" or "kimi".`);
+    throw new Error(`Unsupported AI provider "${providerName}". Use "codex", "kimi", or "gemini".`);
   }
 
-  const apiKey = process.env[provider.apiKeyEnv];
+  const apiKey = credentialValue(providerName, 'apiKey', credentials) || process.env[provider.apiKeyEnv];
   if (!apiKey) {
     throw new Error(`Missing ${provider.apiKeyEnv} for provider "${providerName}".`);
   }
@@ -30,15 +46,17 @@ function getProviderConfig(overrideProvider) {
   return {
     providerName,
     apiKey,
-    baseURL: provider.baseURL,
-    model: process.env[provider.modelEnv] || provider.defaultModel,
+    baseURL: credentialValue(providerName, 'baseURL', credentials) || provider.baseURL,
+    model: credentialValue(providerName, 'model', credentials) || process.env[provider.modelEnv] || provider.defaultModel,
+    kind: provider.kind || 'openai',
   };
 }
 
 /** True when a specific provider is usable (key present). */
-function hasProvider(name) {
-  const provider = PROVIDERS[String(name || "").toLowerCase()];
-  return Boolean(provider && process.env[provider.apiKeyEnv]);
+function hasProvider(name, credentials = {}) {
+  const providerName = String(name || '').toLowerCase();
+  const provider = PROVIDERS[providerName];
+  return Boolean(provider && (credentialValue(providerName, 'apiKey', credentials) || process.env[provider.apiKeyEnv]));
 }
 
 function createClient(config) {
@@ -46,6 +64,54 @@ function createClient(config) {
     apiKey: config.apiKey,
     ...(config.baseURL ? { baseURL: config.baseURL } : {}),
   });
+}
+
+function providerOrder(requested, credentials = {}) {
+  const primary = String(requested || process.env.AI_PROVIDER || (hasProvider('kimi', credentials) ? 'kimi' : 'codex')).toLowerCase();
+  return [...new Set([primary, ...(primary === 'gemini' ? [] : ['gemini'])])];
+}
+
+async function requestCompletion(config, prompt, { system, temperature, json }) {
+  if (config.kind === 'gemini') {
+    const client = new GoogleGenerativeAI(config.apiKey);
+    const model = client.getGenerativeModel({
+      model: config.model,
+      generationConfig: {
+        temperature,
+        ...(json ? { responseMimeType: 'application/json' } : {}),
+      },
+    });
+    const response = await model.generateContent(`${system}\n\n${prompt}`);
+    return response.response.text();
+  }
+  const client = createClient(config);
+  const completion = await client.chat.completions.create({
+    model: config.model,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: prompt },
+    ],
+    temperature,
+  });
+  return completion.choices?.[0]?.message?.content || '';
+}
+
+async function completeText(prompt, {
+  system = 'Return only the requested result.', temperature = 0.2, provider, credentials = {}, json = false,
+} = {}) {
+  const failures = [];
+  for (const providerName of providerOrder(provider, credentials)) {
+    try {
+      const config = getProviderConfig(providerName, credentials);
+      const content = await requestCompletion(config, prompt, { system, temperature, json });
+      if (!String(content || '').trim()) throw new Error('Provider returned an empty response.');
+      console.info(`[AI] ${providerName}/${config.model} answered`);
+      return { content, provider: providerName, model: config.model };
+    } catch (error) {
+      failures.push(`${providerName}: ${error.message}`);
+    }
+  }
+  throw new Error(`No text provider completed the request (${failures.join('; ')}).`);
 }
 
 function buildMetadataPrompt(chineseName, chineseDesc) {
@@ -73,35 +139,11 @@ ${chineseDesc || ""}`;
 }
 
 async function getEnglishData(chineseName, chineseDesc) {
-  const config = getProviderConfig();
-  const client = createClient(config);
-
-  try {
-    const completion = await client.chat.completions.create({
-      model: config.model,
-      messages: [
-        {
-          role: "system",
-          content: "You generate concise, safe YouTube metadata and return valid JSON only.",
-        },
-        {
-          role: "user",
-          content: buildMetadataPrompt(chineseName, chineseDesc),
-        },
-      ],
-      temperature: 0.3,
-    });
-
-    const content = completion.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error(`No AI metadata returned from ${config.providerName}.`);
-    }
-
-    return content;
-  } catch (error) {
-    console.error(`Error creating ${config.providerName} completion:`, error);
-    throw error;
-  }
+  const result = await completeJsonWithMeta(buildMetadataPrompt(chineseName, chineseDesc), {
+    system: 'You generate concise, safe YouTube metadata and return valid JSON only.',
+    temperature: 0.3,
+  });
+  return JSON.stringify(result.data);
 }
 
 /**
@@ -130,27 +172,25 @@ function parseAiJson(raw) {
  * Generic "return me JSON" completion used by the pipeline (voiceover, scenes).
  * Retries once on a parse failure before giving up loudly.
  */
-async function completeJson(prompt, { system = "Return valid JSON only.", temperature = 0.2, provider } = {}) {
-  const config = getProviderConfig(provider);
-  const client = createClient(config);
+async function completeJsonWithMeta(prompt, {
+  system = 'Return valid JSON only.', temperature = 0.2, provider, credentials = {},
+} = {}) {
   let lastError = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const completion = await client.chat.completions.create({
-      model: config.model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: prompt },
-      ],
-      temperature,
+    const completion = await completeText(prompt, {
+      system, temperature, provider, credentials, json: true,
     });
-    const content = completion.choices?.[0]?.message?.content;
     try {
-      return parseAiJson(content);
+      return { ...completion, data: parseAiJson(completion.content) };
     } catch (error) {
       lastError = error;
     }
   }
   throw lastError || new Error("completeJson failed.");
+}
+
+async function completeJson(prompt, options = {}) {
+  return (await completeJsonWithMeta(prompt, options)).data;
 }
 
 /**
@@ -183,14 +223,19 @@ Return ONLY JSON of this exact shape:
 Segments:
 ${JSON.stringify(items, null, 2)}`;
 
-  const parsed = await completeJson(prompt, {
+  const completion = await completeJsonWithMeta(prompt, {
     system: "You are a professional subtitle translator. You return valid JSON only.",
     temperature: 0.3,
+    credentials: options.credentials,
   });
+  const parsed = completion.data;
   const out = Array.isArray(parsed?.segments) ? parsed.segments : [];
-  return out
+  const result = out
     .filter((s) => s && s.index !== undefined && s.textEn)
     .map((s) => ({ index: Number(s.index), textEn: String(s.textEn).trim() }));
+  result.provider = completion.provider;
+  result.model = completion.model;
+  return result;
 }
 
 /**
@@ -211,7 +256,7 @@ async function rescriptSegments(segments, options = {}) {
     .filter((s) => s.text);
   if (items.length === 0) return [];
 
-  const provider = options.provider || (hasProvider("kimi") ? "kimi" : undefined);
+  const provider = options.provider || (hasProvider('kimi', options.credentials) ? 'kimi' : undefined);
   const targetLang = options.targetLang || "English";
   const style = options.style
     ? `Voice & style: ${options.style}.`
@@ -230,21 +275,28 @@ Return ONLY JSON: { "segments": [ { "index": 0, "textEn": "..." } ] }
 Segments:
 ${JSON.stringify(items, null, 2)}`;
 
-  const parsed = await completeJson(prompt, {
+  const completion = await completeJsonWithMeta(prompt, {
     system: "You are a professional voiceover scriptwriter. You return valid JSON only.",
     temperature: 0.4,
     provider,
+    credentials: options.credentials,
   });
+  const parsed = completion.data;
   const out = Array.isArray(parsed?.segments) ? parsed.segments : [];
-  return out
+  const result = out
     .filter((s) => s && s.index !== undefined && s.textEn)
     .map((s) => ({ index: Number(s.index), textEn: String(s.textEn).trim() }));
+  result.provider = completion.provider;
+  result.model = completion.model;
+  return result;
 }
 
 export {
   getEnglishData,
   parseAiJson,
+  completeText,
   completeJson,
+  completeJsonWithMeta,
   translateSegments,
   rescriptSegments,
   hasProvider,

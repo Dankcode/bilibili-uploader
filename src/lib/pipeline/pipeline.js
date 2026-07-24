@@ -1,17 +1,20 @@
 import fs from 'fs';
 import path from 'path';
-import db from '../db/sqlite';
+import db, { finalizeUpload, logError, updateVideoStatus } from '../db/sqlite';
 import { getSource, getProcessor, getUploader } from './registry';
 import { getCredentials } from './connections';
 import * as bilibiliSource from './sources/bilibili';
 import * as douyinSource from './sources/douyin';
+import * as localFileSource from './sources/localFile';
 import * as voiceoverProcessor from './processors/voiceover';
 import * as aiEditorProcessor from './processors/aiEditor';
 import * as sceneCutProcessor from './processors/sceneCut';
 import * as faceFusionProcessor from './processors/faceFusion';
+import * as metadataProcessor from './processors/metadata';
 import * as youtubeUploader from './uploaders/youtube';
 
 const SOURCE_ADAPTERS = {
+  localFile: localFileSource,
   bilibili: bilibiliSource,
   douyin: douyinSource,
 };
@@ -21,6 +24,7 @@ const PROCESSOR_ADAPTERS = {
   aiEditor: aiEditorProcessor,
   sceneCut: sceneCutProcessor,
   faceFusion: faceFusionProcessor,
+  metadata: metadataProcessor,
 };
 
 const UPLOADER_ADAPTERS = {
@@ -199,9 +203,15 @@ async function runStep(job, step, currentFilePath, currentMeta) {
   } else if (role === 'processor') {
     const adapter = PROCESSOR_ADAPTERS[id];
     if (!adapter) throw new Error(`Processor adapter unavailable: ${id}`);
-    result = await adapter.process(currentFilePath, options[id] || {}, onProgress, credentials);
+    result = await adapter.process(currentFilePath, options[id] || {}, onProgress, credentials, currentMeta);
     if (!result?.outputPath) throw new Error(`Processor ${id} did not return outputPath`);
     saveAsset(job.id, id, result.outputPath, result.artifacts || {});
+    const providerDetails = [
+      result.artifacts?.metadataProvider && `metadata=${result.artifacts.metadataProvider}/${result.artifacts.metadataModel || 'default'}`,
+      result.artifacts?.translationProvider && `translation=${result.artifacts.translationProvider}/${result.artifacts.translationModel || 'default'}`,
+      result.artifacts?.rescriptProvider && `rescript=${result.artifacts.rescriptProvider}/${result.artifacts.rescriptModel || 'default'}`,
+    ].filter(Boolean);
+    if (providerDetails.length) appendStepLog(step.id, `Providers: ${providerDetails.join(', ')}`);
     currentFilePath = result.outputPath;
     currentMeta = { ...currentMeta, ...(result.artifacts || {}) };
   } else if (role === 'uploader') {
@@ -209,6 +219,9 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     if (!adapter) throw new Error(`Uploader adapter unavailable: ${id}`);
     result = await adapter.upload(currentFilePath, { ...currentMeta, ...(options[id] || {}) }, onProgress);
     saveAsset(job.id, 'remote', result?.url || result?.remoteId || '', result || {});
+    if (job.video_row_id && result?.url) {
+      finalizeUpload(job.video_row_id, result.url, new Date().toISOString().slice(0, 10));
+    }
     currentMeta = { ...currentMeta, ...(result || {}) };
   } else {
     throw new Error(`Unknown step role: ${role}`);
@@ -216,7 +229,7 @@ async function runStep(job, step, currentFilePath, currentMeta) {
 
   setStepStatus(step.id, 'ok', { progress: 100, progressNote: 'Done', finishedAt: nowIso() });
   appendStepLog(step.id, 'Step finished');
-  return { currentFilePath, currentMeta };
+  return { currentFilePath, currentMeta, pauseForReview: Boolean(result?.pauseForReview) };
 }
 
 export async function runNextQueuedJob() {
@@ -249,6 +262,14 @@ export async function runNextQueuedJob() {
       const output = await runStep(job, step, currentFilePath, currentMeta);
       currentFilePath = output.currentFilePath;
       currentMeta = output.currentMeta;
+      if (output.pauseForReview) {
+        db.prepare(`
+          UPDATE video_jobs
+          SET status = 'review', current_step = 'review:metadata', error = '', updated_at = ?
+          WHERE id = ?
+        `).run(nowIso(), job.id);
+        return job.id;
+      }
     }
     db.prepare("UPDATE video_jobs SET status = 'done', current_step = '', error = '', updated_at = ? WHERE id = ?").run(nowIso(), job.id);
   } catch (error) {
@@ -262,6 +283,10 @@ export async function runNextQueuedJob() {
       appendStepLog(activeStep.id, error.message);
     }
     db.prepare('UPDATE video_jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?').run(status, error.message, nowIso(), job.id);
+    if (job.video_row_id) {
+      updateVideoStatus(job.video_row_id, 'Not started');
+      logError(job.video_row_id, error.message);
+    }
   } finally {
     cancelSignals.delete(job.id);
     workerRunning = false;
@@ -325,6 +350,44 @@ export function retryJob(jobId) {
     `).run((failedStep.attempt || 1) + 1, failedStep.id);
   }
   db.prepare("UPDATE video_jobs SET status = 'queued', error = '', updated_at = ? WHERE id = ?").run(nowIso(), jobId);
+  if (job.video_row_id) updateVideoStatus(job.video_row_id, 'In progress');
+  scheduleWorker();
+  return { id: Number(jobId), status: 'queued' };
+}
+
+export function approveMetadata(jobId, patch = {}) {
+  const job = db.prepare('SELECT * FROM video_jobs WHERE id = ?').get(jobId);
+  if (!job) throw new Error(`Job not found: ${jobId}`);
+  if (job.status !== 'review') throw new Error('Only jobs waiting for metadata review can be approved');
+  const asset = db.prepare(`
+    SELECT * FROM video_assets
+    WHERE job_id = ? AND kind = 'metadata'
+    ORDER BY id DESC
+    LIMIT 1
+  `).get(jobId);
+  if (!asset) throw new Error('Metadata review asset was not found');
+  const current = parseJson(asset.meta_json, {});
+  const titleEn = String(patch.titleEn ?? current.titleEn ?? '').trim();
+  const descriptionEn = String(patch.descriptionEn ?? current.descriptionEn ?? '').trim();
+  const tags = Array.isArray(patch.tags)
+    ? patch.tags.map((tag) => String(tag).trim()).filter(Boolean)
+    : current.tags;
+  if (!titleEn || !descriptionEn || !Array.isArray(tags) || tags.length === 0) {
+    throw new Error('Title, description, and at least one tag are required');
+  }
+  db.prepare('UPDATE video_assets SET meta_json = ? WHERE id = ?').run(JSON.stringify({
+    ...current,
+    titleEn,
+    descriptionEn,
+    tags,
+    metadataReviewRequired: false,
+    metadataApprovedAt: nowIso(),
+  }), asset.id);
+  db.prepare(`
+    UPDATE video_jobs
+    SET status = 'queued', current_step = '', error = '', updated_at = ?
+    WHERE id = ?
+  `).run(nowIso(), jobId);
   scheduleWorker();
   return { id: Number(jobId), status: 'queued' };
 }
@@ -336,9 +399,10 @@ export function cancelJob(jobId) {
     const signal = cancelSignals.get(Number(jobId));
     if (signal) signal.canceled = true;
   }
-  if (job.status === 'queued') {
+  if (job.status === 'queued' || job.status === 'review') {
     db.prepare("UPDATE video_jobs SET status = 'canceled', error = 'Canceled by user', updated_at = ? WHERE id = ?").run(nowIso(), jobId);
     db.prepare("UPDATE video_job_steps SET status = 'skipped', progress_note = 'Canceled by user' WHERE job_id = ? AND status = 'pending'").run(jobId);
+    if (job.video_row_id) updateVideoStatus(job.video_row_id, 'Not started');
   }
-  return { id: Number(jobId), status: job.status === 'queued' ? 'canceled' : 'canceling' };
+  return { id: Number(jobId), status: (job.status === 'queued' || job.status === 'review') ? 'canceled' : 'canceling' };
 }

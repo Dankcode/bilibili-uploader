@@ -130,11 +130,57 @@ export function initDB() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS studio_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      video_path TEXT NOT NULL,
+      transcript_md TEXT DEFAULT '',
+      subtitle_text TEXT DEFAULT '',
+      format TEXT DEFAULT 'ass',
+      chat_history_json TEXT DEFAULT '[]',
+      frame_manifest_json TEXT DEFAULT '[]',
+      stage_status_json TEXT DEFAULT '{}',
+      analysis_json TEXT DEFAULT '{}',
+      source_lang TEXT DEFAULT 'zh',
+      target_lang TEXT DEFAULT 'en',
+      quality TEXT DEFAULT 'fast',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS api_usage (
+      day TEXT NOT NULL,
+      service TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      seconds REAL NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (day, service, key_hash)
+    );
+
+    CREATE TABLE IF NOT EXISTS pipeline_presets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      template_json TEXT NOT NULL DEFAULT '{}',
+      built_in INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_video_jobs_status_created ON video_jobs(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_video_job_steps_job_id ON video_job_steps(job_id);
     CREATE INDEX IF NOT EXISTS idx_video_assets_job_id ON video_assets(job_id);
+    CREATE INDEX IF NOT EXISTS idx_studio_projects_updated ON studio_projects(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_api_usage_day_service ON api_usage(day, service);
+    CREATE INDEX IF NOT EXISTS idx_pipeline_presets_updated ON pipeline_presets(updated_at DESC);
   `);
   addColumnIfMissing('videos', 'tags', "TEXT DEFAULT '[]'");
+  addColumnIfMissing('studio_projects', 'analysis_json', "TEXT DEFAULT '{}'");
   console.log('SQLite Database initialized at:', dbPath);
 }
 

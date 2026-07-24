@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * GenerateStudio — one-click "Generate" for the full automated pipeline.
- * Builds a preset job (source → voiceover → faceFusion → youtube, private-first)
+ * GenerateStudio - one-click automation for a persisted pipeline preset.
+ * Builds a preset job (source -> selected processors -> uploader, private-first)
  * and shows a live n8n-style ProgressTree of the run. Minimal interference:
  * per-step options come from the saved connection defaults, so a single click
  * runs the whole chain.
@@ -27,13 +27,16 @@ const STATUS_COLOR = {
 const CHAIN = [
   { id: 'voiceover', label: 'AI Voiceover', hint: 'transcribe → translate → Kimi re-script → TTS' },
   { id: 'faceFusion', label: 'Face Fusion', hint: 'automated targeted face swap' },
+  { id: 'metadata', label: 'Auto Metadata', hint: 'title, description, and tags from the transcript' },
 ];
 
 export default function GenerateStudio({ defaultSourceInput = '' }) {
   const [connections, setConnections] = useState([]);
   const [sourceId, setSourceId] = useState('bilibili');
   const [sourceInput, setSourceInput] = useState(defaultSourceInput);
-  const [steps, setSteps] = useState({ voiceover: true, faceFusion: true });
+  const [steps, setSteps] = useState({ voiceover: true, faceFusion: false, metadata: true });
+  const [sttBackend, setSttBackend] = useState('openaiWhisper');
+  const [sttQuality, setSttQuality] = useState('fast');
   const [publish, setPublish] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [activeJobId, setActiveJobId] = useState(null);
@@ -41,13 +44,21 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
   const [submitting, setSubmitting] = useState(false);
   const [preflight, setPreflight] = useState(null);
   const [checking, setChecking] = useState(false);
+  const [presets, setPresets] = useState([]);
+  const [presetId, setPresetId] = useState('studio-full-auto');
 
   useEffect(() => { setSourceInput((v) => v || defaultSourceInput); }, [defaultSourceInput]);
 
   const loadConnections = async () => {
     const res = await fetch('/api/settings/connections', { cache: 'no-store' });
     const data = await res.json();
-    if (res.ok) setConnections(data.checklist || []);
+    if (res.ok) {
+      const rows = data.checklist || [];
+      setConnections(rows);
+      const voiceover = rows.find((row) => row.id === 'voiceover');
+      setSttBackend(voiceover?.defaults?.sttBackend || 'openaiWhisper');
+      setSttQuality(voiceover?.defaults?.sttQuality || 'fast');
+    }
   };
 
   const loadJobs = async () => {
@@ -60,20 +71,50 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
     }
   };
 
+  const applyPreset = (preset) => {
+    if (!preset) return;
+    const selected = new Set(preset.template?.processorIds || []);
+    setSteps(Object.fromEntries(CHAIN.map((item) => [item.id, selected.has(item.id)])));
+    setPublish(Boolean(preset.template?.uploaderId));
+    setPresetId(preset.id);
+  };
+
+  const loadPresets = async () => {
+    const response = await fetch('/api/pipeline/presets', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to load automation presets');
+    const rows = data.presets || [];
+    setPresets(rows);
+    applyPreset(rows.find((item) => item.id === presetId) || rows[0]);
+  };
+
   useEffect(() => {
     loadConnections();
     loadJobs();
+    loadPresets().catch((nextError) => setError(nextError.message));
     const t = setInterval(() => { if (!document.hidden) loadJobs(); }, 2000);
     return () => clearInterval(t);
   }, []);
 
   const statusOf = (id) => connections.find((c) => c.id === id) || {};
   const activeJob = useMemo(() => jobs.find((j) => j.id === activeJobId) || jobs[0] || null, [jobs, activeJobId]);
+  const selectedPreset = useMemo(() => presets.find((item) => item.id === presetId) || null, [presets, presetId]);
+
+  const plannedOptions = () => {
+    const defaults = selectedPreset?.template?.options || {};
+    return {
+      ...defaults,
+      ...(steps.voiceover ? { voiceover: { ...(defaults.voiceover || {}), sttBackend, sttQuality } } : {}),
+      ...(steps.metadata ? { metadata: { ...(defaults.metadata || {}) } } : {}),
+      ...(publish ? { youtube: { privacyStatus: 'private', ...(defaults.youtube || {}) } } : {}),
+    };
+  };
 
   const plannedSteps = () => ({
     sourceId,
     processorIds: CHAIN.filter((c) => steps[c.id]).map((c) => c.id),
     uploaderId: publish ? 'youtube' : '',
+    options: plannedOptions(),
   });
 
   const runPreflight = async () => {
@@ -95,7 +136,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
   };
 
   // Re-checking is required whenever the chain changes.
-  useEffect(() => { setPreflight(null); }, [sourceId, steps.voiceover, steps.faceFusion, publish]);
+  useEffect(() => { setPreflight(null); }, [sourceId, steps.voiceover, steps.faceFusion, steps.metadata, publish, sttBackend, sttQuality, presetId]);
 
   const generate = async () => {
     setError('');
@@ -109,7 +150,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
       uploaderId: publish ? 'youtube' : '',
       // Private-first publish; all other per-step options fall back to saved
       // connection defaults so this stays one-click.
-      options: publish ? { youtube: { privacyStatus: 'private' } } : {},
+      options: plannedOptions(),
     };
     setSubmitting(true);
     try {
@@ -141,6 +182,13 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
         <div className={styles.cardHeader}><h3>Generate</h3></div>
         <div className={styles.panelBody}>
           <div className={styles.formStack}>
+            <label className={styles.fieldLabel}>Automation preset</label>
+            <select className={styles.select} value={presetId} onChange={(event) => {
+              applyPreset(presets.find((item) => item.id === event.target.value));
+            }}>
+              {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+            </select>
+
             <label className={styles.fieldLabel}>Source</label>
             <div className={styles.filterBar}>
               {SOURCES.map((s) => (
@@ -181,6 +229,23 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
               </label>
             </div>
 
+            {steps.voiceover && (
+              <>
+                <label className={styles.fieldLabel}>Speech-to-text engine</label>
+                <div className={styles.viewTabs}>
+                  <button className={`${styles.viewTab} ${sttBackend === 'openaiWhisper' ? styles.activeViewTab : ''}`} onClick={() => setSttBackend('openaiWhisper')}>API Whisper</button>
+                  <button className={`${styles.viewTab} ${sttBackend === 'localWhisper' ? styles.activeViewTab : ''}`} onClick={() => setSttBackend('localWhisper')}>Local Whisper</button>
+                </div>
+                {sttBackend === 'localWhisper' && (
+                  <div className={styles.viewTabs}>
+                    {['fast', 'balanced', 'best'].map((quality) => (
+                      <button key={quality} className={`${styles.viewTab} ${sttQuality === quality ? styles.activeViewTab : ''}`} onClick={() => setSttQuality(quality)}>{quality}</button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
             {/* Preflight — inspect & test every step before full automation */}
             <div className={styles.preflightHead}>
               <span className={styles.fieldLabel}>Preflight</span>
@@ -211,7 +276,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
 
             {error && <div className={styles.errorText}>{error}</div>}
             <button className={styles.generateBtn} onClick={generate} disabled={submitting}>
-              {submitting ? 'Starting…' : preflight && !preflight.ready ? '⚡ Generate anyway' : '⚡ Generate'}
+              {submitting ? 'Starting…' : preflight && !preflight.ready ? 'Automate anyway' : 'Automate'}
             </button>
             {!preflight && <div className={styles.muted}>Tip: run “Check steps” first to verify the pipeline before automating.</div>}
           </div>
@@ -230,7 +295,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
           )}
         </div>
         <div className={styles.panelBody}>
-          {!activeJob && <div className={styles.muted}>No runs yet. Hit Generate to start the pipeline.</div>}
+          {!activeJob && <div className={styles.muted}>No runs yet. Choose a preset and automate.</div>}
           {activeJob && (
             <>
               <div className={styles.jobSource}>{activeJob.sourceId} · {activeJob.sourceInput}</div>
