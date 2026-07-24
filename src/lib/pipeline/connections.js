@@ -2,10 +2,12 @@ import db from '../db/sqlite';
 import { SOURCES, PROCESSORS, UPLOADERS } from './registry';
 import * as bilibiliSource from './sources/bilibili';
 import * as douyinSource from './sources/douyin';
+import * as localFileSource from './sources/localFile';
 import * as voiceoverProcessor from './processors/voiceover';
 import * as aiEditorProcessor from './processors/aiEditor';
 import * as sceneCutProcessor from './processors/sceneCut';
 import * as faceFusionProcessor from './processors/faceFusion';
+import * as metadataProcessor from './processors/metadata';
 import * as youtubeUploader from './uploaders/youtube';
 
 const SERVICES = [
@@ -15,12 +17,14 @@ const SERVICES = [
 ];
 
 const ADAPTERS = {
+  localFile: localFileSource,
   bilibili: bilibiliSource,
   douyin: douyinSource,
   voiceover: voiceoverProcessor,
   aiEditor: aiEditorProcessor,
   sceneCut: sceneCutProcessor,
   faceFusion: faceFusionProcessor,
+  metadata: metadataProcessor,
   youtube: youtubeUploader,
 };
 
@@ -54,6 +58,9 @@ function isConfigured(service, credentials) {
 function publicRow(row) {
   const service = getService(row.service_id);
   const credentials = parseJson(row.credentials_json, {});
+  const preferences = Object.fromEntries((service.credentialFields || [])
+    .filter((field) => field.type !== 'secret' && credentials[field.key] !== undefined)
+    .map((field) => [field.key, credentials[field.key]]));
   return {
     serviceId: row.service_id,
     configured: isConfigured(service, credentials),
@@ -64,6 +71,7 @@ function publicRow(row) {
     updatedAt: row.updated_at,
     role: service.role,
     credentialFields: service.credentialFields || [],
+    preferences,
   };
 }
 
@@ -83,6 +91,7 @@ export function listConnections() {
       updatedAt: '',
       role: service.role,
       credentialFields: service.credentialFields || [],
+      preferences: {},
     };
   });
 }

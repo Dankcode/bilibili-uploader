@@ -24,10 +24,17 @@
 
 export const SOURCES = [
   {
+    id: 'localFile',
+    label: 'Local File',
+    credentialFields: [],
+    inputKinds: ['absolute-path'],
+    adapterPath: 'src/lib/pipeline/sources/localFile.js',
+  },
+  {
     id: 'bilibili',
     label: 'Bilibili',
     // Adapter WRAPS the existing working code: lib/video/scraper.js (space
-    // pages via puppeteer) + lib/video/bilibili.js processBilibiliUrl (download).
+    // pages via Playwright) + lib/video/bilibili.js processBilibiliUrl (download).
     credentialFields: [{ key: 'sessdata', label: 'SESSDATA Cookie (for HD)', type: 'secret' }],
     inputKinds: ['video-url', 'space-url'],
     adapterPath: 'src/lib/pipeline/sources/bilibili.js',
@@ -55,11 +62,16 @@ export const PROCESSORS = [
     // Only the fields for the chosen tts/translation backend need filling.
     credentialFields: [
       // -- transcription --
-      { key: 'transcribeApiKey', label: 'Whisper API Key (OpenAI-compatible)', type: 'secret' },
+      { key: 'sttBackend', label: 'STT Backend', type: 'text', required: false, placeholder: 'openaiWhisper | localWhisper' },
+      { key: 'sttQuality', label: 'Local STT Quality', type: 'text', required: false, placeholder: 'fast | balanced | best' },
+      { key: 'transcribeApiKey', label: 'Whisper API Key (OpenAI-compatible)', type: 'secret', required: false },
       { key: 'transcribeBaseUrl', label: 'Whisper Base URL', type: 'text', required: false, placeholder: 'https://api.openai.com/v1 (or Groq / self-hosted)' },
       { key: 'transcribeModel', label: 'Whisper Model', type: 'text', required: false, placeholder: 'whisper-1' },
       // -- translation + re-scripting --
-      { key: 'translationBackend', label: 'Translation Backend', type: 'text', required: false, placeholder: 'aiProvider | liveTranslation' },
+      { key: 'translationBackend', label: 'Translation Backend', type: 'text', required: false, placeholder: 'aiProvider | liveTranslation | googleFree | gemini' },
+      { key: 'geminiApiKey', label: 'Gemini API Key', type: 'secret', required: false },
+      { key: 'geminiModel', label: 'Gemini Model', type: 'text', required: false, placeholder: 'gemini-1.5-flash' },
+      { key: 'geminiRefine', label: 'Gemini Refine (on/off)', type: 'text', required: false, placeholder: 'off' },
       { key: 'rescript', label: 'Kimi Re-script (on/off)', type: 'text', required: false, placeholder: 'on' },
       { key: 'rescriptStyle', label: 'Re-script Voice/Style', type: 'text', required: false, placeholder: 'e.g. calm, documentary narrator' },
       // -- tts selection --
@@ -80,6 +92,7 @@ export const PROCESSORS = [
       { key: 'qwenModel', label: 'Qwen3-TTS Model', type: 'text', required: false, placeholder: 'qwen3-tts-flash' },
       { key: 'qwenBaseUrl', label: 'DashScope Base URL', type: 'text', required: false, placeholder: 'https://dashscope-intl.aliyuncs.com for intl' },
       { key: 'qwenLocalEndpoint', label: 'Qwen3-TTS Local Server (optional)', type: 'text', required: false, placeholder: 'http://127.0.0.1:8000' },
+      { key: 'maxDailySeconds', label: 'Daily API Cap (seconds)', type: 'text', required: false, placeholder: '21600' },
     ],
     adapterPath: 'src/lib/pipeline/processors/voiceover.js',
   },
@@ -104,6 +117,19 @@ export const PROCESSORS = [
     adapterPath: 'src/lib/pipeline/processors/faceFusion.js',
   },
   {
+    id: 'metadata',
+    label: 'AI Metadata (title, description, tags)',
+    credentialFields: [
+      { key: 'provider', label: 'Primary Provider', type: 'text', required: false, placeholder: 'kimi | codex | gemini' },
+      { key: 'metadataStyle', label: 'Metadata Style', type: 'text', required: false, placeholder: 'professional | educational | asmr' },
+      { key: 'kimiApiKey', label: 'Kimi API Key', type: 'secret', required: false },
+      { key: 'kimiModel', label: 'Kimi Model', type: 'text', required: false, placeholder: 'moonshot-v1-32k' },
+      { key: 'geminiApiKey', label: 'Gemini API Key', type: 'secret', required: false },
+      { key: 'geminiModel', label: 'Gemini Model', type: 'text', required: false, placeholder: 'gemini-2.0-flash' },
+    ],
+    adapterPath: 'src/lib/pipeline/processors/metadata.js',
+  },
+  {
     id: 'aiEditor',
     label: 'AI Video Editor (HuggingFace LAN)',
     credentialFields: [
@@ -118,7 +144,7 @@ export const PROCESSORS = [
     label: 'Scene Snippet Cutter',
     // fluent-ffmpeg (already a dep) cut+concat driven by SceneScript beats.
     credentialFields: [],
-    adapterPath: 'src/lib/pipeline/processors/sceneCut.js', // TODO create at impl
+    adapterPath: 'src/lib/pipeline/processors/sceneCut.js',
   },
 ];
 

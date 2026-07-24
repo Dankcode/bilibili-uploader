@@ -14,7 +14,11 @@ export async function translate(segments, options = {}) {
     sourceLang: options.sourceLang,
     targetLang: options.targetLang || 'English',
     style: options.style,
+    credentials: options.credentials,
   });
   const byIndex = new Map(translated.map((t) => [t.index, t.textEn]));
-  return segments.map((seg) => ({ ...seg, textEn: byIndex.get(seg.index) || '' }));
+  const result = segments.map((seg) => ({ ...seg, textEn: byIndex.get(seg.index) || '' }));
+  result.provider = translated.provider;
+  result.model = translated.model;
+  return result;
 }

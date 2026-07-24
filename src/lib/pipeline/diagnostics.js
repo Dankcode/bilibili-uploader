@@ -3,7 +3,10 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import db from '../db/sqlite';
+import { getLocalWhisperStatus } from '../studio/localWhisper';
 import { getCredentials } from './connections';
+import { getUsageSummary } from './usage';
+import * as localFile from './sources/localFile';
 import * as bilibili from './sources/bilibili';
 import * as douyin from './sources/douyin';
 import * as youtube from './uploaders/youtube';
@@ -11,19 +14,21 @@ import * as voiceover from './processors/voiceover';
 import * as aiEditor from './processors/aiEditor';
 import * as sceneCut from './processors/sceneCut';
 import * as faceFusion from './processors/faceFusion';
+import * as metadata from './processors/metadata';
 
 const execFileAsync = promisify(execFile);
 
 // Every adapter that can be a pipeline step, keyed by service id — used by the
 // run-specific preflight so "the steps you'll run" are exactly what gets tested.
 const STEP_ADAPTERS = {
-  bilibili, douyin,
-  voiceover, aiEditor, sceneCut, faceFusion,
+  localFile, bilibili, douyin,
+  voiceover, aiEditor, sceneCut, faceFusion, metadata,
   youtube,
 };
 const STEP_LABELS = {
-  bilibili: 'Bilibili source', douyin: 'Douyin source',
+  localFile: 'Local file source', bilibili: 'Bilibili source', douyin: 'Douyin source',
   voiceover: 'AI Voiceover', aiEditor: 'AI Editor', sceneCut: 'Scene Cut', faceFusion: 'Face Fusion',
+  metadata: 'AI Metadata',
   youtube: 'YouTube upload',
 };
 const STEP_FIX = {
@@ -33,6 +38,7 @@ const STEP_FIX = {
   faceFusion: 'Run scripts/install_facefusion.sh, set facefusionDir + a source face image in Settings ▸ faceFusion, then Test.',
   aiEditor: 'Set and Test the HuggingFace editor endpoint in Settings ▸ aiEditor.',
   sceneCut: 'No external service — this runs locally with ffmpeg.',
+  metadata: 'Configure Kimi, OpenAI, or Gemini for the metadata processor, then Test.',
   youtube: 'Configure the Python OAuth uploader / YOUTUBE_CHANNEL_ID.',
 };
 
@@ -79,7 +85,10 @@ function checkDisk() {
 }
 
 function checkDbOpen() {
-  const required = ['video_jobs', 'video_job_steps', 'video_assets', 'service_connections'];
+  const required = [
+    'video_jobs', 'video_job_steps', 'video_assets', 'service_connections',
+    'studio_projects', 'api_usage', 'pipeline_presets', 'app_settings',
+  ];
   const existing = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name));
   const missing = required.filter((table) => !existing.has(table));
   if (missing.length) return fail('db_open', 'Pipeline tables', `Missing: ${missing.join(', ')}`, 'Restart the Next.js server so initDB can run migrations.');
@@ -99,10 +108,40 @@ function checkDbIntegrity() {
 }
 
 function checkAiKey() {
-  const provider = (process.env.AI_PROVIDER || 'codex').toLowerCase();
-  const envName = provider === 'kimi' ? 'KIMI_API_KEY' : 'OPENAI_API_KEY';
-  if (!process.env[envName]) return warn('ai_key', 'AI metadata key', `${envName} is not set`, 'Set the provider API key before generating titles/descriptions.');
-  return ok('ai_key', 'AI metadata key', `${envName} configured`);
+  const configured = [
+    ['Kimi', process.env.KIMI_API_KEY],
+    ['OpenAI', process.env.OPENAI_API_KEY],
+    ['Gemini', process.env.GEMINI_API_KEY],
+  ].filter(([, value]) => Boolean(value)).map(([name]) => name);
+  if (!configured.length) return warn('ai_key', 'AI metadata key', 'No text provider key is set', 'Set a Kimi, OpenAI, or Gemini key before generating metadata.');
+  return ok('ai_key', 'AI metadata key', `${configured.join(', ')} configured`);
+}
+
+function checkLocalWhisper() {
+  const credentials = getCredentials('voiceover');
+  const selected = credentials.sttBackend === 'localWhisper';
+  const status = getLocalWhisperStatus(credentials.sttQuality || 'fast');
+  if (status.ready) {
+    const detail = `${status.model.label}: ${status.model.cached ? 'cached' : 'downloads on first run'}`;
+    return ok('local_whisper', 'Local Whisper', detail);
+  }
+  const missing = Object.entries(status.checks).filter(([, ready]) => !ready).map(([name]) => name).join(', ');
+  const detail = `Missing: ${missing}`;
+  return selected
+    ? fail('local_whisper', 'Local Whisper', detail, 'Install ffmpeg or enable model downloads, then retry the selected local STT backend.')
+    : warn('local_whisper', 'Local Whisper', detail, 'Optional while API Whisper is selected.');
+}
+
+function checkQuota() {
+  const credentials = getCredentials('voiceover');
+  const cap = Number(credentials.maxDailySeconds) || 21600;
+  const rows = getUsageSummary(undefined, cap);
+  if (!rows.length) return ok('quota', 'Daily API quota', 'No metered use today');
+  const highest = rows.reduce((current, row) => row.ratio > current.ratio ? row : current, rows[0]);
+  const detail = `${highest.service}: ${Math.round(highest.seconds / 60)} / ${Math.round(cap / 60)} min`;
+  return highest.ratio >= 0.8
+    ? warn('quota', 'Daily API quota', detail, 'Raise the connection cap or wait for the UTC daily reset.')
+    : ok('quota', 'Daily API quota', detail);
 }
 
 export async function runDiagnostics() {
@@ -112,6 +151,8 @@ export async function runDiagnostics() {
     () => checkCommand('ffmpeg', 'ffmpeg', 'ffmpeg', ['-version'], 'Install ffmpeg and make sure it is on PATH.'),
     () => checkCommand('python', 'Python uploader runtime', 'python3', ['--version'], 'Install Python 3.10+ and keep python3 on PATH.'),
     () => checkDisk(),
+    () => checkLocalWhisper(),
+    () => checkQuota(),
     async () => {
       const result = await douyin.testConnection(getCredentials('douyin'));
       return result.ok ? ok('douyin_sidecar', 'Douyin sidecar', 'Reachable') : warn('douyin_sidecar', 'Douyin sidecar', result.error, 'Start vendor/douyin-downloader with python run.py --server --port 8756.');
@@ -150,6 +191,7 @@ export async function runPreflight(plan = {}) {
   const sourceId = plan.sourceId ? String(plan.sourceId) : '';
   const processorIds = Array.isArray(plan.processorIds) ? plan.processorIds.map(String) : [];
   const uploaderId = plan.uploaderId ? String(plan.uploaderId) : '';
+  const options = plan.options && typeof plan.options === 'object' ? plan.options : {};
 
   const order = [
     ...(sourceId ? [{ role: 'source', id: sourceId }] : []),
@@ -172,7 +214,7 @@ export async function runPreflight(plan = {}) {
       return { id, role, label, status: 'warn', detail: 'No automated check for this step.', fixHint: STEP_FIX[id] || '' };
     }
     try {
-      const result = await adapter.testConnection(getCredentials(id));
+      const result = await adapter.testConnection({ ...getCredentials(id), ...(options[id] || {}) });
       return result.ok
         ? { id, role, label, status: 'ok', detail: 'Ready', fixHint: '' }
         : { id, role, label, status: 'fail', detail: String(result.error || 'Not ready').slice(0, 240), fixHint: STEP_FIX[id] || '' };
@@ -197,6 +239,7 @@ function settleSync(check) {
 export function classifyError(errorText = '') {
   const text = String(errorText).toLowerCase();
   if (text.includes('ffmpeg')) return { checkId: 'ffmpeg', fixHint: 'Run diagnostics and fix the ffmpeg install.' };
+  if (text.includes('quota') || text.includes('daily cap')) return { checkId: 'quota', fixHint: 'Check today\'s API usage and the configured daily cap.' };
   if (text.includes('python') || text.includes('uploader')) return { checkId: 'python', fixHint: 'Check Python and YouTube uploader diagnostics.' };
   if (text.includes('douyin') || text.includes('sidecar')) return { checkId: 'douyin_sidecar', fixHint: 'Start the Douyin sidecar and test the connection.' };
   if (text.includes('voice') || text.includes('tts') || text.includes('whisper') || text.includes('elevenlabs') || text.includes('cosyvoice') || text.includes('qwen')) return { checkId: 'voiceover', fixHint: 'Test the AI Voiceover service in Settings.' };

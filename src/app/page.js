@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import DouyinImporter from '@/components/DouyinImporter';
 import GenerateStudio from '@/components/GenerateStudio';
 import PipelineDashboard from '@/components/PipelineDashboard';
@@ -14,6 +15,11 @@ import {
 } from './actions';
 import styles from './page.module.css';
 
+const SubtitleStudio = dynamic(() => import('@/components/SubtitleStudio'), {
+  loading: () => <div className={styles.panelBody}>Loading Subtitle Studio...</div>,
+  ssr: false,
+});
+
 // --- Minimal inline icon set (keeps the shell dependency-free) ---
 const Icon = ({ path, viewBox = '0 0 24 24' }) => (
   <svg width="16" height="16" viewBox={viewBox} fill="none" stroke="currentColor"
@@ -23,6 +29,7 @@ const Icon = ({ path, viewBox = '0 0 24 24' }) => (
 );
 const ICONS = {
   generate: <Icon path={<><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" /></>} />,
+  studio: <Icon path={<><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M7 9h10M7 13h7M7 17h4" /></>} />,
   content: <Icon path={<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 4v16" /></>} />,
   douyin: <Icon path={<><path d="M9 18V6l9 5-9 5" /><circle cx="6" cy="18" r="2" /></>} />,
   pipeline: <Icon path={<><circle cx="6" cy="6" r="2" /><circle cx="18" cy="18" r="2" /><path d="M6 8v6a4 4 0 0 0 4 4h6" /></>} />,
@@ -32,6 +39,7 @@ const ICONS = {
 };
 
 const NAV_ITEMS = [
+  ['studio', 'Subtitle Studio'],
   ['generate', 'Generate'],
   ['content', 'Content Queue'],
   ['douyin', 'Douyin Import'],
@@ -54,7 +62,7 @@ export default function Dashboard() {
   const [status, setStatus] = useState('Idle');
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
-  const [activeView, setActiveView] = useState('generate');
+  const [activeView, setActiveView] = useState('studio');
 
   // Management Modals
   const [showAddChannel, setShowAddChannel] = useState(false);
@@ -151,7 +159,7 @@ export default function Dashboard() {
     setLoading(videoId);
     setStatus('Force Uploading...');
     const res = await triggerSpecificVideo(videoId);
-    setStatus(res.success ? 'Upload Finished' : 'Upload Failed');
+    setStatus(res.success ? `Queued job #${res.job?.id || ''}`.trim() : 'Queue Failed');
     setLoading(null);
     loadVideos(activeSpaceId);
   };
@@ -190,7 +198,7 @@ export default function Dashboard() {
           <div className={styles.brandMark}>S</div>
           <div>
             <div className={styles.brandName}>Studio Suite</div>
-            <div className={styles.brandTag}>v4 · Hierarchical Hub</div>
+            <div className={styles.brandTag}>v5 · Media Ops</div>
           </div>
         </div>
 
@@ -220,10 +228,10 @@ export default function Dashboard() {
         <header className={styles.topbar}>
           <div className={styles.logoRow}>
             <h1 className={styles.title}>{activeNavLabel}</h1>
-            <span className={styles.badge}>{activeSpace?.name || 'No source'}</span>
+            <span className={styles.badge}>{activeView === 'studio' ? 'Local workspace' : activeSpace?.name || 'No source'}</span>
           </div>
 
-          <div className={styles.actionsBar}>
+          {activeView !== 'studio' && <div className={styles.actionsBar}>
             <div className={styles.contextGroup}>
               <span className={styles.ctxLabel}>Channel</span>
               <select
@@ -268,7 +276,7 @@ export default function Dashboard() {
             <button onClick={() => triggerContinuousWorkflow(activeSpaceId)} disabled={!activeSpaceId} className={styles.buttonSecondary}>
               Continuous Loop
             </button>
-          </div>
+          </div>}
         </header>
 
         <main className={styles.mainFull}>
@@ -299,6 +307,7 @@ export default function Dashboard() {
           )}
 
           {activeView === 'generate' && <GenerateStudio defaultSourceInput={activeSpaceId || ''} />}
+          {activeView === 'studio' && <SubtitleStudio channels={channels} onPublished={() => setActiveView('pipeline')} />}
           {activeView === 'douyin' && <DouyinImporter onCreated={() => setActiveView('pipeline')} />}
           {activeView === 'pipeline' && <PipelineDashboard />}
           {activeView === 'scenes' && <SceneRepository />}

@@ -20,9 +20,10 @@ The chain is data-driven: a job lists `processorIds` in order, so you can run
 ## Data flow
 
 1. **Extract audio** — `lib/media/ffmpeg.js#extractAudio` → mono 16 kHz WAV.
-2. **Transcribe** — `lib/translation/whisper.js` (OpenAI-compatible Whisper,
-   `verbose_json`, segment timestamps) → `{ language, segments[{index,start,end,text}] }`.
-   Reuses `options.existingTranscript` when the scene pipeline already produced one.
+2. **Transcribe** — `lib/stt/index.js` selects either OpenAI-compatible Whisper
+   (`openaiWhisper`) or local Transformers.js Whisper (`localWhisper`, quality
+   tiers `fast`/`balanced`/`best`). Both return timestamped segments. Existing
+   scene transcripts and `{srtPath}` sidecars bypass STT.
 3. **Translate (+ transliterate)** — `lib/translation/translator.js` runs the
    chosen backend, then adds romanization. Output segments carry
    `{ text (source), textEn, translit, start, end }`.
@@ -34,9 +35,10 @@ The chain is data-driven: a job lists `processorIds` in order, so you can run
    **ElevenLabs** (`eleven_multilingual_v2`, cloud) or **CosyVoice** (Alibaba,
    self-hosted local voice clone). Each engine is one file behind a shared
    `synthesizeToFile` contract.
-6. **Assemble** — `lib/media/ffmpeg.js#mixVoiceover` ducks the original audio to
-   ~15% and overlays each TTS clip at its segment start (`adelay` + `amix`).
-   Optional burned English subtitles (`burnSubtitles`).
+6. **Assemble** — every generated clip is pitch-preservingly fitted to its cue
+   window with chained `atempo`, then `mixVoiceover` ducks the original audio
+   and overlays the fitted speech. English and dual-language SRT files are
+   emitted; English subtitles can also be burned into the video.
 7. **Persist** — returns `{ outputPath, artifacts }`; the pipeline writes the
    transcript, translated text, re-scripted narration, SRT, backends, and
    duration as `video_assets` so re-runs and the scene engine reuse them.
@@ -85,11 +87,14 @@ The processor also auto-clones the repo on first Test if the folder is empty.
 `faceEnhancer = on` adds GFPGAN enhancement. Runs headless with a 1-hour cap;
 progress is parsed from CLI output. Needs a GPU for reasonable speed.
 
-## Where `live-translation` plugs in
+## Translation backends
 
-Translation is the one stage designed to be swapped for your
-`~/Documents/GitHub/live-translation` project. The seam is
-`lib/translation/backends/liveTranslation.js`.
+`translationBackend` supports four implementations:
+
+- `aiProvider` - the existing Kimi/OpenAI JSON translation layer.
+- `googleFree` - server-side Google Translate GET requests with retry and loud failure.
+- `gemini` - batch translation with optional one-pass refinement.
+- `liveTranslation` - the existing external adapter seam.
 
 **To wire in the real code:**
 
@@ -106,10 +111,6 @@ Until then the default `aiProvider` backend (`lib/ai/getEnglish.js`, your
 existing Kimi/OpenAI layer) handles translation and `pinyin-pro` (optional)
 handles romanization — so the full pipeline already runs end-to-end today.
 
-> Note: the folder wasn't present at `~/Documents/GitHub/live-translation` when
-> this was built. Once it's available, porting is the swap above — no changes to
-> the processor or pipeline.
-
 ## Configuration (Settings ▸ voiceover connection)
 
 | Key | Required | Default | Notes |
@@ -117,31 +118,31 @@ handles romanization — so the full pipeline already runs end-to-end today.
 | `elevenApiKey` | yes | — | ElevenLabs API key |
 | `voiceId` | yes | — | ElevenLabs voice (any cloned/preset voice) |
 | `modelId` | no | `eleven_multilingual_v2` | `eleven_turbo_v2_5` for lower latency |
-| `transcribeApiKey` | yes | `OPENAI_API_KEY` | OpenAI-compatible Whisper key |
+| `sttBackend` | no | `openaiWhisper` | `openaiWhisper` or `localWhisper` |
+| `sttQuality` | no | `fast` | local tier: `fast`, `balanced`, or `best` |
+| `transcribeApiKey` | API only | `OPENAI_API_KEY` | OpenAI-compatible Whisper key |
 | `transcribeBaseUrl` | no | OpenAI | point at Groq or self-hosted whisper.cpp |
 | `transcribeModel` | no | `whisper-1` | |
-| `translationBackend` | no | `aiProvider` | `aiProvider` \| `liveTranslation` |
+| `translationBackend` | no | `aiProvider` | `aiProvider` \| `googleFree` \| `gemini` \| `liveTranslation` |
+| `maxDailySeconds` | no | `21600` | per-service quota cap tracked in SQLite |
 
 Per-job `options.voiceover`: `sourceLang`, `targetLang` (default English),
 `style`, `burnSubtitles`, `showTransliteration`, `keepOriginalAudioLevel`
 (0–1, default 0.15), `existingTranscript`.
 
-`testConnection` verifies **both** dependencies (Whisper key present +
-ElevenLabs reachable and voice valid) before the service can be enabled.
+`testConnection` verifies the selected STT, translation, and TTS dependencies
+before the service can be enabled.
 
 ## Dependencies
 
 - System **ffmpeg/ffprobe** on PATH (already used elsewhere in the app).
-- npm `openai` (present). Optional `pinyin-pro` for romanization
+- npm `openai`, maintained `@huggingface/transformers`, and bundled ffmpeg/ffprobe binaries.
+  Optional `pinyin-pro` for romanization
   (`npm i pinyin-pro`) — degrades to null if absent, non-fatal.
 - ElevenLabs account + API key; an OpenAI-compatible Whisper key.
 
 ## Known limitations / next steps
 
-- **Segment fit.** English clips are placed at each segment start; the translator
-  is prompted to match spoken length, but no time-stretch is applied yet. If a
-  clip overruns its window, add an `atempo` fit pass in `mixVoiceover`
-  (measure with `probeDuration`, stretch to `end-start`).
 - **Sequential TTS.** Segments are synthesized one at a time for clear progress
   and rate-limit safety. Batch with a small concurrency pool if throughput matters.
 - **No auto-publish of unreviewed dubs.** Keep uploads private-first (house rule)

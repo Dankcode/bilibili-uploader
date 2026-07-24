@@ -115,13 +115,10 @@ export async function triggerSpecificVideo(videoId) {
     const service = new WorkflowService(video.space_id);
     console.log(`[Action] Manually triggering upload for Video ID ${videoId}...`);
     
-    // We'll run this in the background or await it? 
-    // Manual trigger usually wants immediate feedback but can take while.
-    // For now, let's await it to provide status.
-    await service.processSpecificVideo(video, true); // force = true
+    const job = await service.processSpecificVideo(video, true);
     
     revalidatePath('/');
-    return { success: true };
+    return { success: true, job };
   } catch (error) {
     console.error('[Action] Manual upload failed:', error.message);
     return { success: false, error: error.message };
@@ -131,8 +128,8 @@ export async function triggerSpecificVideo(videoId) {
 export async function triggerContinuousWorkflow(spaceId) {
   const service = new WorkflowService(spaceId);
   try {
-    service.runWithRetry(); 
-    return { success: true };
+    const job = await service.execute();
+    return { success: true, job };
   } catch (error) {
     return { success: false, error: error.message };
   }
