@@ -24,6 +24,7 @@
  *
  * options (per-job): { sourceLang?, targetLang?='en', style?, burnSubtitles?,
  *   showTransliteration?, keepOriginalAudioLevel?=0.15, existingTranscript?,
+ *   existingTranslation?,
  *   rescript?, rescriptStyle? }
  *
  * Returns { outputPath, artifacts:{ transcriptSource, transcriptEn, scriptEn,
@@ -32,12 +33,13 @@
 
 import fs from 'fs';
 import path from 'path';
-import { transcribe } from '../../translation/whisper';
-import { translateTranscript } from '../../translation/translator';
-import { writeSrt } from '../../translation/srt';
+import { getSttBackend } from '../../stt';
+import { getBackend as getTranslationBackend, translateTranscript } from '../../translation/translator';
+import { parseSrt, writeDualSrt, writeSrt } from '../../translation/srt';
 import { rescriptSegments } from '../../ai/getEnglish';
 import { getTtsBackend } from '../../tts';
-import { extractAudio, probeDuration, mixVoiceover, burnSubtitles } from '../../media/ffmpeg';
+import { burnSubtitles, extractAudio, fitClipToWindow, mixVoiceover, probeDuration } from '../../media/ffmpeg';
+import { checkAndIncrementUsage } from '../usage';
 
 export const id = 'voiceover';
 
@@ -47,8 +49,13 @@ function resolveCreds(credentials = {}) {
     transcribeApiKey: credentials.transcribeApiKey || process.env.OPENAI_API_KEY || '',
     transcribeBaseUrl: credentials.transcribeBaseUrl || process.env.WHISPER_BASE_URL || undefined,
     transcribeModel: credentials.transcribeModel || 'whisper-1',
+    sttBackend: credentials.sttBackend || 'openaiWhisper',
+    sttQuality: credentials.sttQuality || 'fast',
     // translation
     translationBackend: credentials.translationBackend || 'aiProvider',
+    geminiApiKey: credentials.geminiApiKey || process.env.GEMINI_API_KEY || '',
+    geminiModel: credentials.geminiModel || process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    geminiRefine: credentials.geminiRefine === 'on',
     // re-scripting
     rescript: credentials.rescript !== 'off',
     rescriptStyle: credentials.rescriptStyle || '',
@@ -71,6 +78,7 @@ function resolveCreds(credentials = {}) {
     qwenModel: credentials.qwenModel || 'qwen3-tts-flash',
     qwenVoice: credentials.qwenVoice || 'Cherry',
     qwenLocalEndpoint: credentials.qwenLocalEndpoint || process.env.QWEN_TTS_ENDPOINT || '',
+    maxDailySeconds: Number(credentials.maxDailySeconds) || 21600,
   };
 }
 
@@ -85,6 +93,15 @@ function secondsFromTimestamp(value) {
 }
 
 function normalizeExistingTranscript(existingTranscript) {
+  if (existingTranscript?.srtPath) {
+    if (!fs.existsSync(existingTranscript.srtPath)) throw new Error(`Transcript SRT not found: ${existingTranscript.srtPath}`);
+    const segments = parseSrt(fs.readFileSync(existingTranscript.srtPath, 'utf8'));
+    return {
+      language: existingTranscript.language || 'srt',
+      fullText: segments.map((segment) => segment.text).join('\n'),
+      segments,
+    };
+  }
   const rawSegments = Array.isArray(existingTranscript)
     ? existingTranscript
     : existingTranscript?.segments;
@@ -111,10 +128,16 @@ function normalizeExistingTranscript(existingTranscript) {
 /** Verify transcription + the SELECTED tts backend. */
 export async function testConnection(credentials = {}) {
   const creds = resolveCreds(credentials);
-  if (!creds.transcribeApiKey) return { ok: false, error: 'Transcription API key is not configured.' };
-  const backend = getTtsBackend(creds.ttsBackend);
-  const tts = await backend.test(creds);
-  if (!tts.ok) return { ok: false, error: `TTS (${backend.id}): ${tts.error}` };
+  const sttBackend = getSttBackend(creds.sttBackend);
+  const stt = await sttBackend.test(creds);
+  if (!stt.ok) return { ok: false, error: `STT (${sttBackend.id}): ${stt.error}` };
+  if (creds.translationBackend === 'gemini') {
+    const translation = await getTranslationBackend('gemini').test(creds);
+    if (!translation.ok) return { ok: false, error: `Translation (gemini): ${translation.error}` };
+  }
+  const ttsBackend = getTtsBackend(creds.ttsBackend);
+  const tts = await ttsBackend.test(creds);
+  if (!tts.ok) return { ok: false, error: `TTS (${ttsBackend.id}): ${tts.error}` };
   return { ok: true };
 }
 
@@ -127,9 +150,8 @@ export async function testConnection(credentials = {}) {
 export async function process(inputPath, options = {}, onProgress = () => {}, credentials = {}) {
   if (!inputPath || !fs.existsSync(inputPath)) throw new Error(`Voiceover input not found: ${inputPath}`);
   const creds = resolveCreds(credentials);
-  if (!creds.transcribeApiKey) throw new Error('Voiceover: transcription API key is not configured.');
-
-  const backend = getTtsBackend(creds.ttsBackend);
+  const sttBackend = getSttBackend(options.sttBackend || creds.sttBackend);
+  const backend = getTtsBackend(options.ttsBackend || creds.ttsBackend);
   const workDir = path.dirname(inputPath);
   const tmpDir = path.join(workDir, 'voiceover');
   const clipsDir = path.join(tmpDir, 'clips');
@@ -137,26 +159,38 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
 
   // 1) Transcribe (or reuse a transcript the scene pipeline already produced).
   onProgress(5, 'Extracting audio');
-  let transcript = normalizeExistingTranscript(options.existingTranscript);
+  const suppliedTranslation = normalizeExistingTranscript(options.existingTranslation);
+  let transcript = suppliedTranslation || normalizeExistingTranscript(options.existingTranscript);
   if (!transcript?.segments?.length) {
     const audioPath = path.join(tmpDir, 'source.wav');
     await extractAudio(inputPath, audioPath);
     onProgress(16, 'Transcribing source audio');
-    transcript = await transcribe(audioPath, {
+    const duration = await probeDuration(inputPath);
+    checkAndIncrementUsage(
+      `stt:${sttBackend.id}`,
+      sttBackend.id === 'openaiWhisper' ? creds.transcribeApiKey : sttBackend.id,
+      duration,
+      creds.maxDailySeconds,
+    );
+    transcript = await sttBackend.transcribe(audioPath, {
       apiKey: creds.transcribeApiKey,
       baseURL: creds.transcribeBaseUrl,
       model: creds.transcribeModel,
       language: options.sourceLang,
+      quality: options.sttQuality || creds.sttQuality,
+      workDir: tmpDir,
+      onProgress: (progress, note) => onProgress(16 + Math.round(progress * 0.14), note),
     });
   }
 
   // 2) Translate (+ transliterate). Pluggable backend.
   onProgress(32, 'Translating segments');
   let translated;
+  const doRescript = options.rescript !== undefined ? options.rescript !== false : creds.rescript;
   const scriptedSegments = transcript.segments.filter((seg) => seg.textEn);
   if (scriptedSegments.length === transcript.segments.length) {
     translated = {
-      backend: 'existingTranscript',
+      backend: suppliedTranslation ? 'existingTranslation' : 'existingTranscript',
       segments: scriptedSegments,
       transcriptSource: transcript.fullText,
       transcriptEn: scriptedSegments.map((seg) => seg.textEn).join('\n'),
@@ -170,19 +204,23 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
       backend: creds.translationBackend,
       style: options.style,
       transliterate: options.showTransliteration !== false,
+      credentials: creds,
+      refine: creds.translationBackend === 'gemini' && creds.geminiRefine && !doRescript,
     });
   }
 
   // 3) Re-script the literal translation into narration (Kimi). Non-fatal:
   //    if re-scripting fails we fall back to the literal translation.
-  const doRescript = options.rescript !== undefined ? options.rescript !== false : creds.rescript;
   if (doRescript) {
     onProgress(46, 'Re-scripting narration (Kimi)');
     try {
       const rescripted = await rescriptSegments(translated.segments, {
         targetLang: options.targetLang || 'English',
         style: options.rescriptStyle || creds.rescriptStyle,
+        credentials: creds,
       });
+      translated.rescriptProvider = rescripted.provider;
+      translated.rescriptModel = rescripted.model;
       const byIndex = new Map(rescripted.map((r) => [r.index, r.textEn]));
       translated.segments = translated.segments.map((s) => ({ ...s, textEn: byIndex.get(s.index) || s.textEn }));
     } catch (error) {
@@ -194,13 +232,21 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
   // 4) TTS each segment with the selected backend.
   const clips = [];
   const total = translated.segments.length;
+  const mediaDuration = await probeDuration(inputPath);
+  const ttsKey = backend.id === 'elevenlabs'
+    ? creds.elevenApiKey
+    : backend.id === 'qwen3' ? (creds.qwenApiKey || creds.qwenLocalEndpoint) : (creds.cosyEndpoint || backend.id);
+  checkAndIncrementUsage(`tts:${backend.id}`, ttsKey, mediaDuration, creds.maxDailySeconds);
   for (let i = 0; i < total; i += 1) {
     const seg = translated.segments[i];
     if (!seg.textEn) continue;
     const clipPath = path.join(clipsDir, `seg_${String(seg.index).padStart(4, '0')}.${backend.ext}`);
+    const fittedPath = path.join(clipsDir, `seg_${String(seg.index).padStart(4, '0')}.fit.${backend.ext}`);
     // eslint-disable-next-line no-await-in-loop
     await backend.synthesize(seg.textEn, clipPath, creds);
-    clips.push({ path: clipPath, start: seg.start });
+    // eslint-disable-next-line no-await-in-loop
+    await fitClipToWindow(clipPath, Math.max(0.08, seg.end - seg.start), fittedPath);
+    clips.push({ path: fittedPath, start: seg.start });
     onProgress(48 + Math.round((i / total) * 34), `Synthesizing voice ${i + 1}/${total} (${backend.id})`);
   }
   if (clips.length === 0) throw new Error('No voiceover clips were produced (empty translation?).');
@@ -208,6 +254,8 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
   // 5) SRT sidecar (English, optional romanization line).
   const srtPath = path.join(tmpDir, 'subtitles.en.srt');
   writeSrt(translated.segments, srtPath, { withTranslit: Boolean(options.showTransliteration) });
+  const dualSrtPath = path.join(tmpDir, 'subtitles.dual.srt');
+  writeDualSrt(translated.segments, dualSrtPath, { showTranslit: Boolean(options.showTransliteration) });
 
   // 6) Mix: duck original audio + overlay the English voiceover.
   onProgress(84, 'Mixing voiceover into video');
@@ -237,7 +285,13 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
       transcriptEn: translated.transcriptEn,
       scriptEn,
       srtPath,
+      dualSrtPath,
+      sttBackend: sttBackend.id,
       translationBackend: translated.backend,
+      translationProvider: translated.provider || translated.backend,
+      translationModel: translated.model || null,
+      rescriptProvider: translated.rescriptProvider || null,
+      rescriptModel: translated.rescriptModel || null,
       ttsBackend: backend.id,
       rescripted: Boolean(doRescript),
       segmentCount: clips.length,

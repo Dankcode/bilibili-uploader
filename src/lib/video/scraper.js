@@ -1,4 +1,4 @@
-import puppeteer from 'puppeteer';
+import { chromium } from 'playwright';
 
 /**
  * Scrapes a Bilibili space page for video links, names, and lengths.
@@ -6,11 +6,11 @@ import puppeteer from 'puppeteer';
 export default async function Scraper(pageUrl) {
   let browser;
   try {
-    browser = await puppeteer.launch({ headless: "new" });
+    browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     
     // Set viewport for consistent results
-    await page.setViewport({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1280, height: 800 });
     
     console.log(`Navigating to Bilibili: ${pageUrl}`);
     await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });

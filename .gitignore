@@ -11,6 +11,7 @@
 
 # next.js
 /.next/
+/.next-dev/
 /out/
 
 # production
@@ -46,6 +47,9 @@ config/token.json
 config/storage.json
 videos/
 compilation_vids/
+video-work/
+__pycache__/
+*.py[cod]
 
 # vercel
 .vercel

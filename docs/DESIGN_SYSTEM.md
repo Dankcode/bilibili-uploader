@@ -51,8 +51,8 @@ weight, not size (600–650), so tables and controls dominate the page.
 
 - Spacing is a 4px scale: `--sp-1`…`--sp-6` (4/8/12/16/24/32). Use tokens, not
   arbitrary rems, so rhythm stays regular.
-- Radius: `--radius-sm` 6px (controls), `--radius` 8px (cards), `--radius-lg`
-  12px (panels, modal).
+- Radius: all three radius tokens are 2px. Corners are square/near-square across
+  controls, panels, cards, and modals; circles remain reserved for status dots.
 - Motion is fast and subtle: `--dur` 140ms on `--ease`. Hover/active only;
   no entrance animations on data.
 - Focus is always visible: `--ring` (3px accent-soft halo) on `:focus-visible`.
@@ -103,6 +103,8 @@ preserving the LAN-from-mobile use case.
    4px scale.
 5. **Every interactive element has hover + focus-visible.**
 6. **One primary action per view**, always reachable in the top bar.
+7. **Near-square surfaces.** Use the radius tokens; pills are reserved for compact
+   statuses where their shape carries meaning.
 
 ## 5. Extending
 

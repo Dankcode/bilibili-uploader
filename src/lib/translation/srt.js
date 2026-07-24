@@ -20,6 +20,12 @@ function toTimestamp(seconds) {
   return `${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
 }
 
+function fromTimestamp(value) {
+  const match = String(value || '').trim().match(/(?:(\d+):)?(\d{2}):(\d{2})[,.](\d{1,3})/);
+  if (!match) throw new Error(`Invalid SRT timestamp: ${value}`);
+  return (Number(match[1] || 0) * 3600) + (Number(match[2]) * 60) + Number(match[3]) + (Number(match[4].padEnd(3, '0')) / 1000);
+}
+
 export function buildSrt(segments = [], { withTranslit = false, useEnglish = true } = {}) {
   return segments
     .map((seg, i) => {
@@ -33,5 +39,30 @@ export function buildSrt(segments = [], { withTranslit = false, useEnglish = tru
 
 export function writeSrt(segments, outPath, options = {}) {
   fs.writeFileSync(outPath, buildSrt(segments, options), 'utf8');
+  return outPath;
+}
+
+export function parseSrt(text) {
+  return String(text || '').replace(/\r/g, '').split(/\n\s*\n/).map((block, index) => {
+    const lines = block.split('\n').filter(Boolean);
+    const timingIndex = lines.findIndex((line) => line.includes('-->'));
+    if (timingIndex < 0) return null;
+    const [start, end] = lines[timingIndex].split('-->').map((value) => value.trim());
+    return {
+      index: Number(lines[0]) || index + 1,
+      start: fromTimestamp(start),
+      end: fromTimestamp(end),
+      text: lines.slice(timingIndex + 1).join('\n').trim(),
+    };
+  }).filter((segment) => segment?.text && segment.end > segment.start);
+}
+
+export function writeDualSrt(segments, outPath, { showTranslit = false } = {}) {
+  const text = segments.map((segment, index) => {
+    const lines = [segment.text, segment.textEn];
+    if (showTranslit && segment.translit) lines.push(segment.translit);
+    return `${index + 1}\n${toTimestamp(segment.start)} --> ${toTimestamp(segment.end)}\n${lines.filter(Boolean).join('\n')}\n`;
+  }).join('\n');
+  fs.writeFileSync(outPath, text, 'utf8');
   return outPath;
 }
