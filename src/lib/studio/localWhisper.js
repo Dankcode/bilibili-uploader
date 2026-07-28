@@ -5,6 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { contextPromptForSegment, matchContextsToSegment } from './context.js';
 
 const require = createRequire(import.meta.url);
 const SAMPLE_RATE = 16000;
@@ -243,6 +244,186 @@ export function transformerOutputToSegments(output, duration = 0) {
   }).filter((segment) => segment.text && segment.end > segment.start);
 }
 
+function specialTokenId(tokenizer, token) {
+  const lookup = tokenizer?.model?.tokens_to_ids;
+  if (typeof lookup?.get === 'function') return lookup.get(token);
+  return lookup?.[token];
+}
+
+function flattenTokenIds(value) {
+  const raw = value?.tolist?.() ?? value?.data ?? value ?? [];
+  const list = Array.isArray(raw?.[0]) ? raw[0] : raw;
+  return Array.from(list || []).map(Number).filter(Number.isInteger);
+}
+
+export async function buildWhisperContextPromptIds(recognizer, contextText, language = 'auto') {
+  const tokenizer = recognizer?.tokenizer;
+  if (typeof tokenizer !== 'function') throw new Error('The local Whisper tokenizer cannot encode context.');
+  const normalizedLanguage = String(language || '').trim().toLocaleLowerCase();
+  if (!normalizedLanguage || ['auto', 'detect'].includes(normalizedLanguage)) {
+    throw new Error('Choose an exact source language before running context-assisted Whisper.');
+  }
+  const sanitizedContext = String(contextText || '').replace(/<\|[^|]{1,64}\|>/g, ' ');
+  const encoded = await tokenizer(` ${sanitizedContext.trim()}`, {
+    add_special_tokens: false,
+    truncation: true,
+  });
+  const specialIds = new Set(Array.from(tokenizer.all_special_ids || []).map(Number));
+  const contextIds = flattenTokenIds(encoded?.input_ids)
+    .filter((id) => !specialIds.has(id))
+    .slice(-96);
+  const generationConfig = recognizer?.model?.generation_config || {};
+  const languageToken = `<|${normalizedLanguage}|>`;
+  const startOfPrevious = generationConfig.prev_sot_token_id
+    ?? specialTokenId(tokenizer, '<|startofprev|>');
+  const startOfTranscript = generationConfig.decoder_start_token_id
+    ?? recognizer?.model?.config?.decoder_start_token_id
+    ?? specialTokenId(tokenizer, '<|startoftranscript|>');
+  const languageId = generationConfig.lang_to_id?.[languageToken]
+    ?? generationConfig.lang_to_id?.[normalizedLanguage]
+    ?? specialTokenId(tokenizer, languageToken);
+  const transcribeId = generationConfig.task_to_id?.transcribe
+    ?? specialTokenId(tokenizer, '<|transcribe|>');
+  const noTimestampsId = generationConfig.no_timestamps_token_id
+    ?? specialTokenId(tokenizer, '<|notimestamps|>');
+  const controlIds = [
+    startOfPrevious,
+    startOfTranscript,
+    languageId,
+    transcribeId,
+    noTimestampsId,
+  ];
+  if (!controlIds.every(Number.isInteger)) {
+    throw new Error(`The local Whisper model does not support the "${normalizedLanguage}" context prompt.`);
+  }
+  const ids = [
+    startOfPrevious,
+    ...contextIds,
+    startOfTranscript,
+    languageId,
+    transcribeId,
+    noTimestampsId,
+  ];
+  return ids;
+}
+
+function contextEvidenceTerms(contexts, segment) {
+  const result = [];
+  const seen = new Set();
+  for (const context of matchContextsToSegment(contexts, segment)) {
+    const values = [
+      ...(context.technicalTerms || []),
+      ...(context.visibleText || []),
+      ...(context.entities || []),
+      ...(context.transcriptionHints || []),
+    ];
+    for (const value of values) {
+      const text = String(value || '').trim();
+      const key = text.toLocaleLowerCase();
+      if (!text || key.length < 2 || seen.has(key)) continue;
+      seen.add(key);
+      result.push(text);
+    }
+  }
+  return result.slice(0, 80);
+}
+
+function newVisualEvidenceTerms(candidate, baseline, evidenceTerms) {
+  const nextRaw = String(candidate || '');
+  const beforeRaw = String(baseline || '');
+  const next = nextRaw.toLocaleLowerCase();
+  const before = beforeRaw.toLocaleLowerCase();
+  return evidenceTerms.filter((term) => {
+    const normalized = term.toLocaleLowerCase();
+    return (nextRaw.includes(term) && !beforeRaw.includes(term))
+      || (next.includes(normalized) && !before.includes(normalized));
+  });
+}
+
+function comparableText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function editDistance(left, right) {
+  const a = Array.from(left);
+  const b = Array.from(right);
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= a.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= b.length; column += 1) {
+      current[column] = Math.min(
+        current[column - 1] + 1,
+        previous[column] + 1,
+        previous[column - 1] + (a[row - 1] === b[column - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+export function evaluateContextCandidate(candidate, baseline, evidenceTerms = []) {
+  const beforeRaw = String(baseline || '').trim();
+  const nextRaw = String(candidate || '').trim();
+  if (!nextRaw) return { accepted: false, reason: 'empty-candidate', matchedEvidence: [] };
+  if (nextRaw === beforeRaw) return { accepted: false, reason: 'unchanged', matchedEvidence: [] };
+  const matchedEvidence = newVisualEvidenceTerms(nextRaw, beforeRaw, evidenceTerms);
+  if (!matchedEvidence.length) return { accepted: false, reason: 'no-new-visual-evidence', matchedEvidence };
+
+  const before = comparableText(beforeRaw);
+  const next = comparableText(nextRaw);
+  if (!before || !next) return { accepted: false, reason: 'empty-comparable-text', matchedEvidence };
+  const beforeLength = Array.from(before).length;
+  const nextLength = Array.from(next).length;
+  const lengthRatio = nextLength / beforeLength;
+  if (lengthRatio < 0.65 || lengthRatio > 1.4) {
+    return { accepted: false, reason: 'length-drift', matchedEvidence, lengthRatio };
+  }
+
+  const distance = editDistance(before, next);
+  const editRatio = distance / Math.max(beforeLength, nextLength);
+  const exactShortEvidence = nextLength <= 16 && matchedEvidence.some(
+    (term) => comparableText(term) === next,
+  );
+  if (editRatio > 0.32 && !exactShortEvidence) {
+    return {
+      accepted: false, reason: 'too-many-unrelated-edits', matchedEvidence, lengthRatio, editRatio,
+    };
+  }
+  return {
+    accepted: true, reason: 'evidence-backed-local-edit', matchedEvidence, lengthRatio, editRatio,
+  };
+}
+
+async function transcribeSegmentWithContext({
+  recognizer, samples, segment, contextText, language,
+}) {
+  const paddingSeconds = 0.4;
+  const startSample = Math.max(0, Math.floor((segment.start - paddingSeconds) * SAMPLE_RATE));
+  const endSample = Math.min(samples.length, Math.ceil((segment.end + paddingSeconds) * SAMPLE_RATE));
+  const clip = samples.subarray(startSample, endSample);
+  if (clip.length < SAMPLE_RATE / 4) return '';
+  const processed = await recognizer.processor(clip);
+  const decoderInputIds = await buildWhisperContextPromptIds(recognizer, contextText, language);
+  const generated = await recognizer.model.generate({
+    inputs: processed.input_features,
+    decoder_input_ids: decoderInputIds,
+    max_new_tokens: 96,
+  });
+  const sequences = generated?.sequences ?? generated;
+  const allIds = flattenTokenIds(sequences?.[0] ?? sequences);
+  const prefixMatches = decoderInputIds.every((id, index) => allIds[index] === id);
+  if (!prefixMatches) throw new Error('Whisper returned an unexpected decoder sequence.');
+  const newIds = allIds.slice(decoderInputIds.length);
+  if (!newIds.length) return '';
+  return compactRepeatedWords(
+    recognizer.tokenizer.decode(newIds, { skip_special_tokens: true }).trim(),
+  );
+}
+
 async function recognizerFor(model, cacheDir, logPath) {
   const { env, pipeline } = await loadTransformers();
   env.cacheDir = cacheDir;
@@ -357,6 +538,165 @@ export async function transcribeLocal(mediaPath, {
       segments,
       duration,
       engine: `whisper-local/${model.id}`,
+      logPath,
+    };
+  } finally {
+    if (wavPath !== absoluteMediaPath) {
+      try { fs.rmSync(wavPath, { force: true }); } catch { /* best effort */ }
+    }
+  }
+}
+
+export async function retranscribeWithContext(mediaPath, segments, contexts, {
+  quality = 'fast',
+  language = 'zh',
+  workDir,
+  onProgress = () => {},
+  timeoutMs = COMMAND_TIMEOUT_MS,
+} = {}) {
+  const absoluteMediaPath = path.resolve(mediaPath || '');
+  if (!exists(absoluteMediaPath)) throw new Error(`Media file not found: ${absoluteMediaPath}`);
+  if (!Array.isArray(segments) || !segments.length) {
+    throw new Error('Context-assisted transcription requires timestamped transcript segments.');
+  }
+  if (!Array.isArray(contexts) || !contexts.length) {
+    throw new Error('Context-assisted transcription requires timestamped screenshot context.');
+  }
+  if (!language || ['auto', 'detect'].includes(String(language).toLocaleLowerCase())) {
+    throw new Error('Choose an exact source language before running context-assisted Whisper.');
+  }
+  const status = getLocalWhisperStatus(quality);
+  if (!status.ready) {
+    const missing = Object.entries(status.checks).filter(([, ready]) => !ready).map(([name]) => name);
+    throw new Error(`Local context-assisted transcription is unavailable. Missing: ${missing.join(', ')}.`);
+  }
+
+  const resolvedWorkDir = ensureWorkDir(workDir);
+  const wavPath = path.join(resolvedWorkDir, 'context-source.wav');
+  const logPath = path.join(resolvedWorkDir, 'context-transcription.ndjson');
+  const paths = studioWhisperPaths();
+  const model = modelForQuality(quality);
+  try {
+    onProgress(5, 'Preparing context-assisted audio');
+    const probe = await runCommand(
+      paths.ffprobe,
+      ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', absoluteMediaPath],
+      'context-ffprobe',
+      logPath,
+      timeoutMs,
+    );
+    const probeData = JSON.parse(probe.stdout || '{}');
+    const audioStream = probeData?.streams?.find((stream) => stream.codec_type === 'audio');
+    const alreadyWhisperWav = path.extname(absoluteMediaPath).toLowerCase() === '.wav'
+      && Number(audioStream?.sample_rate) === SAMPLE_RATE
+      && Number(audioStream?.channels) === 1
+      && audioStream?.codec_name === 'pcm_s16le';
+    let transcriptionWav = absoluteMediaPath;
+    if (!alreadyWhisperWav) {
+      await runCommand(
+        paths.ffmpeg,
+        ['-nostdin', '-y', '-i', absoluteMediaPath, '-vn', '-ac', '1', '-ar', String(SAMPLE_RATE), '-c:a', 'pcm_s16le', wavPath],
+        'context-ffmpeg',
+        logPath,
+        timeoutMs,
+      );
+      transcriptionWav = wavPath;
+    }
+
+    const samples = readPcm16MonoWav(transcriptionWav);
+    onProgress(20, status.model.cached ? 'Loading local Whisper model' : 'Downloading local Whisper model');
+    const recognizer = await recognizerFor(model, paths.modelCacheDir, logPath);
+    const candidates = segments
+      .map((segment) => ({
+        segment,
+        contextText: contextPromptForSegment(contexts, segment),
+        evidenceTerms: contextEvidenceTerms(contexts, segment),
+      }))
+      .filter((item) => item.contextText);
+    if (!candidates.length) {
+      return {
+        segments,
+        attemptedCount: 0,
+        failedCount: 0,
+        failedCueIds: [],
+        revisedCount: 0,
+        revisions: [],
+        suggestions: [],
+        engine: `whisper-local/${model.id}+screenshot-context`,
+        logPath,
+      };
+    }
+
+    const replacements = new Map();
+    const revisions = [];
+    const suggestions = [];
+    const failedCueIds = [];
+    let failureCount = 0;
+    let firstFailure = '';
+    for (let index = 0; index < candidates.length; index += 1) {
+      const { segment, contextText, evidenceTerms } = candidates[index];
+      const progress = 25 + Math.round(((index + 1) / candidates.length) * 70);
+      onProgress(progress, `Context pass ${index + 1}/${candidates.length} - cue #${segment.index}`);
+      try {
+        const candidate = await transcribeSegmentWithContext({
+          recognizer,
+          samples,
+          segment,
+          contextText,
+          language,
+        });
+        const baseline = String(segment.text || '').trim();
+        const evaluation = evaluateContextCandidate(candidate, baseline, evidenceTerms);
+        if (!evaluation.accepted) {
+          if (candidate && candidate !== baseline && evaluation.matchedEvidence.length) {
+            suggestions.push({
+              index: Number(segment.index),
+              start: Number(segment.start),
+              end: Number(segment.end),
+              before: baseline,
+              suggestion: candidate,
+              reason: evaluation.reason,
+              evidenceTerms: evaluation.matchedEvidence.slice(0, 12),
+            });
+          }
+          continue;
+        }
+        replacements.set(Number(segment.index), { ...segment, text: candidate });
+        revisions.push({
+          index: Number(segment.index),
+          start: Number(segment.start),
+          end: Number(segment.end),
+          before: baseline,
+          after: candidate,
+          contextIds: matchContextsToSegment(contexts, segment).map((item) => item.id),
+          evidenceTerms: evaluation.matchedEvidence.slice(0, 12),
+        });
+        writeLog(logPath, { stage: 'context-cue', index: segment.index, status: 'revised' });
+      } catch (error) {
+        failureCount += 1;
+        failedCueIds.push(Number(segment.index));
+        if (!firstFailure) firstFailure = error.message;
+        writeLog(logPath, {
+          stage: 'context-cue',
+          index: segment.index,
+          status: 'kept-baseline',
+          error: error.message,
+        });
+      }
+    }
+    if (failureCount === candidates.length) {
+      throw new Error(`Context-assisted Whisper could not process any matched cues: ${firstFailure}`);
+    }
+    onProgress(100, `Context pass complete - ${revisions.length} evidence-backed revisions`);
+    return {
+      segments: segments.map((segment) => replacements.get(Number(segment.index)) || segment),
+      attemptedCount: candidates.length,
+      failedCount: failureCount,
+      failedCueIds,
+      revisedCount: revisions.length,
+      revisions,
+      suggestions,
+      engine: `whisper-local/${model.id}+screenshot-context`,
       logPath,
     };
   } finally {

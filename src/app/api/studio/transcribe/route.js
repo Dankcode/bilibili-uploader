@@ -102,7 +102,40 @@ export async function POST(request) {
       segments: transcript.segments,
     });
     await fsPromises.writeFile(path.join(directory, 'transcript.md'), transcriptMd, 'utf8');
-    updateStudioProject(id, { transcriptMd });
+    const current = getStudioProject(id);
+    const invalidatedAt = new Date().toISOString();
+    updateStudioProject(id, {
+      transcriptMd,
+      subtitleText: '',
+      frameManifest: [],
+      contextMd: '',
+      contextManifest: [],
+      contextSettings: {
+        intervalSeconds: Number(current?.contextSettings?.intervalSeconds) || 15,
+        maxFrames: Number(current?.contextSettings?.maxFrames) || 120,
+      },
+      analysis: {},
+      chatHistory: [],
+      stageStatus: {
+        ...current?.stageStatus,
+        frames: { status: 'pending', detail: 'Ready to capture timed screenshots', updatedAt: invalidatedAt },
+        context: { status: 'pending', detail: 'Waiting for timed screenshots', updatedAt: invalidatedAt },
+        correct: { status: 'pending', detail: 'Waiting for Kimi context', updatedAt: invalidatedAt },
+        translate: { status: 'pending', detail: 'Waiting for refined transcript', updatedAt: invalidatedAt },
+      },
+    });
+    await Promise.all([
+      fsPromises.rm(path.join(directory, 'subtitles.ass'), { force: true }),
+      fsPromises.rm(path.join(directory, 'subtitles.srt'), { force: true }),
+      fsPromises.rm(path.join(directory, 'context.md'), { force: true }),
+      fsPromises.rm(path.join(directory, 'context.json'), { force: true }),
+      fsPromises.rm(path.join(directory, 'context-handoff.json'), { force: true }),
+      fsPromises.rm(path.join(directory, 'context-retranscription.json'), { force: true }),
+      fsPromises.rm(path.join(directory, 'transcript.before-context.md'), { force: true }),
+      fsPromises.rm(path.join(directory, 'transcript.context.md'), { force: true }),
+      fsPromises.rm(path.join(directory, 'transcript.corrected.md'), { force: true }),
+      fsPromises.rm(path.join(directory, 'frames'), { recursive: true, force: true }),
+    ]).catch(() => {});
     const project = updateStudioStage(id, 'transcribe', 'done', `${transcript.segments.length} segments`);
     return NextResponse.json({ project: publicStudioProject(project), segments: transcript.segments }, { status: 201 });
   } catch (error) {

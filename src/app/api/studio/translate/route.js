@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { NextResponse } from 'next/server';
+import { buildSubtitleContextHints } from '@/lib/studio/context';
 import { translateSubtitles } from '@/lib/studio/kimi';
 import { parseTranscriptMarkdown } from '@/lib/studio/markdown';
 import { buildAss, buildSrt } from '@/lib/studio/subtitles';
@@ -23,11 +24,13 @@ export async function POST(request) {
     if (!parsed.segments.length) return NextResponse.json({ error: 'Transcribe the video before translating.' }, { status: 409 });
     updateStudioStage(projectId, 'translate', 'running', 'Translating subtitles');
     const sourceAss = buildAss(parsed.segments, { title: project.name });
+    const contextHints = buildSubtitleContextHints(parsed.segments, project.contextManifest);
     const translated = await translateSubtitles(sourceAss, {
       from: body.from || project.sourceLang,
       to: body.to || project.targetLang,
       model: body.model,
       temperature: body.temperature,
+      contextHints,
     });
     const srtText = buildSrt(translated.segments, { dual: true });
     const directory = ensureProjectDirectory(projectId);
