@@ -2,124 +2,153 @@ import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { NextResponse } from 'next/server';
-import { parseTranscriptMarkdown, replaceTranscriptSegments } from '@/lib/studio/markdown';
+import { parseContextMarkdown } from '@/lib/studio/context';
+import { retranscribeWithContext } from '@/lib/studio/localWhisper';
+import { buildTranscriptMarkdown, parseTranscriptMarkdown } from '@/lib/studio/markdown';
 import { maybeAutoPublishStudioProject } from '@/lib/studio/publish';
 import {
-  assertProjectFile, ensureProjectDirectory, getStudioProject, publicStudioProject, updateStudioProject, updateStudioStage,
+  ensureProjectDirectory, getStudioProject, publicStudioProject, updateStudioProject, updateStudioStage,
 } from '@/lib/studio/store';
-import { correctSegments, getVisionStatus, VISION_SKIPPED_MESSAGE } from '@/lib/studio/vision';
 
 export const runtime = 'nodejs';
-export const maxDuration = 600;
+export const maxDuration = 1800;
+export const dynamic = 'force-dynamic';
 
-export async function GET() {
-  return NextResponse.json(getVisionStatus());
+function sha256(value) {
+  return createHash('sha256').update(String(value || '')).digest('hex');
 }
 
 export async function POST(request) {
   let projectId = '';
-  let handoffPath = '';
-  let handoff = null;
   try {
     const body = await request.json();
     projectId = String(body.projectId || '');
     const project = getStudioProject(projectId);
     if (!project) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });
-    if (!project.frameManifest.length) return NextResponse.json({ error: 'Extract frames before running correction.' }, { status: 409 });
-    const directory = ensureProjectDirectory(projectId);
-    handoffPath = path.join(directory, 'vision-handoff.json');
-    const vision = getVisionStatus();
-    if (!vision.configured) {
-      handoff = {
-        projectId,
-        provider: null,
-        status: 'skipped',
-        reason: VISION_SKIPPED_MESSAGE,
-        frameCount: project.frameManifest.length,
-        updatedAt: new Date().toISOString(),
-      };
-      await fs.writeFile(handoffPath, JSON.stringify(handoff, null, 2), 'utf8');
-      const skipped = updateStudioStage(projectId, 'correct', 'skipped', VISION_SKIPPED_MESSAGE);
-      const autoPublish = project.sourceLang === project.targetLang
-        ? maybeAutoPublishStudioProject(projectId)
-        : null;
-      const finalProject = getStudioProject(projectId) || skipped;
-      return NextResponse.json({
-        project: publicStudioProject(finalProject),
-        skipped: true,
-        message: VISION_SKIPPED_MESSAGE,
-        handoff: { provider: null, status: 'skipped', frameCount: project.frameManifest.length },
-        autoPublish,
-      });
+    if (!project.contextMd || !project.contextManifest.length) {
+      return NextResponse.json({ error: 'Build Kimi screenshot context before rerunning Whisper.' }, { status: 409 });
     }
     const parsed = parseTranscriptMarkdown(project.transcriptMd);
-    updateStudioStage(projectId, 'correct', 'running', `Sending ${project.frameManifest.length} saved frames to ${vision.backend}`);
-    const textByIndex = new Map(parsed.segments.map((segment) => [Number(segment.index), segment.text]));
-    const batch = await Promise.all(project.frameManifest.map(async (frame) => {
-      const imagePath = assertProjectFile(projectId, path.join(directory, 'frames', frame.file));
-      const image = await fs.readFile(imagePath);
-      if (!image.length) throw new Error(`Saved vision frame is empty: ${frame.file}`);
-      return {
-        segIndex: Number(frame.segIndex),
-        timeMs: Number(frame.timeMs),
-        imagePath,
-        mimeType: 'image/jpeg',
-        byteSize: image.length,
-        sha256: createHash('sha256').update(image).digest('hex'),
-        text: textByIndex.get(Number(frame.segIndex)) || '',
-      };
-    }));
-    handoff = {
-      projectId,
-      provider: vision.backend,
-      model: vision.model,
-      status: 'dispatching',
-      sentAt: new Date().toISOString(),
-      frameCount: batch.length,
-      frames: batch.map(({ segIndex, timeMs, imagePath, mimeType, byteSize, sha256 }) => ({
-        segIndex, timeMs, file: path.basename(imagePath), mimeType, byteSize, sha256,
-      })),
-    };
-    await fs.writeFile(handoffPath, JSON.stringify(handoff, null, 2), 'utf8');
-    const corrected = await correctSegments(batch);
-    handoff = { ...handoff, status: 'completed', completedAt: new Date().toISOString(), correctedCount: corrected.length };
-    await fs.writeFile(handoffPath, JSON.stringify(handoff, null, 2), 'utf8');
-    const correctedByIndex = new Map(corrected.map((item) => [Number(item.segIndex), item.text.trim()]));
-    const segments = parsed.segments.map((segment) => ({ ...segment, text: correctedByIndex.get(Number(segment.index)) || segment.text }));
-    const transcriptMd = replaceTranscriptSegments(project.transcriptMd, segments, { corrected: true });
-    await fs.writeFile(path.join(directory, 'transcript.corrected.md'), transcriptMd, 'utf8');
-    updateStudioProject(projectId, { transcriptMd });
+    const context = parseContextMarkdown(project.contextMd);
+    if (!parsed.segments.length || !context.frames.length) {
+      return NextResponse.json({ error: 'Timestamped transcript and screenshot context are required.' }, { status: 409 });
+    }
+    const transcriptHash = sha256(project.transcriptMd);
+    const contextHash = sha256(project.contextMd);
+    const contextManifestHash = sha256(JSON.stringify(project.contextManifest));
+    const expectedHashes = new Set([
+      project.contextSettings?.transcriptSha256,
+      project.contextSettings?.appliedTranscriptSha256,
+    ].filter(Boolean));
+    if (expectedHashes.size && !expectedHashes.has(transcriptHash)) {
+      const error = new Error('The transcript changed after screenshot context was built. Rebuild Kimi context before rerunning Whisper.');
+      error.code = 'STALE_TRANSCRIPT';
+      throw error;
+    }
+
+    const directory = ensureProjectDirectory(projectId);
+    updateStudioStage(projectId, 'correct', 'running', 'Rerunning Whisper with timestamp-matched screenshot vocabulary');
+    const result = await retranscribeWithContext(
+      project.videoPath,
+      parsed.segments,
+      project.contextManifest,
+      {
+        quality: body.quality || project.quality,
+        language: body.from || project.sourceLang,
+        workDir: directory,
+        onProgress: (progress, detail) => updateStudioStage(
+          projectId,
+          'correct',
+          'running',
+          `${progress}% - ${detail}`,
+        ),
+      },
+    );
+
+    const latest = getStudioProject(projectId);
+    if (!latest
+      || sha256(latest.transcriptMd) !== transcriptHash
+      || sha256(latest.contextMd) !== contextHash
+      || sha256(JSON.stringify(latest.contextManifest)) !== contextManifestHash) {
+      const error = new Error('The transcript or screenshot context changed during the context-assisted Whisper pass. No revisions were applied.');
+      error.code = 'STALE_CONTEXT_SOURCE';
+      throw error;
+    }
+    const transcriptMd = buildTranscriptMarkdown({
+      ...parsed,
+      generated: new Date().toISOString(),
+      engine: result.engine,
+      corrected: result.revisedCount > 0,
+      contextAssisted: true,
+      segments: result.segments,
+    });
+    const nextTranscriptHash = sha256(transcriptMd);
+    const originalPath = path.join(directory, 'transcript.before-context.md');
+    await fs.access(originalPath).catch(() => fs.writeFile(originalPath, project.transcriptMd, 'utf8'));
+    await Promise.all([
+      fs.writeFile(path.join(directory, 'transcript.md'), transcriptMd, 'utf8'),
+      fs.writeFile(path.join(directory, 'transcript.context.md'), transcriptMd, 'utf8'),
+      fs.writeFile(path.join(directory, 'transcript.corrected.md'), transcriptMd, 'utf8'),
+      fs.writeFile(path.join(directory, 'context-retranscription.json'), JSON.stringify({
+        generatedAt: new Date().toISOString(),
+        baselineTranscriptSha256: transcriptHash,
+        contextSha256: contextHash,
+        contextManifestSha256: contextManifestHash,
+        contextRevision: context.revision,
+        attemptedCount: result.attemptedCount,
+        failedCount: result.failedCount,
+        failedCueIds: result.failedCueIds,
+        revisedCount: result.revisedCount,
+        revisions: result.revisions,
+        suggestions: result.suggestions,
+      }, null, 2), 'utf8'),
+      fs.rm(path.join(directory, 'subtitles.ass'), { force: true }),
+      fs.rm(path.join(directory, 'subtitles.srt'), { force: true }),
+    ]);
+
+    const now = new Date().toISOString();
+    updateStudioProject(projectId, {
+      transcriptMd,
+      subtitleText: '',
+      contextSettings: {
+        ...project.contextSettings,
+        appliedAt: now,
+        appliedTranscriptSha256: nextTranscriptHash,
+      },
+      stageStatus: {
+        ...latest.stageStatus,
+        translate: { status: 'pending', detail: 'Waiting for context-refined transcript', updatedAt: now },
+      },
+    });
     const next = updateStudioStage(
       projectId,
       'correct',
-      'done',
-      `${batch.length} frames reviewed; ${correctedByIndex.size} segments corrected`,
+      result.failedCount ? 'partial' : 'done',
+      `${result.revisedCount}/${result.attemptedCount} cues revised with visible evidence`
+        + (result.failedCount ? `; ${result.failedCount} kept after model errors` : ''),
     );
-    const autoPublish = project.sourceLang === project.targetLang
+    const autoPublish = !result.failedCount && project.sourceLang === project.targetLang
       ? maybeAutoPublishStudioProject(projectId)
       : null;
     const finalProject = getStudioProject(projectId) || next;
     return NextResponse.json({
       project: publicStudioProject(finalProject),
-      handoff: {
-        provider: vision.backend,
-        model: vision.model,
-        status: 'completed',
-        frameCount: batch.length,
-        correctedCount: corrected.length,
-      },
+      attemptedCount: result.attemptedCount,
+      failedCount: result.failedCount,
+      failedCueIds: result.failedCueIds,
+      revisedCount: result.revisedCount,
+      revisions: result.revisions,
+      suggestions: result.suggestions,
       autoPublish,
     });
   } catch (error) {
-    if (handoffPath && handoff) {
-      await fs.writeFile(handoffPath, JSON.stringify({
-        ...handoff, status: 'failed', error: error.message, failedAt: new Date().toISOString(),
-      }, null, 2), 'utf8').catch(() => {});
-    }
     if (projectId && getStudioProject(projectId)) {
-      updateStudioStage(projectId, 'correct', error.code === 'VISION_NOT_CONFIGURED' ? 'skipped' : 'failed', error.message);
+      updateStudioStage(projectId, 'correct', 'failed', error.message);
     }
-    const status = error.code === 'VISION_NOT_CONFIGURED' ? 501 : 500;
-    return NextResponse.json({ error: error.message || 'Vision correction failed.', code: error.code || 'VISION_FAILED' }, { status });
+    const status = ['STALE_TRANSCRIPT', 'STALE_CONTEXT_SOURCE'].includes(error.code) ? 409 : 500;
+    return NextResponse.json({
+      error: error.message || 'Context-assisted transcription failed.',
+      code: error.code || 'CONTEXT_RETRANSCRIPTION_FAILED',
+    }, { status });
   }
 }

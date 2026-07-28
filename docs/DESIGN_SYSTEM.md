@@ -1,9 +1,12 @@
 # Studio Suite — Design System
 
-A minimal, technical, CRM-style system for the automated video pipeline. The
-goal is a dense, consistent, navigable operator console — not a marketing site.
-One accent color, muted borders, monospace for anything the machine owns
-(IDs, paths, metrics, timings), and generous but regular spacing.
+A minimal, technical, CRM-style system for the automated video pipeline. Its
+visual idea is **the evidence desk**: a dense, calm operator surface where
+timestamps, screenshots, and language revisions remain inspectable. The
+identity deliberately avoids the purple gradients, floating glass cards, soft
+pill buttons, and decorative sparkles associated with generic AI products.
+Solid mineral-green surfaces, a lichen signal color, hairline borders, and
+near-square geometry make the product recognizable in screenshots and demos.
 
 All values live as CSS custom properties in `src/app/globals.css`. Nothing in
 the app should hardcode a hex value — read a token. Components share
@@ -20,22 +23,24 @@ creates depth without shadows or gradients.
 
 | Token | Value | Use |
 |---|---|---|
-| `--bg` | `#0b0d10` | App background |
-| `--surface` | `#121519` | Cards, sidebar, tables |
-| `--surface-2` | `#171b21` | Inputs, table header, hover |
-| `--surface-3` | `#1d222a` | Active segmented control, tracks |
-| `--border` | `#232830` | Default hairline |
-| `--border-strong` | `#2f3742` | Inputs, emphasis dividers |
-| `--text` | `#e7eaee` | Primary text |
-| `--text-muted` | `#98a2b1` | Secondary text |
-| `--text-faint` | `#626d7c` | Labels, placeholders, metadata |
-| `--accent` | `#4f8cff` | Primary actions, active nav, focus |
+| `--bg` | `#0d0f0c` | App background |
+| `--surface` | `#141813` | Cards, sidebar, tables |
+| `--surface-2` | `#1a2018` | Inputs, table header, hover |
+| `--surface-3` | `#222a1f` | Active segmented control, tracks |
+| `--border` | `#283025` | Default hairline |
+| `--border-strong` | `#394435` | Inputs, emphasis dividers |
+| `--text` | `#edf1e8` | Primary text |
+| `--text-muted` | `#a7b19e` | Secondary text |
+| `--text-faint` | `#727d69` | Labels, placeholders, metadata |
+| `--accent` | `#c7f36b` | Primary actions, active nav, focus |
 | `--ok` `--warn` `--danger` `--running` | green / amber / red / blue | Status only |
 
-Rule: color is meaning. The accent marks the one primary action or the active
-location. Status hues appear only on status (job state, connection health,
-diagnostics) — never as decoration. Each status hue has a matching `*-soft`
-translucent fill for chips and badges.
+The rare lichen accent is the product's marketing signature: it suggests
+highlighting evidence on a dark editing bench without resembling a consumer
+video app or an AI chatbot. Rule: color is meaning. The accent marks the one
+primary action or the active location. Status hues appear only on status (job
+state, connection health, diagnostics) — never as decoration. Each status hue
+has a matching `*-soft` translucent fill for chips and badges.
 
 ### Typography
 
@@ -105,8 +110,21 @@ preserving the LAN-from-mobile use case.
 6. **One primary action per view**, always reachable in the top bar.
 7. **Near-square surfaces.** Use the radius tokens; pills are reserved for compact
    statuses where their shape carries meaning.
+8. **Show the evidence.** Context windows, source text, timestamps, and revision
+   state stay visible; automation never hides the material used to make a change.
 
-## 5. Extending
+## 5. Marketing expression
+
+Product screenshots should lead with the watch player plus the synchronized
+context strip, then show the five-stage evidence pipeline and editable Markdown.
+Use the line **“See what Whisper missed.”** as the short benefit statement and
+**“Timed visual evidence for exact subtitles.”** as the descriptive subhead.
+The lichen accent may be used as a thin rule or small solid label in repository
+art, but never as a glow or gradient. Marketing imagery should contain real
+workspace output—video, timestamps, context terms, and cue revisions—not
+abstract AI brains, chat bubbles, or magic-wand iconography.
+
+## 6. Extending
 
 Add a token before adding a value. New status → add `--x` and `--x-soft` and a
 label class. New destination → add a `NAV_ITEMS` entry + an icon in `ICONS`

@@ -139,6 +139,9 @@ export function initDB() {
       format TEXT DEFAULT 'ass',
       chat_history_json TEXT DEFAULT '[]',
       frame_manifest_json TEXT DEFAULT '[]',
+      context_md TEXT DEFAULT '',
+      context_manifest_json TEXT DEFAULT '[]',
+      context_settings_json TEXT DEFAULT '{}',
       stage_status_json TEXT DEFAULT '{}',
       analysis_json TEXT DEFAULT '{}',
       source_lang TEXT DEFAULT 'zh',
@@ -181,6 +184,9 @@ export function initDB() {
   `);
   addColumnIfMissing('videos', 'tags', "TEXT DEFAULT '[]'");
   addColumnIfMissing('studio_projects', 'analysis_json', "TEXT DEFAULT '{}'");
+  addColumnIfMissing('studio_projects', 'context_md', "TEXT DEFAULT ''");
+  addColumnIfMissing('studio_projects', 'context_manifest_json', "TEXT DEFAULT '[]'");
+  addColumnIfMissing('studio_projects', 'context_settings_json', "TEXT DEFAULT '{}'");
   console.log('SQLite Database initialized at:', dbPath);
 }
 
