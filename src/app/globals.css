@@ -7,41 +7,41 @@
    ===================================================================== */
 
 :root {
-  /* ---- Surfaces (dark, layered) ---- */
-  --bg: #0b0d10;
-  --surface: #121519;
-  --surface-2: #171b21;
-  --surface-3: #1d222a;
-  --overlay: rgba(6, 8, 11, 0.72);
+  /* ---- Surfaces (dark, mineral green) ---- */
+  --bg: #0d0f0c;
+  --surface: #141813;
+  --surface-2: #1a2018;
+  --surface-3: #222a1f;
+  --overlay: rgba(7, 9, 6, 0.78);
 
   /* ---- Borders ---- */
-  --border: #232830;
-  --border-strong: #2f3742;
-  --border-focus: #3d6fd6;
+  --border: #283025;
+  --border-strong: #394435;
+  --border-focus: #c7f36b;
 
   /* ---- Text ---- */
-  --text: #e7eaee;
-  --text-muted: #98a2b1;
-  --text-faint: #626d7c;
-  --text-inverse: #0b0d10;
+  --text: #edf1e8;
+  --text-muted: #a7b19e;
+  --text-faint: #727d69;
+  --text-inverse: #10130e;
 
-  /* ---- Accent (single) ---- */
-  --accent: #4f8cff;
-  --accent-2: #7db0ff;
-  --accent-hover: #6b9dff;
-  --accent-soft: rgba(79, 140, 255, 0.12);
-  --accent-border: rgba(79, 140, 255, 0.32);
+  /* ---- Accent: lichen signal ---- */
+  --accent: #c7f36b;
+  --accent-2: #e0ff9f;
+  --accent-hover: #d5fa84;
+  --accent-soft: rgba(199, 243, 107, 0.11);
+  --accent-border: rgba(199, 243, 107, 0.34);
 
   /* ---- Status ---- */
-  --ok: #34d399;
-  --ok-soft: rgba(52, 211, 153, 0.12);
-  --warn: #fbbf24;
-  --warn-soft: rgba(251, 191, 36, 0.12);
-  --danger: #f87171;
-  --danger-soft: rgba(248, 113, 113, 0.12);
-  --running: #60a5fa;
-  --running-soft: rgba(96, 165, 250, 0.14);
-  --idle: #64748b;
+  --ok: #72d6a0;
+  --ok-soft: rgba(114, 214, 160, 0.12);
+  --warn: #e6b65c;
+  --warn-soft: rgba(230, 182, 92, 0.12);
+  --danger: #ef7d68;
+  --danger-soft: rgba(239, 125, 104, 0.12);
+  --running: #86aee0;
+  --running-soft: rgba(134, 174, 224, 0.14);
+  --idle: #697462;
 
   /* ---- Typography ---- */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

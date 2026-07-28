@@ -1,7 +1,8 @@
 import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { studioWhisperPaths } from './localWhisper';
+import { studioWhisperPaths } from './localWhisper.js';
 
 function runFfmpeg(args, timeoutMs = 10 * 60 * 1000) {
   const bin = studioWhisperPaths().ffmpeg;
@@ -33,17 +34,6 @@ function runFfmpeg(args, timeoutMs = 10 * 60 * 1000) {
   });
 }
 
-function sampleSegments(segments, limit) {
-  if (segments.length <= limit) return segments;
-  const selected = [];
-  const used = new Set();
-  for (let slot = 0; slot < limit; slot += 1) {
-    const index = Math.min(segments.length - 1, Math.round((slot / Math.max(1, limit - 1)) * (segments.length - 1)));
-    if (!used.has(index)) { used.add(index); selected.push(segments[index]); }
-  }
-  return selected;
-}
-
 function nearestSegment(segments, time) {
   let winner = segments[0];
   let distance = Infinity;
@@ -61,45 +51,96 @@ function savedFrame(filePath) {
   return { byteSize: stat.size };
 }
 
-export async function extractSynchronizedFrames(videoPath, segments, outputDir, { maxFrames = 60 } = {}) {
-  if (!Array.isArray(segments) || !segments.length) throw new Error('Frame extraction requires timestamped segments.');
-  fs.mkdirSync(outputDir, { recursive: true });
-  for (const entry of fs.readdirSync(outputDir)) {
-    if (/\.(?:jpe?g)$/i.test(entry)) fs.rmSync(path.join(outputDir, entry), { force: true });
+export function buildTimedFramePlan(duration, {
+  intervalSeconds = 15,
+  maxFrames = 120,
+} = {}) {
+  const safeDuration = Number(duration);
+  const safeInterval = Math.max(2, Math.min(300, Number(intervalSeconds) || 15));
+  const safeLimit = Math.max(1, Math.min(240, Number(maxFrames) || 120));
+  if (!Number.isFinite(safeDuration) || safeDuration <= 0) {
+    throw new Error('Timed screenshot extraction requires a positive video duration.');
   }
-  const selected = sampleSegments(segments, Math.max(1, Math.min(maxFrames, segments.length)));
-  const manifest = [];
-  for (const segment of selected) {
-    const time = Math.max(0, segment.start + ((segment.end - segment.start) / 2));
-    const milliseconds = Math.round(time * 1000);
-    const file = `segment_${String(segment.index).padStart(4, '0')}_${milliseconds}.jpg`;
-    const framePath = path.join(outputDir, file);
-    await runFfmpeg(['-nostdin', '-y', '-ss', time.toFixed(3), '-i', videoPath, '-frames:v', '1', '-q:v', '3', framePath]);
-    manifest.push({ segIndex: segment.index, timeMs: milliseconds, file, kind: 'midpoint', ...savedFrame(framePath) });
+  const frameCount = Math.ceil(safeDuration / safeInterval);
+  if (frameCount > safeLimit) {
+    const error = new Error(
+      `This ${safeInterval}s interval needs ${frameCount} screenshots. Increase the interval or raise the ${safeLimit}-frame safety limit.`,
+    );
+    error.code = 'CONTEXT_FRAME_LIMIT';
+    throw error;
   }
+  return Array.from({ length: frameCount }, (_, index) => {
+    const windowStart = index * safeInterval;
+    const windowEnd = Math.min(safeDuration, (index + 1) * safeInterval);
+    const captureTime = windowStart + ((windowEnd - windowStart) / 2);
+    const timeMs = Math.round(captureTime * 1000);
+    const frameId = `frame-${String(index + 1).padStart(4, '0')}`;
+    return {
+      frameId,
+      timeMs,
+      windowStartMs: Math.round(windowStart * 1000),
+      windowEndMs: Math.round(windowEnd * 1000),
+      file: `${frameId}_${String(timeMs).padStart(9, '0')}.jpg`,
+      kind: 'interval',
+    };
+  });
+}
 
-  const remaining = Math.max(0, maxFrames - manifest.length);
-  if (remaining > 0) {
-    const pattern = path.join(outputDir, 'scene_%04d.jpg');
-    const stderr = await runFfmpeg([
-      '-nostdin', '-y', '-i', videoPath,
-      '-vf', 'select=gt(scene\\,0.4),showinfo', '-vsync', 'vfr', '-frames:v', String(remaining), '-q:v', '3', pattern,
-    ]).catch(() => '');
-    const times = [...stderr.matchAll(/pts_time:([0-9.]+)/g)].map((match) => Number(match[1]));
-    const sceneFiles = fs.readdirSync(outputDir).filter((name) => /^scene_\d+\.jpg$/.test(name)).sort();
-    sceneFiles.forEach((file, index) => {
-      const seconds = Number.isFinite(times[index]) ? times[index] : 0;
+export async function extractSynchronizedFrames(videoPath, segments, outputDir, {
+  duration,
+  intervalSeconds = 15,
+  maxFrames = 120,
+} = {}) {
+  if (!Array.isArray(segments) || !segments.length) throw new Error('Frame extraction requires timestamped segments.');
+  const resolvedDuration = Number(duration) || Number(segments.at(-1)?.end) || 0;
+  const plan = buildTimedFramePlan(resolvedDuration, { intervalSeconds, maxFrames });
+  const parentDir = path.dirname(outputDir);
+  const outputName = path.basename(outputDir);
+  const stagingDir = path.join(parentDir, `${outputName}.next-${randomUUID()}`);
+  const backupDir = path.join(parentDir, `${outputName}.previous-${randomUUID()}`);
+  fs.mkdirSync(parentDir, { recursive: true });
+  fs.mkdirSync(stagingDir, { recursive: true });
+
+  try {
+    const manifest = [];
+    for (const item of plan) {
+      const seconds = item.timeMs / 1000;
       const segment = nearestSegment(segments, seconds);
+      const framePath = path.join(stagingDir, item.file);
+      await runFfmpeg([
+        '-nostdin', '-y', '-ss', seconds.toFixed(3), '-i', videoPath,
+        '-frames:v', '1',
+        '-vf', 'scale=1280:-2:force_original_aspect_ratio=decrease',
+        '-q:v', '4',
+        framePath,
+      ]);
       manifest.push({
+        ...item,
         segIndex: segment.index,
-        timeMs: Math.round(seconds * 1000),
-        file,
-        kind: 'scene',
-        ...savedFrame(path.join(outputDir, file)),
+        ...savedFrame(framePath),
       });
-    });
+    }
+    fs.writeFileSync(path.join(stagingDir, 'frames.json'), JSON.stringify(manifest, null, 2));
+
+    let previousMoved = false;
+    try {
+      if (fs.existsSync(outputDir)) {
+        fs.renameSync(outputDir, backupDir);
+        previousMoved = true;
+      }
+      fs.renameSync(stagingDir, outputDir);
+    } catch (error) {
+      if (previousMoved && !fs.existsSync(outputDir) && fs.existsSync(backupDir)) {
+        fs.renameSync(backupDir, outputDir);
+      }
+      throw error;
+    }
+    if (previousMoved) {
+      try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+    return manifest;
+  } catch (error) {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    throw error;
   }
-  manifest.sort((left, right) => left.timeMs - right.timeMs);
-  fs.writeFileSync(path.join(outputDir, 'frames.json'), JSON.stringify(manifest, null, 2));
-  return manifest;
 }

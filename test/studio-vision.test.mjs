@@ -5,14 +5,20 @@ import path from 'node:path';
 import test from 'node:test';
 import { dispatchGeminiBatches } from '../src/lib/studio/vision/backends/gemini.js';
 import {
-  correctSegments, getVisionStatus, VISION_SKIPPED_MESSAGE,
+  analyzeFrames, correctSegments, getVisionStatus, VISION_SKIPPED_MESSAGE,
 } from '../src/lib/studio/vision/index.js';
 
 test('vision correction reports the exact skip when no provider is configured', async () => {
-  const originalBackend = process.env.VISION_BACKEND;
-  const originalGeminiKey = process.env.GEMINI_API_KEY;
-  delete process.env.VISION_BACKEND;
-  delete process.env.GEMINI_API_KEY;
+  const environmentKeys = [
+    'VISION_BACKEND',
+    'GEMINI_API_KEY',
+    'KIMI_API_KEY',
+    'MOONSHOT_API_KEY',
+  ];
+  const originalEnvironment = Object.fromEntries(
+    environmentKeys.map((key) => [key, process.env[key]]),
+  );
+  for (const key of environmentKeys) delete process.env[key];
   try {
     assert.equal(getVisionStatus().configured, false);
     await assert.rejects(
@@ -20,10 +26,45 @@ test('vision correction reports the exact skip when no provider is configured', 
       (error) => error.code === 'VISION_NOT_CONFIGURED' && error.message === VISION_SKIPPED_MESSAGE,
     );
   } finally {
-    if (originalBackend === undefined) delete process.env.VISION_BACKEND;
-    else process.env.VISION_BACKEND = originalBackend;
-    if (originalGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
-    else process.env.GEMINI_API_KEY = originalGeminiKey;
+    for (const key of environmentKeys) {
+      if (originalEnvironment[key] === undefined) delete process.env[key];
+      else process.env[key] = originalEnvironment[key];
+    }
+  }
+});
+
+test('Gemini-only configuration is not reported as screenshot-context ready', async () => {
+  const environmentKeys = [
+    'VISION_BACKEND',
+    'GEMINI_API_KEY',
+    'KIMI_API_KEY',
+    'MOONSHOT_API_KEY',
+  ];
+  const originalEnvironment = Object.fromEntries(
+    environmentKeys.map((key) => [key, process.env[key]]),
+  );
+  delete process.env.VISION_BACKEND;
+  process.env.GEMINI_API_KEY = 'test-gemini-key';
+  delete process.env.KIMI_API_KEY;
+  delete process.env.MOONSHOT_API_KEY;
+  try {
+    const status = getVisionStatus();
+    const geminiStatus = status.available.find((item) => item.id === 'gemini');
+    assert.equal(status.configured, false);
+    assert.equal(status.backend, null);
+    assert.equal(status.model, null);
+    assert.equal(geminiStatus.configured, true);
+    assert.equal(geminiStatus.contextCapable, false);
+    assert.equal(geminiStatus.contextReady, false);
+    await assert.rejects(
+      analyzeFrames([]),
+      (error) => error.code === 'VISION_NOT_CONFIGURED' && error.message === VISION_SKIPPED_MESSAGE,
+    );
+  } finally {
+    for (const key of environmentKeys) {
+      if (originalEnvironment[key] === undefined) delete process.env[key];
+      else process.env[key] = originalEnvironment[key];
+    }
   }
 });
 

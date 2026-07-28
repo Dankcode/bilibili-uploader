@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { NextResponse } from 'next/server';
+import { buildSubtitleContextHints } from '@/lib/studio/context';
 import { refineSubtitles } from '@/lib/studio/kimi';
 import { buildSrt, parseAss } from '@/lib/studio/subtitles';
 import {
@@ -27,12 +28,13 @@ export async function POST(request) {
       });
     }
     updateStudioStage(projectId, 'refine', 'running', instruction.slice(0, 120));
+    const before = parseAss(project.subtitleText);
     const refined = await refineSubtitles(project.subtitleText, instruction, {
       history: project.chatHistory,
       model: body.model,
       temperature: body.temperature,
+      contextHints: buildSubtitleContextHints(before, project.contextManifest),
     });
-    const before = parseAss(project.subtitleText);
     const translationChanged = refined.segments.some((segment, index) => segment.textEn !== before[index]?.textEn);
     if (!translationChanged) {
       const unchanged = updateStudioStage(projectId, 'refine', 'skipped', 'Provider returned no subtitle text changes');
