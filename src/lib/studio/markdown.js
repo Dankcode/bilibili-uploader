@@ -1,4 +1,5 @@
-const TIMESTAMP_PATTERN = /(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})/;
+const TIMESTAMP_PATTERN = /(\d{1,3}):(\d{2}):(\d{2})[.,](\d{3})/;
+const DURATION_PATTERN = /^(\d{1,3}):(\d{2}):(\d{2})(?:[.,](\d{3}))?$/;
 
 function pad(value, width = 2) {
   return String(value).padStart(width, '0');
@@ -23,7 +24,16 @@ export function markdownTimeToSeconds(value) {
 }
 
 function durationLabel(seconds) {
-  return secondsToMarkdownTime(seconds).replace(/\.\d{3}$/, '');
+  return secondsToMarkdownTime(seconds);
+}
+
+function durationToSeconds(value) {
+  const match = String(value || '').trim().match(DURATION_PATTERN);
+  if (!match) return 0;
+  return (Number(match[1]) * 3600)
+    + (Number(match[2]) * 60)
+    + Number(match[3])
+    + (Number(match[4] || 0) / 1000);
 }
 
 export function buildTranscriptMarkdown({
@@ -34,6 +44,7 @@ export function buildTranscriptMarkdown({
   generated = new Date().toISOString(),
   engine = 'whisper-local',
   corrected = false,
+  contextAssisted = false,
   segments = [],
 } = {}) {
   const safeSegments = segments.map((segment, index) => ({
@@ -49,6 +60,7 @@ export function buildTranscriptMarkdown({
     `- generated: ${generated}   engine: ${engine}`,
   ];
   if (corrected) lines.push('- corrected: true');
+  if (contextAssisted) lines.push('- context_assisted: true');
   lines.push('', '## Segments');
   for (const segment of safeSegments) {
     lines.push(
@@ -64,7 +76,7 @@ export function parseTranscriptMarkdown(text) {
   const title = source.match(/^# Transcript\s*[-—]\s*(.+)$/m)?.[1]?.trim() || 'Untitled video';
   const languageLine = source.match(/^- source:\s*(\S+)\s+target:\s*(\S+)\s+duration:\s*(\S+)/m);
   const generatedLine = source.match(/^- generated:\s*(\S+)\s+engine:\s*(.+)$/m);
-  const segmentPattern = /^### \[(\d{1,2}:\d{2}:\d{2}[.,]\d{3}) --> (\d{1,2}:\d{2}:\d{2}[.,]\d{3})\] #(\d+)\s*\n([\s\S]*?)(?=^### \[|\s*$)/gm;
+  const segmentPattern = /^### \[(\d{1,3}:\d{2}:\d{2}[.,]\d{3}) --> (\d{1,3}:\d{2}:\d{2}[.,]\d{3})\] #(\d+)\s*\n([\s\S]*?)(?=^### \[|\s*$)/gm;
   const segments = [];
   let match;
   while ((match = segmentPattern.exec(source)) !== null) {
@@ -85,10 +97,11 @@ export function parseTranscriptMarkdown(text) {
     name: title,
     source: languageLine?.[1] || 'zh',
     target: languageLine?.[2] || 'en',
-    duration: segments.at(-1)?.end || 0,
+    duration: Math.max(durationToSeconds(languageLine?.[3]), segments.at(-1)?.end || 0),
     generated: generatedLine?.[1] || '',
     engine: generatedLine?.[2]?.trim() || '',
     corrected: /^- corrected:\s*true\s*$/mi.test(source),
+    contextAssisted: /^- context_assisted:\s*true\s*$/mi.test(source),
     segments,
   };
 }

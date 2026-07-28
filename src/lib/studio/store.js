@@ -26,6 +26,9 @@ function fromRow(row) {
     format: row.format || 'ass',
     chatHistory: parseJson(row.chat_history_json, []),
     frameManifest: parseJson(row.frame_manifest_json, []),
+    contextMd: row.context_md || '',
+    contextManifest: parseJson(row.context_manifest_json, []),
+    contextSettings: parseJson(row.context_settings_json, {}),
     stageStatus: parseJson(row.stage_status_json, {}),
     analysis: parseJson(row.analysis_json, {}),
     sourceLang: row.source_lang || 'zh',
@@ -90,12 +93,15 @@ export function updateStudioProject(id, patch = {}) {
   db.prepare(`
     UPDATE studio_projects SET
       name = ?, video_path = ?, transcript_md = ?, subtitle_text = ?, format = ?,
-      chat_history_json = ?, frame_manifest_json = ?, stage_status_json = ?,
+      chat_history_json = ?, frame_manifest_json = ?, context_md = ?,
+      context_manifest_json = ?, context_settings_json = ?, stage_status_json = ?,
       analysis_json = ?, source_lang = ?, target_lang = ?, quality = ?, updated_at = ?
     WHERE id = ?
   `).run(
     next.name, next.videoPath, next.transcriptMd || '', next.subtitleText || '', next.format || 'ass',
-    JSON.stringify(next.chatHistory || []), JSON.stringify(next.frameManifest || []), JSON.stringify(next.stageStatus || {}),
+    JSON.stringify(next.chatHistory || []), JSON.stringify(next.frameManifest || []), next.contextMd || '',
+    JSON.stringify(next.contextManifest || []), JSON.stringify(next.contextSettings || {}),
+    JSON.stringify(next.stageStatus || {}),
     JSON.stringify(next.analysis || {}),
     next.sourceLang || 'zh', next.targetLang || 'en', next.quality || 'fast', next.updatedAt, current.id,
   );
@@ -145,7 +151,9 @@ export function studioProjectSummary(project) {
     hasTranscript: Boolean(safe.transcriptMd),
     hasSubtitles: Boolean(safe.subtitleText),
     hasAnalysis: Boolean(safe.analysis?.generatedAt),
+    hasContext: Boolean(safe.contextMd),
     frameCount: safe.frameManifest.length,
+    contextCount: safe.contextManifest.length,
     createdAt: safe.createdAt,
     updatedAt: safe.updatedAt,
   };
