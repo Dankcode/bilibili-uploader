@@ -10,7 +10,7 @@
  *                    --face-selector-mode reference|one|many
  *                    [--face-selector-gender male|female]     (auto target by attribute)
  *                    [--reference-face-position N --reference-face-distance D]
- *                    --execution-providers cuda|cpu
+ *                    --execution-providers cpu|coreml|cuda
  *               ─► face-swapped video
  *
  * "Target specific faces automatically":
@@ -21,8 +21,8 @@
  *
  * CONNECTION credentials (Settings ▸ faceFusion) — persist on Save:
  *   facefusionDir      absolute path to the cloned facefusion repo
- *   pythonBin          default 'python'
- *   executionProviders default 'cuda' (use 'cpu' if no GPU)
+ *   pythonBin          defaults to the repo's .venv or python3
+ *   executionProviders default 'auto' (FaceFusion chooses what is installed)
  *   faceSwapperModel   default 'inswapper_128_fp16'
  *   faceEnhancer       'on' | 'off'  (adds face_enhancer / gfpgan)
  *   sourcePaths        default replacement face image(s), ';'-separated
@@ -36,17 +36,25 @@
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { validateVideoOutput } from '../../media/validation.js';
 
 export const id = 'faceFusion';
 
 const CLONE_URL = 'https://github.com/facefusion/facefusion.git';
 const RUN_TIMEOUT_MS = 60 * 60 * 1000; // 1h cap for long videos
 
-function resolveCreds(c = {}) {
+function defaultPythonBin(facefusionDir) {
+  const venvPython = facefusionDir ? path.join(facefusionDir, '.venv', 'bin', 'python') : '';
+  return venvPython && fs.existsSync(venvPython) ? venvPython : 'python3';
+}
+
+export function resolveCreds(c = {}) {
+  const env = globalThis.process?.env || {};
+  const facefusionDir = c.facefusionDir || env.FACEFUSION_DIR || '';
   return {
-    facefusionDir: c.facefusionDir || process.env.FACEFUSION_DIR || '',
-    pythonBin: c.pythonBin || process.env.FACEFUSION_PYTHON || 'python',
-    executionProviders: c.executionProviders || process.env.FACEFUSION_EP || 'cuda',
+    facefusionDir,
+    pythonBin: c.pythonBin || env.FACEFUSION_PYTHON || defaultPythonBin(facefusionDir),
+    executionProviders: c.executionProviders || env.FACEFUSION_EP || 'auto',
     faceSwapperModel: c.faceSwapperModel || 'inswapper_128_fp16',
     faceEnhancer: c.faceEnhancer === 'on',
     sourcePaths: c.sourcePaths || '',
@@ -55,6 +63,7 @@ function resolveCreds(c = {}) {
     referenceFacePosition: c.referenceFacePosition ?? '0',
     referenceFaceDistance: c.referenceFaceDistance ?? '0.6',
     referenceFrameNumber: c.referenceFrameNumber ?? '0',
+    downloadProviders: c.downloadProviders || 'huggingface github',
   };
 }
 
@@ -71,20 +80,31 @@ function run(cmd, args, opts = {}) {
     const child = spawn(cmd, args, { ...opts });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      reject(new Error(`Command timed out: ${cmd} ${args.join(' ')}`));
+      finish(() => reject(new Error(`Command timed out: ${cmd} ${args.join(' ')}`)));
     }, opts.timeout || RUN_TIMEOUT_MS);
     child.stdout?.on('data', (d) => {
       stdout += d.toString();
       if (opts.onLine) opts.onLine(d.toString());
     });
-    child.stderr?.on('data', (d) => { stderr += d.toString(); });
-    child.on('error', (err) => { clearTimeout(timer); reject(err); });
+    child.stderr?.on('data', (d) => {
+      stderr += d.toString();
+      if (opts.onLine) opts.onLine(d.toString());
+    });
+    child.on('error', (err) => finish(() => reject(err)));
     child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve({ stdout, stderr });
-      else reject(new Error(`Exit ${code}: ${(stderr || stdout).slice(-500)}`));
+      finish(() => {
+        if (code === 0) resolve({ stdout, stderr });
+        else reject(new Error(`Exit ${code}: ${(stderr || stdout).slice(-1000)}`));
+      });
     });
   });
 }
@@ -103,17 +123,20 @@ async function ensureRepo(creds) {
 export async function testConnection(credentials = {}) {
   const creds = resolveCreds(credentials);
   if (!creds.facefusionDir) return { ok: false, error: 'Set facefusionDir (path to the facefusion repo).' };
-  try {
-    await ensureRepo(creds);
-  } catch (error) {
-    return { ok: false, error: `FaceFusion not available: ${error.message}. Run scripts/install_facefusion.sh.` };
+  const entry = path.join(creds.facefusionDir, 'facefusion.py');
+  if (!fs.existsSync(entry)) {
+    return { ok: false, error: `FaceFusion is not installed at ${creds.facefusionDir}. Run scripts/install_facefusion.sh.` };
   }
   try {
-    await run(creds.pythonBin, ['-c', 'import sys; print(sys.version)'], { timeout: 15000 });
+    const { stdout } = await run(creds.pythonBin, [
+      '-c',
+      "import sys, onnxruntime; assert sys.version_info >= (3, 10); print(sys.version.split()[0]); print(','.join(onnxruntime.get_available_providers()))",
+    ], { timeout: 15000 });
+    const [pythonVersion = '', providers = ''] = stdout.trim().split(/\r?\n/);
+    return { ok: true, pythonVersion, providers: providers.split(',').filter(Boolean) };
   } catch (error) {
-    return { ok: false, error: `Python (${creds.pythonBin}) not runnable: ${error.message}` };
+    return { ok: false, error: `FaceFusion runtime (${creds.pythonBin}) is not ready: ${error.message}` };
   }
-  return { ok: true };
 }
 
 /**
@@ -124,7 +147,7 @@ export async function testConnection(credentials = {}) {
  */
 export async function process(inputPath, options = {}, onProgress = () => {}, credentials = {}) {
   if (!inputPath || !fs.existsSync(inputPath)) throw new Error(`FaceFusion input not found: ${inputPath}`);
-  const creds = { ...resolveCreds(credentials), ...resolveCreds(options) };
+  const creds = resolveCreds({ ...credentials, ...options });
 
   onProgress(4, 'Checking FaceFusion install');
   await ensureRepo(creds);
@@ -150,9 +173,12 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
     '--processors', ...processors,
     '--face-swapper-model', creds.faceSwapperModel,
     '--face-selector-mode', creds.faceSelectorMode,
-    '--execution-providers', creds.executionProviders,
     '--output-video-quality', String(options.outputVideoQuality || '90'),
   ];
+  if (creds.executionProviders !== 'auto') {
+    args.push('--execution-providers', ...String(creds.executionProviders).split(/[;,\s]+/).filter(Boolean));
+  }
+  args.push('--download-providers', ...String(creds.downloadProviders).split(/[;,\s]+/).filter(Boolean));
   if (creds.faceSelectorGender) args.push('--face-selector-gender', creds.faceSelectorGender);
   if (creds.faceSelectorMode === 'reference') {
     args.push(
@@ -161,6 +187,9 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
       '--reference-frame-number', String(creds.referenceFrameNumber),
     );
   }
+  if (Number(options.trimFrameStart) >= 0) args.push('--trim-frame-start', String(Number(options.trimFrameStart)));
+  if (Number(options.trimFrameEnd) > 0) args.push('--trim-frame-end', String(Number(options.trimFrameEnd)));
+  args.push('--jobs-path', path.join(outDir, '.jobs'));
 
   onProgress(12, 'Running FaceFusion face swap');
   await run(creds.pythonBin, args, {
@@ -172,7 +201,12 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
     },
   });
 
-  if (!fs.existsSync(outputPath)) throw new Error('FaceFusion finished but no output file was produced.');
+  const validation = await validateVideoOutput(outputPath, {
+    expectedInputPath: inputPath,
+    preserveDuration: !Number(options.trimFrameEnd),
+    preserveDimensions: true,
+    requireChanged: true,
+  });
   onProgress(100, 'Face swap complete');
   return {
     outputPath,
@@ -182,6 +216,7 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
       faceSelectorGender: creds.faceSelectorGender || null,
       faceSwapperModel: creds.faceSwapperModel,
       enhanced: creds.faceEnhancer,
+      validation,
     },
   };
 }

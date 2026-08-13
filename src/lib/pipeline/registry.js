@@ -99,13 +99,13 @@ export const PROCESSORS = [
   {
     id: 'faceFusion',
     label: 'FaceFusion (automated targeted face swap)',
-    // Wraps the facefusion headless CLI. Auto-clones the repo on first Test.
-    // Run scripts/install_facefusion.sh once to install models/deps (GPU).
+    // Wraps the FaceFusion headless CLI. Install the isolated runtime once.
     credentialFields: [
       { key: 'facefusionDir', label: 'FaceFusion Repo Path', type: 'text', placeholder: '/path/to/facefusion' },
       { key: 'sourcePaths', label: 'Replacement Face Image(s) — ; separated', type: 'text' },
-      { key: 'pythonBin', label: 'Python Binary', type: 'text', required: false, placeholder: 'python' },
-      { key: 'executionProviders', label: 'Execution Provider', type: 'text', required: false, placeholder: 'cuda | cpu' },
+      { key: 'pythonBin', label: 'Python Binary', type: 'text', required: false, placeholder: '/path/to/facefusion/.venv/bin/python' },
+      { key: 'executionProviders', label: 'Execution Provider', type: 'text', required: false, placeholder: 'auto | cpu | coreml | cuda' },
+      { key: 'downloadProviders', label: 'Model Download Providers', type: 'text', required: false, placeholder: 'huggingface github' },
       { key: 'faceSwapperModel', label: 'Face Swapper Model', type: 'text', required: false, placeholder: 'inswapper_128_fp16' },
       { key: 'faceEnhancer', label: 'Face Enhancer (on/off)', type: 'text', required: false, placeholder: 'off' },
       { key: 'faceSelectorMode', label: 'Face Selector Mode', type: 'text', required: false, placeholder: 'reference | one | many' },

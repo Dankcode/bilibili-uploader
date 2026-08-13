@@ -51,7 +51,7 @@ function validateMetadata(payload) {
 }
 
 export async function testConnection(credentials = {}) {
-  const provider = credentials.provider || process.env.AI_PROVIDER || (hasProvider('kimi', credentials) ? 'kimi' : 'gemini');
+  const provider = credentials.provider || globalThis.process?.env?.AI_PROVIDER || (hasProvider('kimi', credentials) ? 'kimi' : 'gemini');
   try {
     const result = await completeJsonWithMeta('Return {"ok":true}.', {
       system: 'Return strict JSON only.',

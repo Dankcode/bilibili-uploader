@@ -44,40 +44,41 @@ import { checkAndIncrementUsage } from '../usage';
 export const id = 'voiceover';
 
 function resolveCreds(credentials = {}) {
+  const env = globalThis.process?.env || {};
   return {
     // transcription
-    transcribeApiKey: credentials.transcribeApiKey || process.env.OPENAI_API_KEY || '',
-    transcribeBaseUrl: credentials.transcribeBaseUrl || process.env.WHISPER_BASE_URL || undefined,
+    transcribeApiKey: credentials.transcribeApiKey || env.OPENAI_API_KEY || '',
+    transcribeBaseUrl: credentials.transcribeBaseUrl || env.WHISPER_BASE_URL || undefined,
     transcribeModel: credentials.transcribeModel || 'whisper-1',
     sttBackend: credentials.sttBackend || 'openaiWhisper',
     sttQuality: credentials.sttQuality || 'fast',
     // translation
     translationBackend: credentials.translationBackend || 'aiProvider',
-    geminiApiKey: credentials.geminiApiKey || process.env.GEMINI_API_KEY || '',
-    geminiModel: credentials.geminiModel || process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    geminiApiKey: credentials.geminiApiKey || env.GEMINI_API_KEY || '',
+    geminiModel: credentials.geminiModel || env.GEMINI_MODEL || 'gemini-1.5-flash',
     geminiRefine: credentials.geminiRefine === 'on',
     // re-scripting
     rescript: credentials.rescript !== 'off',
     rescriptStyle: credentials.rescriptStyle || '',
     // tts selection
-    ttsBackend: credentials.ttsBackend || process.env.TTS_BACKEND || 'elevenlabs',
+    ttsBackend: credentials.ttsBackend || env.TTS_BACKEND || 'elevenlabs',
     // elevenlabs
-    elevenApiKey: credentials.elevenApiKey || process.env.ELEVENLABS_API_KEY || '',
-    voiceId: credentials.voiceId || process.env.ELEVENLABS_VOICE_ID || '',
+    elevenApiKey: credentials.elevenApiKey || env.ELEVENLABS_API_KEY || '',
+    voiceId: credentials.voiceId || env.ELEVENLABS_VOICE_ID || '',
     modelId: credentials.modelId || 'eleven_multilingual_v2',
     // cosyvoice (local)
-    cosyEndpoint: credentials.cosyEndpoint || process.env.COSYVOICE_ENDPOINT || '',
+    cosyEndpoint: credentials.cosyEndpoint || env.COSYVOICE_ENDPOINT || '',
     cosyMode: credentials.cosyMode || 'zero_shot',
     cosySpeakerId: credentials.cosySpeakerId || '',
     cosyPromptWav: credentials.cosyPromptWav || '',
     cosyPromptText: credentials.cosyPromptText || '',
     cosyInstruct: credentials.cosyInstruct || '',
     // qwen3-tts (DashScope cloud or local server)
-    qwenApiKey: credentials.qwenApiKey || process.env.DASHSCOPE_API_KEY || '',
-    qwenBaseUrl: credentials.qwenBaseUrl || process.env.DASHSCOPE_BASE_URL || '',
+    qwenApiKey: credentials.qwenApiKey || env.DASHSCOPE_API_KEY || '',
+    qwenBaseUrl: credentials.qwenBaseUrl || env.DASHSCOPE_BASE_URL || '',
     qwenModel: credentials.qwenModel || 'qwen3-tts-flash',
     qwenVoice: credentials.qwenVoice || 'Cherry',
-    qwenLocalEndpoint: credentials.qwenLocalEndpoint || process.env.QWEN_TTS_ENDPOINT || '',
+    qwenLocalEndpoint: credentials.qwenLocalEndpoint || env.QWEN_TTS_ENDPOINT || '',
     maxDailySeconds: Number(credentials.maxDailySeconds) || 21600,
   };
 }
