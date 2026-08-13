@@ -1,406 +1,151 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
-import DouyinImporter from '@/components/DouyinImporter';
-import GenerateStudio from '@/components/GenerateStudio';
-import PipelineDashboard from '@/components/PipelineDashboard';
-import SceneRepository from '@/components/SceneRepository';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  BarChart3, Clapperboard, Library, Menu, PanelLeftClose, PanelLeftOpen, PlugZap,
+  Search, Stethoscope, Upload, Workflow, X, LayoutDashboard,
+} from 'lucide-react';
+import AutomationHub from '@/components/AutomationHub';
+import EditorWorkspace from '@/components/EditorWorkspace';
+import OperationsOverview from '@/components/OperationsOverview';
 import ServiceConnections from '@/components/ServiceConnections';
 import Troubleshooter from '@/components/Troubleshooter';
-import {
-  triggerWorkflow, triggerContinuousWorkflow, fetchVideos, updateVideo,
-  fetchYouTubeChannels, createYouTubeChannel, removeYouTubeChannel,
-  fetchSpaces, createSpace, removeSpace, startupCheck, triggerSpecificVideo
-} from './actions';
+import VideoAnalytics from '@/components/VideoAnalytics';
+import VideoLibrary from '@/components/VideoLibrary';
+import { fetchYouTubeChannels, startupCheck } from './actions';
 import styles from './page.module.css';
 
-const SubtitleStudio = dynamic(() => import('@/components/SubtitleStudio'), {
-  loading: () => <div className={styles.panelBody}>Loading Subtitle Studio...</div>,
-  ssr: false,
-});
-
-// --- Minimal inline icon set (keeps the shell dependency-free) ---
-const Icon = ({ path, viewBox = '0 0 24 24' }) => (
-  <svg width="16" height="16" viewBox={viewBox} fill="none" stroke="currentColor"
-    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {path}
-  </svg>
-);
-const ICONS = {
-  generate: <Icon path={<><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" /></>} />,
-  studio: <Icon path={<><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M7 9h10M7 13h7M7 17h4" /></>} />,
-  content: <Icon path={<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 4v16" /></>} />,
-  douyin: <Icon path={<><path d="M9 18V6l9 5-9 5" /><circle cx="6" cy="18" r="2" /></>} />,
-  pipeline: <Icon path={<><circle cx="6" cy="6" r="2" /><circle cx="18" cy="18" r="2" /><path d="M6 8v6a4 4 0 0 0 4 4h6" /></>} />,
-  scenes: <Icon path={<><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m10 9 5 3-5 3z" /></>} />,
-  settings: <Icon path={<><circle cx="12" cy="12" r="3" /><path d="M19.4 13a7.9 7.9 0 0 0 0-2l2-1.5-2-3.4-2.4 1a7.9 7.9 0 0 0-1.7-1L14.9 3H9.1l-.4 2.6a7.9 7.9 0 0 0-1.7 1l-2.4-1-2 3.4L2.6 11a7.9 7.9 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.9 7.9 0 0 0 1.7 1l.4 2.6h5.8l.4-2.6a7.9 7.9 0 0 0 1.7-1l2.4 1 2-3.4Z" /></>} />,
-  troubleshooter: <Icon path={<><circle cx="12" cy="12" r="9" /><path d="M12 8v4M12 16h.01" /></>} />,
-};
-
-const NAV_ITEMS = [
-  ['studio', 'Subtitle Studio'],
-  ['generate', 'Generate'],
-  ['content', 'Content Queue'],
-  ['douyin', 'Douyin Import'],
-  ['pipeline', 'Pipeline'],
-  ['scenes', 'Scene Intel'],
-  ['settings', 'Connections'],
-  ['troubleshooter', 'Diagnostics'],
+const NAV_GROUPS = [
+  {
+    label: 'Workspace',
+    items: [
+      ['overview', 'Overview', LayoutDashboard],
+      ['library', 'Library', Library],
+      ['automation', 'Automation', Workflow],
+      ['editor', 'Editor', Clapperboard],
+      ['analytics', 'Analytics', BarChart3],
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      ['connections', 'Connections', PlugZap],
+      ['diagnostics', 'Diagnostics', Stethoscope],
+    ],
+  },
 ];
 
+const VIEW_META = {
+  overview: ['Operations', 'Live workspace'],
+  library: ['Video library', 'SQL catalog'],
+  automation: ['Automation', 'Batch control'],
+  editor: ['Video editor', 'Timeline and subtitles'],
+  analytics: ['Analytics', 'Platform performance'],
+  connections: ['Connections', 'Providers and channels'],
+  diagnostics: ['Diagnostics', 'System checks'],
+};
+
 export default function Dashboard() {
-  // Navigation State
+  const [activeView, setActiveView] = useState('overview');
+  const [overviewPayload, setOverviewPayload] = useState(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewError, setOverviewError] = useState('');
   const [channels, setChannels] = useState([]);
-  const [activeChannelId, setActiveChannelId] = useState(null);
-  const [spaces, setSpaces] = useState([]);
-  const [activeSpaceId, setActiveSpaceId] = useState(null);
-  const [videos, setVideos] = useState([]);
+  const [globalQuery, setGlobalQuery] = useState('');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [composerKey, setComposerKey] = useState(0);
+  const [proofKey, setProofKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // UI State
-  const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState('Idle');
-  const [editingId, setEditingId] = useState(null);
-  const [editData, setEditData] = useState({});
-  const [activeView, setActiveView] = useState('studio');
-
-  // Management Modals
-  const [showAddChannel, setShowAddChannel] = useState(false);
-  const [showAddSpace, setShowAddSpace] = useState(false);
-  const [newItem, setNewItem] = useState({ id: '', name: '' });
-
-  useEffect(() => {
-    startupCheck();
-    loadChannels();
+  const loadOverview = useCallback(async () => {
+    setOverviewError('');
+    try {
+      const response = await fetch('/api/operations/overview', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not load operations');
+      setOverviewPayload(payload);
+    } catch (error) {
+      setOverviewError(error.message);
+    } finally {
+      setOverviewLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (activeChannelId) {
-      loadSpaces(activeChannelId);
-    } else {
-      setSpaces([]);
-      setActiveSpaceId(null);
-    }
-  }, [activeChannelId]);
-
-  useEffect(() => {
-    if (activeSpaceId) {
-      loadVideos(activeSpaceId);
-    } else {
-      setVideos([]);
-    }
-    const interval = setInterval(() => {
-      if (activeSpaceId) loadVideos(activeSpaceId);
-    }, 5000);
+    startupCheck();
+    fetchYouTubeChannels().then(setChannels).catch(() => setChannels([]));
+    loadOverview();
+    const interval = setInterval(loadOverview, 8000);
     return () => clearInterval(interval);
-  }, [activeSpaceId]);
+  }, [loadOverview]);
 
-  // --- Data Loading ---
-  const loadChannels = async () => {
-    const data = await fetchYouTubeChannels();
-    setChannels(data);
-    if (data.length > 0 && !activeChannelId) setActiveChannelId(data[0].id);
-  };
+  function navigate(view, target = '') {
+    if (view === 'automation' && target === 'proof') setProofKey(Date.now());
+    setActiveView(view);
+    setMobileNavOpen(false);
+  }
 
-  const loadSpaces = async (channelId) => {
-    const data = await fetchSpaces(channelId);
-    setSpaces(data);
-    setActiveSpaceId(data.length > 0 ? data[0].space_id : null);
-  };
+  function openImport() {
+    setComposerKey(Date.now());
+    navigate('automation');
+  }
 
-  const loadVideos = async (spaceId) => {
-    const data = await fetchVideos(spaceId);
-    setVideos(data);
-  };
+  function refreshWorkspace() {
+    setRefreshKey((value) => value + 1);
+    loadOverview();
+  }
 
-  // --- Management Actions ---
-  const handleCreateChannel = async () => {
-    if (!newItem.id) return;
-    const res = await createYouTubeChannel(newItem.id, newItem.name || `Channel ${newItem.id}`);
-    if (res.success) {
-      setShowAddChannel(false);
-      setNewItem({ id: '', name: '' });
-      loadChannels();
-    }
-  };
-
-  const handleDeleteChannel = async (id) => {
-    if (window.confirm('WARNING: Deleting this channel will remove all its Bilibili Spaces and video records. Proceed?')) {
-      const res = await removeYouTubeChannel(id);
-      if (res.success) {
-        setActiveChannelId(null);
-        loadChannels();
-      }
-    }
-  };
-
-  const handleCreateSpace = async () => {
-    if (!newItem.id || !activeChannelId) return;
-    const res = await createSpace(activeChannelId, newItem.id, newItem.name || `Space ${newItem.id}`);
-    if (res.success) {
-      setShowAddSpace(false);
-      setNewItem({ id: '', name: '' });
-      loadSpaces(activeChannelId);
-    }
-  };
-
-  const handleDeleteSpace = async (id) => {
-    if (window.confirm('Are you sure you want to delete this Bilibili tab and its records?')) {
-      const res = await removeSpace(id);
-      if (res.success) {
-        setActiveSpaceId(null);
-        loadSpaces(activeChannelId);
-      }
-    }
-  };
-
-  // --- Workflow Actions ---
-  const handleManualUpload = async (videoId) => {
-    setLoading(videoId);
-    setStatus('Force Uploading...');
-    const res = await triggerSpecificVideo(videoId);
-    setStatus(res.success ? `Queued job #${res.job?.id || ''}`.trim() : 'Queue Failed');
-    setLoading(null);
-    loadVideos(activeSpaceId);
-  };
-
-  const handleSyncSpace = async () => {
-    setLoading(true);
-    setStatus('Syncing Space...');
-    const res = await triggerWorkflow(activeSpaceId);
-    setStatus(res.success ? 'Sync Finished' : 'Sync Failed');
-    setLoading(false);
-    loadVideos(activeSpaceId);
-  };
-
-  const handleEdit = (vid) => {
-    setEditingId(vid.id);
-    setEditData({ ...vid });
-  };
-
-  const handleSave = async () => {
-    const res = await updateVideo(editingId, editData);
-    if (res.success) {
-      setEditingId(null);
-      loadVideos(activeSpaceId);
-    }
-  };
-
-  const activeChannel = channels.find(c => c.id === activeChannelId);
-  const activeSpace = spaces.find(s => s.space_id === activeSpaceId);
-  const activeNavLabel = NAV_ITEMS.find(([id]) => id === activeView)?.[1] || 'Studio';
+  const activeMeta = VIEW_META[activeView] || VIEW_META.overview;
+  const counts = overviewPayload?.overview?.counts || {};
+  const passingHealth = useMemo(() => (overviewPayload?.health || []).filter((item) => item.status === 'ok').length, [overviewPayload]);
+  const healthTotal = overviewPayload?.health?.length || 0;
 
   return (
-    <div className={styles.container}>
-      {/* ===== Sidebar ===== */}
-      <aside className={styles.sidebar}>
-        <div className={styles.sidebarBrand}>
-          <div className={styles.brandMark}>S</div>
-          <div>
-            <div className={styles.brandName}>Studio Suite</div>
-            <div className={styles.brandTag}>v5 · Media Ops</div>
-          </div>
+    <div className={`${styles.opsShell} ${sidebarCollapsed ? styles.sidebarCollapsed : ''}`}>
+      <aside className={`${styles.opsSidebar} ${mobileNavOpen ? styles.mobileNavOpen : ''}`}>
+        <div className={styles.opsBrand}>
+          <div className={styles.opsBrandMark}>V</div>
+          {!sidebarCollapsed && <div><strong>VIDEOPS</strong><span>Automation console</span></div>}
+          <button type="button" className={styles.sidebarToggle} onClick={() => setSidebarCollapsed((value) => !value)} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}</button>
+          <button type="button" className={styles.mobileClose} onClick={() => setMobileNavOpen(false)} title="Close navigation" aria-label="Close navigation"><X size={17} /></button>
         </div>
 
-        <nav className={styles.nav}>
-          <div className={styles.navLabel}>Workspace</div>
-          {NAV_ITEMS.map(([id, label]) => (
-            <div
-              key={id}
-              className={`${styles.navItem} ${activeView === id ? styles.activeNavItem : ''}`}
-              onClick={() => setActiveView(id)}
-            >
-              <span className={styles.navIcon}>{ICONS[id]}</span>
-              {label}
-            </div>
-          ))}
+        <nav className={styles.opsNav} aria-label="Primary navigation">
+          {NAV_GROUPS.map((group) => <div className={styles.opsNavGroup} key={group.label}>
+            {!sidebarCollapsed && <span>{group.label}</span>}
+            {group.items.map(([id, label, Icon]) => <button type="button" key={id} className={activeView === id ? styles.opsNavActive : ''} onClick={() => navigate(id)} title={sidebarCollapsed ? label : undefined}><Icon size={17} /><span>{label}</span>{id === 'library' && counts.needsReview > 0 && <i>{counts.needsReview}</i>}</button>)}
+          </div>)}
         </nav>
 
-        <div className={styles.sidebarFooter}>
-          <span>LAN · :4455</span>
-          <span>Global: {status}</span>
+        <div className={styles.opsSidebarFooter}>
+          <span className={healthTotal && passingHealth === healthTotal ? styles.systemOnline : styles.systemAttention} />
+          {!sidebarCollapsed && <div><strong>{healthTotal ? `${passingHealth}/${healthTotal} checks ready` : 'Checks pending'}</strong><small>localhost:4455</small></div>}
         </div>
       </aside>
 
-      {/* ===== Main column ===== */}
-      <div className={styles.main}>
-        {/* Top bar: context + primary actions */}
-        <header className={styles.topbar}>
-          <div className={styles.logoRow}>
-            <h1 className={styles.title}>{activeNavLabel}</h1>
-            <span className={styles.badge}>{activeView === 'studio' ? 'Local workspace' : activeSpace?.name || 'No source'}</span>
-          </div>
+      {mobileNavOpen && <button className={styles.mobileScrim} type="button" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation overlay" />}
 
-          {activeView !== 'studio' && <div className={styles.actionsBar}>
-            <div className={styles.contextGroup}>
-              <span className={styles.ctxLabel}>Channel</span>
-              <select
-                className={styles.select}
-                value={activeChannelId || ''}
-                onChange={(e) => setActiveChannelId(Number(e.target.value) || e.target.value)}
-                style={{ width: 'auto' }}
-              >
-                {channels.length === 0 && <option value="">— none —</option>}
-                {channels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <button className={styles.addTabBtn} onClick={() => setShowAddChannel(true)}>+</button>
-              {activeChannel && (
-                <button className={styles.tabDelete} title="Delete channel"
-                  onClick={() => handleDeleteChannel(activeChannel.id)}>×</button>
-              )}
-            </div>
-
-            <div className={styles.contextGroup}>
-              <span className={styles.ctxLabel}>Source</span>
-              <select
-                className={styles.select}
-                value={activeSpaceId || ''}
-                onChange={(e) => setActiveSpaceId(e.target.value)}
-                style={{ width: 'auto' }}
-                disabled={!activeChannelId}
-              >
-                {spaces.length === 0 && <option value="">— none —</option>}
-                {spaces.map(s => <option key={s.id} value={s.space_id}>{s.name}</option>)}
-              </select>
-              <button className={styles.addTabBtn} disabled={!activeChannelId}
-                onClick={() => setShowAddSpace(true)}>+</button>
-              {activeSpace && (
-                <button className={styles.tabDelete} title="Delete source"
-                  onClick={() => handleDeleteSpace(activeSpace.id)}>×</button>
-              )}
-            </div>
-
-            <button onClick={handleSyncSpace} disabled={loading || !activeSpaceId} className={styles.buttonPrimary}>
-              {loading === true ? 'Syncing…' : 'Sync & Scrape'}
-            </button>
-            <button onClick={() => triggerContinuousWorkflow(activeSpaceId)} disabled={!activeSpaceId} className={styles.buttonSecondary}>
-              Continuous Loop
-            </button>
-          </div>}
+      <div className={styles.opsMain}>
+        <header className={styles.opsTopbar}>
+          <button type="button" className={styles.mobileMenu} onClick={() => setMobileNavOpen(true)} title="Open navigation" aria-label="Open navigation"><Menu size={18} /></button>
+          <div className={styles.viewIdentity}><h1>{activeMeta[0]}</h1><span>{activeMeta[1]}</span></div>
+          <label className={styles.globalSearch}>
+            <Search size={15} />
+            <input value={globalQuery} onFocus={() => activeView !== 'library' && navigate('library')} onChange={(event) => setGlobalQuery(event.target.value)} placeholder="Search videos" aria-label="Search videos" />
+          </label>
+          <div className={styles.capacityMeter} title="Active jobs out of batch capacity"><span><i style={{ width: `${Math.min(100, ((counts.active || 0) / 100) * 100)}%` }} /></span><small>{counts.active || 0}/100 active</small></div>
+          <button type="button" className={styles.importButton} onClick={openImport}><Upload size={15} /><span>Import videos</span></button>
         </header>
 
-        <main className={styles.mainFull}>
-          {/* Management modals */}
-          {(showAddChannel || showAddSpace) && (
-            <div className={styles.modalOverlay}>
-              <div className={styles.modal}>
-                <h3>Add {showAddChannel ? 'YouTube Channel' : 'Bilibili Space Source'}</h3>
-                <p className={styles.modalSub}>Linking to {showAddSpace ? `YouTube Channel: ${activeChannel?.name}` : 'Main Dashboard'}</p>
-                <input
-                  placeholder={showAddChannel ? 'YouTube Channel/User ID' : 'Bilibili Space ID (Numbers)'}
-                  value={newItem.id}
-                  onChange={(e) => setNewItem(p => ({ ...p, id: e.target.value }))}
-                  className={styles.modalInput}
-                />
-                <input
-                  placeholder="Custom Display Name"
-                  value={newItem.name}
-                  onChange={(e) => setNewItem(p => ({ ...p, name: e.target.value }))}
-                  className={styles.modalInput}
-                />
-                <div className={styles.modalButtons}>
-                  <button onClick={showAddChannel ? handleCreateChannel : handleCreateSpace} className={styles.buttonPrimary}>Create</button>
-                  <button onClick={() => { setShowAddChannel(false); setShowAddSpace(false); setNewItem({ id: '', name: '' }); }} className={styles.buttonSecondary}>Cancel</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeView === 'generate' && <GenerateStudio defaultSourceInput={activeSpaceId || ''} />}
-          {activeView === 'studio' && <SubtitleStudio channels={channels} onPublished={() => setActiveView('pipeline')} />}
-          {activeView === 'douyin' && <DouyinImporter onCreated={() => setActiveView('pipeline')} />}
-          {activeView === 'pipeline' && <PipelineDashboard />}
-          {activeView === 'scenes' && <SceneRepository />}
-          {activeView === 'settings' && <ServiceConnections />}
-          {activeView === 'troubleshooter' && <Troubleshooter />}
-          {activeView === 'content' && (
-            <section className={styles.tableCard}>
-              <div className={styles.cardHeader}>
-                <h3>{activeSpace?.name || 'Content Queue'}</h3>
-                <div className={styles.legend}>
-                  <span className={styles.legendItem}><i className={styles.dotScheduled}></i> Scheduled</span>
-                  <span className={styles.legendItem}><i className={styles.dotEdited}></i> Edited File</span>
-                </div>
-              </div>
-
-              <div className={styles.tableWrapper}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Title</th>
-                      <th>Status</th>
-                      <th>Edited File</th>
-                      <th>Scheduled Upload</th>
-                      <th style={{ width: '220px' }}>Operations</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {videos.map(vid => (
-                      <tr key={vid.id}>
-                        <td>
-                          {editingId === vid.id ? (
-                            <input name="chinese_name" value={editData.chinese_name} onChange={(e) => setEditData(p => ({ ...p, chinese_name: e.target.value }))} className={styles.input} />
-                          ) : (
-                            <div className={styles.titleWrapper}>
-                              {vid.auto_upload_time && <span className={styles.iconScheduled} title="Scheduled Upload">⏱</span>}
-                              {vid.chinese_name}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          {editingId === vid.id ? (
-                            <select value={editData.status} onChange={(e) => setEditData(p => ({ ...p, status: e.target.value }))} className={styles.select}>
-                              <option value="Not started">Not started</option>
-                              <option value="In progress">In progress</option>
-                              <option value="Done">Done</option>
-                            </select>
-                          ) : (
-                            <span className={`${styles.statusLabel} ${styles[vid.status.toLowerCase().replace(' ', '')]}`}>
-                              {vid.status}
-                            </span>
-                          )}
-                        </td>
-                        <td className={styles.pathColumn}>
-                          {editingId === vid.id ? (
-                            <input value={editData.edited_video_path || ''} onChange={(e) => setEditData(p => ({ ...p, edited_video_path: e.target.value }))} placeholder="Absolute Path" className={styles.input} />
-                          ) : (
-                            <div className={styles.editedPath}>
-                              {vid.edited_video_path ? <span title={vid.edited_video_path}>✅ Provided</span> : <span className={styles.muted}>No Edited File</span>}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          {editingId === vid.id ? (
-                            <input type="datetime-local" value={editData.auto_upload_time ? editData.auto_upload_time.slice(0, 16) : ''} onChange={(e) => setEditData(p => ({ ...p, auto_upload_time: e.target.value }))} className={styles.input} />
-                          ) : (
-                            <span className={styles.timeText}>{vid.auto_upload_time ? new Date(vid.auto_upload_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '--'}</span>
-                          )}
-                        </td>
-                        <td>
-                          <div className={styles.operationRow}>
-                            {editingId === vid.id ? (
-                              <button onClick={handleSave} className={styles.saveBtn}>Save</button>
-                            ) : (
-                              <>
-                                <button onClick={() => handleEdit(vid)} className={styles.editBtn}>Edit</button>
-                                <button
-                                  onClick={() => handleManualUpload(vid.id)}
-                                  disabled={loading === vid.id}
-                                  className={styles.uploadNowBtn}
-                                >
-                                  {loading === vid.id ? 'Uploading…' : 'Upload Now'}
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+        <main className={styles.opsContent}>
+          {activeView === 'overview' && <OperationsOverview payload={overviewPayload} loading={overviewLoading} error={overviewError} onRefresh={refreshWorkspace} onNavigate={navigate} />}
+          {activeView === 'library' && <VideoLibrary externalQuery={globalQuery} refreshKey={refreshKey} />}
+          {activeView === 'automation' && <AutomationHub openComposerKey={composerKey} openProofKey={proofKey} onQueued={refreshWorkspace} />}
+          {activeView === 'editor' && <EditorWorkspace channels={channels} onPublished={() => navigate('analytics')} onJobQueued={() => { refreshWorkspace(); navigate('automation'); }} />}
+          {activeView === 'analytics' && <VideoAnalytics refreshKey={refreshKey} />}
+          {activeView === 'connections' && <ServiceConnections />}
+          {activeView === 'diagnostics' && <Troubleshooter />}
         </main>
       </div>
     </div>

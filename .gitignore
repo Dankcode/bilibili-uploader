@@ -41,6 +41,7 @@ credentials*.json
 config/*.json
 config/*.pickle
 config/*.db
+config/*.db-*
 config/keys.json
 config/client_secret.json
 config/token.json

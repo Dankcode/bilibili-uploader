@@ -6,6 +6,11 @@
 
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+import ffprobeInstaller from '@ffprobe-installer/ffprobe';
+
+ffmpeg.setFfmpegPath(ffmpegPath);
+ffmpeg.setFfprobePath(ffprobeInstaller.path);
 
 /** Extract a mono 16 kHz WAV suitable for Whisper transcription. */
 export function extractAudio(videoPath, outPath) {
