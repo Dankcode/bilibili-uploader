@@ -3,6 +3,29 @@ import db from '../db/sqlite';
 
 const BUILT_IN_PRESETS = [
   {
+    id: 'face-swap-proof',
+    name: 'Face swap proof',
+    template: {
+      processorIds: ['faceFusion'],
+      uploaderId: '',
+      options: { faceFusion: { outputVideoQuality: 90 } },
+    },
+  },
+  {
+    id: 'edit-and-publish',
+    name: 'Edit and publish',
+    template: {
+      processorIds: ['sceneCut', 'voiceover', 'metadata'],
+      uploaderId: 'youtube',
+      options: {
+        sceneCut: { encodingPreset: 'medium', crf: 20 },
+        voiceover: { burnSubtitles: true },
+        metadata: { reviewMetadata: false },
+        youtube: { privacyStatus: 'private' },
+      },
+    },
+  },
+  {
     id: 'studio-full-auto',
     name: 'Studio Full Auto',
     template: {

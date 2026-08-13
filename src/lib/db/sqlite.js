@@ -43,6 +43,9 @@ export function initDB() {
     db = new Database(dbPath);
     console.log('SQLite Database connected at:', dbPath);
   }
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
   db.exec(`
     CREATE TABLE IF NOT EXISTS youtube_channels (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -175,18 +178,164 @@ export function initDB() {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS video_records (
+      id TEXT PRIMARY KEY,
+      legacy_video_id INTEGER,
+      title TEXT NOT NULL,
+      source_type TEXT NOT NULL DEFAULT 'localFile',
+      source_ref TEXT NOT NULL DEFAULT '',
+      source_path TEXT DEFAULT '',
+      source_url TEXT DEFAULT '',
+      campaign TEXT DEFAULT '',
+      language TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      priority INTEGER NOT NULL DEFAULT 0,
+      preset_id TEXT DEFAULT '',
+      scheduled_at TEXT DEFAULT '',
+      published_at TEXT DEFAULT '',
+      current_version_id INTEGER,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS video_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id TEXT NOT NULL,
+      job_id INTEGER,
+      kind TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      mime_type TEXT DEFAULT '',
+      bytes INTEGER NOT NULL DEFAULT 0,
+      duration_seconds REAL NOT NULL DEFAULT 0,
+      width INTEGER NOT NULL DEFAULT 0,
+      height INTEGER NOT NULL DEFAULT 0,
+      fps REAL NOT NULL DEFAULT 0,
+      checksum_sha256 TEXT DEFAULT '',
+      validation_status TEXT NOT NULL DEFAULT 'pending',
+      validation_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(video_id) REFERENCES video_records(id) ON DELETE CASCADE,
+      FOREIGN KEY(job_id) REFERENCES video_jobs(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS video_publications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id TEXT NOT NULL,
+      job_id INTEGER,
+      platform_id TEXT NOT NULL,
+      channel_id TEXT DEFAULT '',
+      remote_id TEXT DEFAULT '',
+      url TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      scheduled_at TEXT DEFAULT '',
+      published_at TEXT DEFAULT '',
+      last_error TEXT DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(video_id) REFERENCES video_records(id) ON DELETE CASCADE,
+      FOREIGN KEY(job_id) REFERENCES video_jobs(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS video_metric_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      publication_id INTEGER NOT NULL,
+      captured_at TEXT NOT NULL,
+      views INTEGER NOT NULL DEFAULT 0,
+      impressions INTEGER NOT NULL DEFAULT 0,
+      watch_time_seconds REAL NOT NULL DEFAULT 0,
+      average_view_duration_seconds REAL NOT NULL DEFAULT 0,
+      likes INTEGER NOT NULL DEFAULT 0,
+      comments INTEGER NOT NULL DEFAULT 0,
+      shares INTEGER NOT NULL DEFAULT 0,
+      subscribers_gained INTEGER NOT NULL DEFAULT 0,
+      clicks INTEGER NOT NULL DEFAULT 0,
+      conversions INTEGER NOT NULL DEFAULT 0,
+      raw_json TEXT NOT NULL DEFAULT '{}',
+      FOREIGN KEY(publication_id) REFERENCES video_publications(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS automation_batches (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      preset_id TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'queued',
+      total_items INTEGER NOT NULL DEFAULT 0,
+      completed_items INTEGER NOT NULL DEFAULT 0,
+      failed_items INTEGER NOT NULL DEFAULT 0,
+      options_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS automation_batch_items (
+      batch_id TEXT NOT NULL,
+      job_id INTEGER NOT NULL,
+      video_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(batch_id, job_id),
+      FOREIGN KEY(batch_id) REFERENCES automation_batches(id) ON DELETE CASCADE,
+      FOREIGN KEY(job_id) REFERENCES video_jobs(id) ON DELETE CASCADE,
+      FOREIGN KEY(video_id) REFERENCES video_records(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS face_swap_proofs (
+      id TEXT PRIMARY KEY,
+      engine TEXT NOT NULL DEFAULT 'facefusion',
+      engine_version TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'running',
+      source_image_path TEXT NOT NULL,
+      target_video_path TEXT NOT NULL,
+      output_video_path TEXT DEFAULT '',
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      input_probe_json TEXT NOT NULL DEFAULT '{}',
+      output_probe_json TEXT NOT NULL DEFAULT '{}',
+      validation_json TEXT NOT NULL DEFAULT '{}',
+      error TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      completed_at TEXT DEFAULT ''
+    );
+
     CREATE INDEX IF NOT EXISTS idx_video_jobs_status_created ON video_jobs(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_video_job_steps_job_id ON video_job_steps(job_id);
     CREATE INDEX IF NOT EXISTS idx_video_assets_job_id ON video_assets(job_id);
     CREATE INDEX IF NOT EXISTS idx_studio_projects_updated ON studio_projects(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_api_usage_day_service ON api_usage(day, service);
     CREATE INDEX IF NOT EXISTS idx_pipeline_presets_updated ON pipeline_presets(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_video_records_status_updated ON video_records(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_video_records_schedule ON video_records(scheduled_at, status);
+    CREATE INDEX IF NOT EXISTS idx_video_versions_video_created ON video_versions(video_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_video_publications_video ON video_publications(video_id, published_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_video_publications_remote ON video_publications(platform_id, remote_id) WHERE remote_id != '';
+    CREATE INDEX IF NOT EXISTS idx_video_metrics_publication_captured ON video_metric_snapshots(publication_id, captured_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_batch_items_status ON automation_batch_items(batch_id, status);
+    CREATE INDEX IF NOT EXISTS idx_face_swap_proofs_created ON face_swap_proofs(created_at DESC);
   `);
   addColumnIfMissing('videos', 'tags', "TEXT DEFAULT '[]'");
   addColumnIfMissing('studio_projects', 'analysis_json', "TEXT DEFAULT '{}'");
   addColumnIfMissing('studio_projects', 'context_md', "TEXT DEFAULT ''");
   addColumnIfMissing('studio_projects', 'context_manifest_json', "TEXT DEFAULT '[]'");
   addColumnIfMissing('studio_projects', 'context_settings_json', "TEXT DEFAULT '{}'");
+  addColumnIfMissing('video_jobs', 'video_record_id', "TEXT DEFAULT ''");
+  addColumnIfMissing('video_jobs', 'batch_id', "TEXT DEFAULT ''");
+  addColumnIfMissing('video_jobs', 'priority', 'INTEGER DEFAULT 0');
+  addColumnIfMissing('video_jobs', 'scheduled_for', "TEXT DEFAULT ''");
+  addColumnIfMissing('video_jobs', 'claimed_at', "TEXT DEFAULT ''");
+  addColumnIfMissing('video_jobs', 'heartbeat_at', "TEXT DEFAULT ''");
+  addColumnIfMissing('video_jobs', 'worker_id', "TEXT DEFAULT ''");
+  addColumnIfMissing('video_jobs', 'max_attempts', 'INTEGER DEFAULT 3');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_video_jobs_dispatch
+      ON video_jobs(status, scheduled_for, priority DESC, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_video_jobs_video_record
+      ON video_jobs(video_record_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_video_jobs_batch
+      ON video_jobs(batch_id, status);
+  `);
   console.log('SQLite Database initialized at:', dbPath);
 }
 
