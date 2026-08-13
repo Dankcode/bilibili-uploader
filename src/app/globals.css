@@ -7,27 +7,27 @@
    ===================================================================== */
 
 :root {
-  /* ---- Surfaces (dark, mineral green) ---- */
-  --bg: #0d0f0c;
-  --surface: #141813;
-  --surface-2: #1a2018;
-  --surface-3: #222a1f;
+  /* ---- Surfaces (neutral graphite) ---- */
+  --bg: #0b0d0f;
+  --surface: #111417;
+  --surface-2: #171b1f;
+  --surface-3: #1e2429;
   --overlay: rgba(7, 9, 6, 0.78);
 
   /* ---- Borders ---- */
-  --border: #283025;
-  --border-strong: #394435;
+  --border: #252b30;
+  --border-strong: #384149;
   --border-focus: #c7f36b;
 
   /* ---- Text ---- */
-  --text: #edf1e8;
-  --text-muted: #a7b19e;
-  --text-faint: #727d69;
+  --text: #eef1f3;
+  --text-muted: #a7b0b7;
+  --text-faint: #717c84;
   --text-inverse: #10130e;
 
   /* ---- Accent: lichen signal ---- */
   --accent: #c7f36b;
-  --accent-2: #e0ff9f;
+  --accent-2: #61c7d8;
   --accent-hover: #d5fa84;
   --accent-soft: rgba(199, 243, 107, 0.11);
   --accent-border: rgba(199, 243, 107, 0.34);
@@ -79,6 +79,7 @@
   box-sizing: border-box;
   padding: 0;
   margin: 0;
+  letter-spacing: 0 !important;
 }
 
 html,
