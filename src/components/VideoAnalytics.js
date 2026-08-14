@@ -16,7 +16,7 @@ export default function VideoAnalytics({ refreshKey = 0 }) {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/operations/analytics', { cache: 'no-store' });
+      const response = await fetch('/api/control/operations/analytics', { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not load analytics');
       setData(payload);
@@ -34,7 +34,7 @@ export default function VideoAnalytics({ refreshKey = 0 }) {
   async function saveSnapshot(event) {
     event.preventDefault();
     try {
-      const response = await fetch('/api/operations/analytics', {
+      const response = await fetch('/api/control/operations/analytics', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ publicationId: editing.publicationId, metrics: editing.metrics }),
       });
@@ -87,7 +87,7 @@ export default function VideoAnalytics({ refreshKey = 0 }) {
         <div className={styles.opsTableWrap}><table className={styles.opsTable}><thead><tr><th>Video</th><th>Platform</th><th>Views</th><th>Engagement</th><th>Watch time</th><th>Conversions</th><th>Captured</th><th /></tr></thead><tbody>
           {(data.videos || []).map((video) => {
             const engagements = Number(video.likes || 0) + Number(video.comments || 0) + Number(video.shares || 0);
-            return <tr key={`${video.id}-${video.publicationId}`}><td><strong>{video.title}</strong><span>{video.campaign || 'Unassigned'}</span></td><td>{video.platformId}</td><td>{compact.format(video.views)}</td><td>{video.views ? `${((engagements / video.views) * 100).toFixed(2)}%` : '0%'}</td><td>{compact.format((video.watchTimeSeconds || 0) / 3600)}h</td><td>{compact.format(video.conversions)}</td><td>{video.capturedAt ? new Date(video.capturedAt).toLocaleDateString() : 'No snapshot'}</td><td><button type="button" className={styles.iconButton} onClick={() => setEditing({ publicationId: video.publicationId, title: video.title, metrics: { views: video.views, impressions: video.impressions, watchTimeSeconds: video.watchTimeSeconds, likes: video.likes, comments: video.comments, shares: video.shares, clicks: video.clicks, conversions: video.conversions } })} title="Add metric snapshot" aria-label={`Add metrics for ${video.title}`}><Plus size={15} /></button></td></tr>;
+            return <tr key={`${video.id}-${video.publicationId}`}><td><strong>{video.title}</strong><span>{video.campaign || 'Unassigned'}</span></td><td>{video.platformId}{video.youtubeAuthorization && <span>{video.youtubeAuthorization.channelTitle || video.youtubeAuthorization.emailAddress}</span>}</td><td>{compact.format(video.views)}</td><td>{video.views ? `${((engagements / video.views) * 100).toFixed(2)}%` : '0%'}</td><td>{compact.format((video.watchTimeSeconds || 0) / 3600)}h</td><td>{compact.format(video.conversions)}</td><td>{video.capturedAt ? new Date(video.capturedAt).toLocaleDateString() : 'No snapshot'}</td><td><button type="button" className={styles.iconButton} onClick={() => setEditing({ publicationId: video.publicationId, title: video.title, metrics: { views: video.views, impressions: video.impressions, watchTimeSeconds: video.watchTimeSeconds, likes: video.likes, comments: video.comments, shares: video.shares, clicks: video.clicks, conversions: video.conversions } })} title="Add metric snapshot" aria-label={`Add metrics for ${video.title}`}><Plus size={15} /></button></td></tr>;
           })}
           {!data.videos?.length && <tr><td colSpan="8"><div className={styles.emptyTable}>{loading ? 'Loading analytics...' : 'Published videos will appear here.'}</div></td></tr>}
         </tbody></table></div>

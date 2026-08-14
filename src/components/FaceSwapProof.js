@@ -5,7 +5,7 @@ import { AlertTriangle, BadgeCheck, LoaderCircle, RefreshCw } from 'lucide-react
 import styles from '../app/page.module.css';
 
 function mediaUrl(kind, proof) {
-  return `/api/operations/face-swap-proof?media=${kind}&v=${encodeURIComponent(proof?.completedAt || proof?.createdAt || '')}`;
+  return `/api/control/operations/face-swap-proof?media=${kind}&v=${encodeURIComponent(proof?.completedAt || proof?.createdAt || '')}`;
 }
 
 function formatTime(milliseconds) {
@@ -22,7 +22,7 @@ export default function FaceSwapProof() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/operations/face-swap-proof', { cache: 'no-store' });
+      const response = await fetch('/api/control/operations/face-swap-proof', { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not load the proof record');
       setProof(payload.proof || null);

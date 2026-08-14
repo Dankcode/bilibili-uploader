@@ -12,7 +12,6 @@ import ServiceConnections from '@/components/ServiceConnections';
 import Troubleshooter from '@/components/Troubleshooter';
 import VideoAnalytics from '@/components/VideoAnalytics';
 import VideoLibrary from '@/components/VideoLibrary';
-import { fetchYouTubeChannels, startupCheck } from './actions';
 import styles from './page.module.css';
 
 const NAV_GROUPS = [
@@ -51,6 +50,7 @@ export default function Dashboard() {
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [overviewError, setOverviewError] = useState('');
   const [channels, setChannels] = useState([]);
+  const [youtubeAuthorizations, setYoutubeAuthorizations] = useState([]);
   const [globalQuery, setGlobalQuery] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -61,7 +61,7 @@ export default function Dashboard() {
   const loadOverview = useCallback(async () => {
     setOverviewError('');
     try {
-      const response = await fetch('/api/operations/overview', { cache: 'no-store' });
+      const response = await fetch('/api/control/operations/overview', { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not load operations');
       setOverviewPayload(payload);
@@ -72,16 +72,31 @@ export default function Dashboard() {
     }
   }, []);
 
+  const loadYoutubeAuthorizations = useCallback(async () => {
+    try {
+      const response = await fetch('/api/control/operations/youtube-authorizations', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not load YouTube authorizations');
+      setYoutubeAuthorizations(payload.authorizations || []);
+    } catch {
+      setYoutubeAuthorizations([]);
+    }
+  }, []);
+
   useEffect(() => {
-    startupCheck();
-    fetchYouTubeChannels().then(setChannels).catch(() => setChannels([]));
+    fetch('/api/control/operations/channels', { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Could not load channels')))
+      .then((payload) => setChannels(payload.channels || []))
+      .catch(() => setChannels([]));
+    loadYoutubeAuthorizations();
     loadOverview();
     const interval = setInterval(loadOverview, 8000);
     return () => clearInterval(interval);
-  }, [loadOverview]);
+  }, [loadOverview, loadYoutubeAuthorizations]);
 
   function navigate(view, target = '') {
     if (view === 'automation' && target === 'proof') setProofKey(Date.now());
+    if (view === 'editor') loadYoutubeAuthorizations();
     setActiveView(view);
     setMobileNavOpen(false);
   }
@@ -142,7 +157,7 @@ export default function Dashboard() {
           {activeView === 'overview' && <OperationsOverview payload={overviewPayload} loading={overviewLoading} error={overviewError} onRefresh={refreshWorkspace} onNavigate={navigate} />}
           {activeView === 'library' && <VideoLibrary externalQuery={globalQuery} refreshKey={refreshKey} />}
           {activeView === 'automation' && <AutomationHub openComposerKey={composerKey} openProofKey={proofKey} onQueued={refreshWorkspace} />}
-          {activeView === 'editor' && <EditorWorkspace channels={channels} onPublished={() => navigate('analytics')} onJobQueued={() => { refreshWorkspace(); navigate('automation'); }} />}
+          {activeView === 'editor' && <EditorWorkspace channels={channels} youtubeAuthorizations={youtubeAuthorizations} onPublished={() => navigate('analytics')} onJobQueued={() => { refreshWorkspace(); navigate('automation'); }} />}
           {activeView === 'analytics' && <VideoAnalytics refreshKey={refreshKey} />}
           {activeView === 'connections' && <ServiceConnections />}
           {activeView === 'diagnostics' && <Troubleshooter />}

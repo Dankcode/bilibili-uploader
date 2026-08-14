@@ -9,7 +9,7 @@ export default function ScraperLogin({ siteId = 'weibo', siteLabel = 'site', onD
   const [status, setStatus] = useState('');
 
   const postAction = async (body) => {
-    const response = await fetch('/api/scenes/login', {
+    const response = await fetch('/api/control/scenes/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

@@ -11,7 +11,7 @@ export default function Troubleshooter() {
   const runChecks = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/pipeline/diagnostics', { cache: 'no-store' });
+      const response = await fetch('/api/control/pipeline/diagnostics', { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Diagnostics failed');
       setChecks(data.checks || []);

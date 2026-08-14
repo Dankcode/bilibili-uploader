@@ -12,7 +12,7 @@ export default function SceneRepository() {
 
   const load = async (showId = activeShowId) => {
     const query = showId ? `?showId=${encodeURIComponent(showId)}` : '';
-    const response = await fetch(`/api/scenes${query}`, { cache: 'no-store' });
+    const response = await fetch(`/api/control/scenes${query}`, { cache: 'no-store' });
     const data = await response.json();
     if (response.ok) {
       setShows(data.shows || []);
@@ -30,7 +30,7 @@ export default function SceneRepository() {
   }, [activeShowId]);
 
   const postAction = async (body) => {
-    const response = await fetch('/api/scenes', {
+    const response = await fetch('/api/control/scenes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

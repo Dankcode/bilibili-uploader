@@ -49,7 +49,7 @@ export default function AutomationHub({ openComposerKey = 0, openProofKey = 0, o
   useEffect(() => { if (openComposerKey) setTab('planner'); }, [openComposerKey]);
   useEffect(() => { if (openProofKey) setTab('proof'); }, [openProofKey]);
   useEffect(() => {
-    fetch('/api/pipeline/presets', { cache: 'no-store' })
+    fetch('/api/control/pipeline/presets', { cache: 'no-store' })
       .then((response) => response.json())
       .then((payload) => setPresets(payload.presets || []))
       .catch(() => setPresets([]));
@@ -87,7 +87,7 @@ export default function AutomationHub({ openComposerKey = 0, openProofKey = 0, o
       const form = new FormData();
       form.append('file', files[index]);
       try {
-        const response = await fetch('/api/operations/import', { method: 'POST', body: form });
+        const response = await fetch('/api/control/operations/import', { method: 'POST', body: form });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || `Could not import ${files[index].name}`);
         completed.push(payload.file);
@@ -112,7 +112,7 @@ export default function AutomationHub({ openComposerKey = 0, openProofKey = 0, o
     const startTime = scheduledFor ? new Date(scheduledFor).getTime() : 0;
     const processorIds = STEP_ORDER.filter((step) => step.id !== 'publish' && steps[step.id]).map((step) => step.id);
     try {
-      const response = await fetch('/api/operations/batches', {
+      const response = await fetch('/api/control/operations/batches', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: batchName || `${campaign || 'Video'} batch`,

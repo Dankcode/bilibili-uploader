@@ -73,7 +73,8 @@ export function buildStudioPipelineInput(project, options = {}) {
       } : {}),
       ...(upload ? {
         youtube: {
-          channelId: options.channelId || '',
+          ...(options.authorizationId ? { authorizationId: options.authorizationId } : {}),
+          ...(options.channelId ? { channelId: options.channelId } : {}),
           privacyStatus: options.privacyStatus || 'private',
         },
       } : {}),

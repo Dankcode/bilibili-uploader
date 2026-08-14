@@ -50,7 +50,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
   useEffect(() => { setSourceInput((v) => v || defaultSourceInput); }, [defaultSourceInput]);
 
   const loadConnections = async () => {
-    const res = await fetch('/api/settings/connections', { cache: 'no-store' });
+    const res = await fetch('/api/control/settings/connections', { cache: 'no-store' });
     const data = await res.json();
     if (res.ok) {
       const rows = data.checklist || [];
@@ -62,7 +62,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
   };
 
   const loadJobs = async () => {
-    const res = await fetch('/api/pipeline/jobs?limit=20', { cache: 'no-store' });
+    const res = await fetch('/api/control/pipeline/jobs?limit=20', { cache: 'no-store' });
     const data = await res.json();
     if (res.ok) {
       setJobs(data.jobs || []);
@@ -80,7 +80,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
   };
 
   const loadPresets = async () => {
-    const response = await fetch('/api/pipeline/presets', { cache: 'no-store' });
+    const response = await fetch('/api/control/pipeline/presets', { cache: 'no-store' });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Failed to load automation presets');
     const rows = data.presets || [];
@@ -121,7 +121,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
     setError('');
     setChecking(true);
     try {
-      const res = await fetch('/api/pipeline/diagnostics', {
+      const res = await fetch('/api/control/pipeline/diagnostics', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ steps: plannedSteps() }),
       });
@@ -154,7 +154,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
     };
     setSubmitting(true);
     try {
-      const res = await fetch('/api/pipeline/jobs', {
+      const res = await fetch('/api/control/pipeline/jobs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -169,7 +169,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
   };
 
   const jobAction = async (action, jobId) => {
-    await fetch('/api/pipeline/jobs', {
+    await fetch('/api/control/pipeline/jobs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, jobId }),
     });
     loadJobs();

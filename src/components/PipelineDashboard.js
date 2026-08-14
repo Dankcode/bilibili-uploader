@@ -55,8 +55,8 @@ export default function PipelineDashboard() {
     try {
       const query = filter === 'all' ? '' : `?status=${encodeURIComponent(filter)}`;
       const [response, usageResponse] = await Promise.all([
-        fetch(`/api/pipeline/jobs${query}`, { cache: 'no-store' }),
-        fetch('/api/pipeline/usage', { cache: 'no-store' }),
+        fetch(`/api/control/pipeline/jobs${query}`, { cache: 'no-store' }),
+        fetch('/api/control/pipeline/usage', { cache: 'no-store' }),
       ]);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to load jobs');
@@ -85,7 +85,7 @@ export default function PipelineDashboard() {
   }, {}), [jobs]);
 
   const postAction = async (action, jobId) => {
-    const response = await fetch('/api/pipeline/jobs', {
+    const response = await fetch('/api/control/pipeline/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, jobId }),
@@ -96,7 +96,7 @@ export default function PipelineDashboard() {
   };
 
   const approveMetadata = async (jobId, metadata) => {
-    const response = await fetch('/api/pipeline/jobs', {
+    const response = await fetch('/api/control/pipeline/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'approveMetadata', jobId, metadata }),
@@ -156,7 +156,7 @@ export default function PipelineDashboard() {
                     <a
                       key={asset.id}
                       className={styles.assetChip}
-                      href={`/api/pipeline/assets/${asset.id}`}
+                      href={`/api/control/pipeline/assets/${asset.id}`}
                       target="_blank"
                       rel="noreferrer"
                     >

@@ -434,11 +434,15 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
       lj.id AS job_id, lj.status AS job_status, lj.current_step, lj.error AS job_error,
       lj.processor_ids_json, lj.uploader_id, lj.batch_id,
       vp.id AS publication_id, vp.platform_id, vp.url AS publication_url,
+      ya.id AS youtube_authorization_id, ya.email_address AS youtube_account_email,
+      ya.channel_id AS youtube_channel_id, ya.channel_title AS youtube_channel_title,
       vm.views, vm.impressions, vm.watch_time_seconds, vm.likes, vm.comments, vm.shares,
       vm.clicks, vm.conversions, vm.captured_at AS metrics_captured_at
     FROM video_records vr
     LEFT JOIN latest_job lj ON lj.video_record_id = vr.id AND lj.row_num = 1
     LEFT JOIN latest_publication vp ON vp.video_id = vr.id AND vp.row_num = 1
+    LEFT JOIN youtube_upload_bindings yub ON yub.publication_id = vp.id
+    LEFT JOIN youtube_authorizations ya ON ya.id = yub.authorization_id
     LEFT JOIN latest_metrics vm ON vm.publication_id = vp.id AND vm.row_num = 1
     WHERE ${where}
     ORDER BY vr.priority DESC, vr.updated_at DESC
@@ -464,6 +468,12 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
         id: row.publication_id,
         platformId: row.platform_id,
         url: row.publication_url,
+        youtubeAuthorization: row.youtube_authorization_id ? {
+          id: row.youtube_authorization_id,
+          emailAddress: row.youtube_account_email,
+          channelId: row.youtube_channel_id,
+          channelTitle: row.youtube_channel_title,
+        } : null,
       } : null,
       metrics: {
         views: row.views || 0,
@@ -551,10 +561,14 @@ export function getVideoAnalytics() {
       FROM video_metric_snapshots m
     )
     SELECT vr.id, vr.title, vr.campaign, p.id AS publication_id, p.platform_id, p.url, p.published_at,
+      ya.id AS youtube_authorization_id, ya.email_address AS youtube_account_email,
+      ya.channel_id AS youtube_channel_id, ya.channel_title AS youtube_channel_title,
       m.views, m.impressions, m.watch_time_seconds, m.average_view_duration_seconds,
       m.likes, m.comments, m.shares, m.subscribers_gained, m.clicks, m.conversions, m.captured_at
     FROM video_publications p
     JOIN video_records vr ON vr.id = p.video_id
+    LEFT JOIN youtube_upload_bindings yub ON yub.publication_id = p.id
+    LEFT JOIN youtube_authorizations ya ON ya.id = yub.authorization_id
     LEFT JOIN latest_metrics m ON m.publication_id = p.id AND m.row_num = 1
     WHERE p.status = 'published'
     ORDER BY COALESCE(m.views, 0) DESC, p.published_at DESC
@@ -601,6 +615,12 @@ export function getVideoAnalytics() {
       campaign: row.campaign,
       platformId: row.platform_id,
       url: row.url,
+      youtubeAuthorization: row.youtube_authorization_id ? {
+        id: row.youtube_authorization_id,
+        emailAddress: row.youtube_account_email,
+        channelId: row.youtube_channel_id,
+        channelTitle: row.youtube_channel_title,
+      } : null,
       publishedAt: row.published_at,
       views: row.views || 0,
       impressions: row.impressions || 0,

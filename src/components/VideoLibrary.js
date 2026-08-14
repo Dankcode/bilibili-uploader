@@ -35,7 +35,7 @@ export default function VideoLibrary({ externalQuery = '', refreshKey = 0 }) {
     setError('');
     try {
       const params = new URLSearchParams({ query, status, limit: '50', offset: String(offset) });
-      const response = await fetch(`/api/operations/videos?${params}`, { cache: 'no-store' });
+      const response = await fetch(`/api/control/operations/videos?${params}`, { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not load video catalog');
       setData(payload);
@@ -67,7 +67,7 @@ export default function VideoLibrary({ externalQuery = '', refreshKey = 0 }) {
     setNotice('');
     setError('');
     try {
-      const response = await fetch('/api/pipeline/jobs', {
+      const response = await fetch('/api/control/pipeline/jobs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, jobIds: selectedJobs }),
       });
@@ -84,7 +84,7 @@ export default function VideoLibrary({ externalQuery = '', refreshKey = 0 }) {
   async function saveEdit(event) {
     event.preventDefault();
     try {
-      const response = await fetch('/api/operations/videos', {
+      const response = await fetch('/api/control/operations/videos', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           videoId: editing.id,
@@ -143,7 +143,7 @@ export default function VideoLibrary({ externalQuery = '', refreshKey = 0 }) {
               {data.videos.map((video) => (
                 <tr key={video.id}>
                   <td className={styles.checkboxCell}><input type="checkbox" checked={selected.has(video.id)} onChange={() => toggleOne(video.id)} aria-label={`Select ${video.title}`} /></td>
-                  <td><strong>{video.title}</strong><span>{video.sourceType} · {video.language || 'source language'}</span></td>
+                  <td><strong>{video.title}</strong><span>{video.sourceType} · {video.language || 'source language'}{video.publication?.youtubeAuthorization ? ` · ${video.publication.youtubeAuthorization.channelTitle || video.publication.youtubeAuthorization.emailAddress}` : ''}</span></td>
                   <td>{video.campaign || 'Unassigned'}</td>
                   <td><span className={`${styles.statusPill} ${tone(video.job?.status || video.status)}`}>{video.job?.status || video.status}</span>{video.job?.error && <small className={styles.rowError}>{video.job.error}</small>}</td>
                   <td>{video.job?.processorIds?.length ? video.job.processorIds.join(' / ') : 'Source only'}</td>

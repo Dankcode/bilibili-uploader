@@ -154,8 +154,9 @@ export const UPLOADERS = [
     label: 'YouTube',
     // Adapter WRAPS the existing lib/video/uploader.js (python api/pygui
     // uploaders) — it already works; the adapter adds testConnection + the
-    // uniform contract. channelId comes from the existing youtube_channels table.
-    credentialFields: [], // creds live in scripts/python OAuth files today; migrate later 📋
+    // uniform contract. Per-job OAuth identity is resolved through
+    // youtube_authorizations; SQL stores only a local credential reference.
+    credentialFields: [],
     adapterPath: 'src/lib/pipeline/uploaders/youtube.js',
   },
   // FUTURE: tiktok, instagram-reels — entry + adapter file each.

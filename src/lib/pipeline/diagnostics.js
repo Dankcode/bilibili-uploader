@@ -39,7 +39,7 @@ const STEP_FIX = {
   aiEditor: 'Set and Test the HuggingFace editor endpoint in Settings ▸ aiEditor.',
   sceneCut: 'No external service — this runs locally with ffmpeg.',
   metadata: 'Configure Kimi, OpenAI, or Gemini for the metadata processor, then Test.',
-  youtube: 'Configure the Python OAuth uploader / YOUTUBE_CHANNEL_ID.',
+  youtube: 'Configure the Python OAuth uploader and register an authorized YouTube account.',
 };
 
 function ok(id, label, detail = 'OK', fixHint = '') {
@@ -159,7 +159,7 @@ export async function runDiagnostics() {
     },
     async () => {
       const result = await youtube.testConnection(getCredentials('youtube'));
-      return result.ok ? ok('youtube_upload', 'YouTube uploader', 'Uploader script/config present') : warn('youtube_upload', 'YouTube uploader', result.error, 'Set YOUTUBE_CHANNEL_ID or configure the Python OAuth uploader.');
+      return result.ok ? ok('youtube_upload', 'YouTube uploader', 'Uploader script/config present') : warn('youtube_upload', 'YouTube uploader', result.error, 'Register an OAuth authorization or configure the Python uploader.');
     },
     async () => {
       const result = await voiceover.testConnection(getCredentials('voiceover'));

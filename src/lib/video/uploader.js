@@ -1,6 +1,5 @@
-const { spawn } = require('child_process');
-
-const path = require('path');
+import { spawn } from 'child_process';
+import path from 'path';
 
 const DEFAULT_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -60,28 +59,40 @@ function runPythonScript(scriptPath, args = [], timeoutMs = DEFAULT_UPLOAD_TIMEO
   });
 }
 
+export function normalizeYouTubeCredentialRef(value) {
+  const credentialRef = String(value || '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(credentialRef) || credentialRef.includes('..')) {
+    throw new Error('YouTube credential reference must be a simple local name without paths');
+  }
+  return credentialRef;
+}
 
-export default async function UploadVideo(videoPath, title, description, tags, databaseId) {
+export default async function UploadVideo(videoPath, title, description, tags, identity = {}) {
   const uploadMethod = (process.env.YOUTUBE_UPLOAD_METHOD || 'api').toLowerCase();
   const scriptName = uploadMethod === 'pygui'
     ? 'youtube_pygui_uploader.py'
     : 'youtube_video_and_thumbnail_uploader.py';
   const scriptPath = path.join(process.cwd(), 'scripts', 'python', scriptName);
-  const channelId = databaseId || process.env.YOUTUBE_CHANNEL_ID;
+  const selectedAuthorization = identity && typeof identity === 'object' ? identity : null;
+  const rawCredentialRef = selectedAuthorization?.credentialRef || identity || process.env.YOUTUBE_CHANNEL_ID;
+  const credentialRef = rawCredentialRef ? normalizeYouTubeCredentialRef(rawCredentialRef) : '';
 
-  if (uploadMethod !== 'pygui' && !channelId) {
-    throw new Error('Missing YouTube channel id. Set YOUTUBE_CHANNEL_ID or pass databaseId.');
+  if (uploadMethod === 'pygui' && selectedAuthorization?.id) {
+    throw new Error('Account-bound uploads require the YouTube API OAuth uploader; guided PyGUI cannot verify the selected account');
+  }
+  if (uploadMethod !== 'pygui' && !credentialRef) {
+    throw new Error('Missing YouTube OAuth credential reference. Register an authorized account or set YOUTUBE_CHANNEL_ID.');
   }
 
   try {
     console.log(`Starting Python ${uploadMethod} uploader`);
     console.log('Video Path:', videoPath);
     console.log('Title:', title);
-    console.log('database ID:', channelId);
+    console.log('OAuth credential reference:', credentialRef || 'guided browser session');
 
     const args = uploadMethod === 'pygui'
       ? [videoPath, title, description, tags]
-      : [videoPath, title, description, tags, channelId];
+      : [videoPath, title, description, tags, credentialRef, selectedAuthorization?.channelId || ''];
     const result = await runPythonScript(scriptPath, args);
     const videoIdOrUrl = parseUploadResult(result);
     if (!videoIdOrUrl) throw new Error('Uploader completed without printing a video URL or ID');

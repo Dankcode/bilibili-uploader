@@ -4,7 +4,7 @@
  * ProgressTree — n8n / HuggingFace-style vertical run tree for a pipeline job.
  * Renders each step as a connected node with a live status icon, progress bar,
  * current note, timing, and an expandable log. Pure presentational: give it a
- * `job` (from /api/pipeline/jobs) and it renders.
+ * `job` (from /api/control/pipeline/jobs) and it renders.
  */
 
 import { useState } from 'react';
