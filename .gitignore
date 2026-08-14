@@ -35,6 +35,7 @@ secrets.json
 *_client_secret.json
 client_secret*.json
 *_token.pickle
+*_token.json
 token*.pickle
 *.credentials.json
 credentials*.json

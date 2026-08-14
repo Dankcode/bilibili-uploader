@@ -125,7 +125,7 @@ function nearestTimestamp(text, cursor) {
   try { return parseSubtitleTimestamp(match[0]); } catch { return null; }
 }
 
-export default function SubtitleStudio({ channels = [], onPublished }) {
+export default function SubtitleStudio({ channels = [], youtubeAuthorizations = [], onPublished }) {
   const [projects, setProjects] = useState([]);
   const [project, setProject] = useState(null);
   const [file, setFile] = useState(null);
@@ -160,6 +160,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     metadata: true,
     reviewMetadata: false,
     upload: false,
+    authorizationId: '',
     channelId: '',
   });
   const [autoPublishEnabled, setAutoPublishEnabled] = useState(false);
@@ -167,6 +168,11 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
   const videoRef = useRef(null);
   const pipelineLocksRef = useRef(new Set());
   const watchProjectIdRef = useRef(null);
+  const usableYouTubeAuthorizations = useMemo(
+    () => youtubeAuthorizations.filter((authorization) => authorization.enabled
+      && ['configured', 'active'].includes(authorization.status)),
+    [youtubeAuthorizations],
+  );
 
   const dirty = editorText !== baseline;
   const analysisDirty = analysisDraft.tone !== analysisBaseline.tone
@@ -215,14 +221,14 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
   }, []);
 
   const loadProjects = useCallback(async () => {
-    const data = await readJson(await fetch('/api/studio/project?limit=50', { cache: 'no-store' }));
+    const data = await readJson(await fetch('/api/control/studio/project?limit=50', { cache: 'no-store' }));
     const nextProjects = data.projects || [];
     setProjects(nextProjects);
     return nextProjects;
   }, []);
 
   const fetchProject = useCallback(async (id) => {
-    const data = await readJson(await fetch(`/api/studio/project/${id}`, { cache: 'no-store' }));
+    const data = await readJson(await fetch(`/api/control/studio/project/${id}`, { cache: 'no-store' }));
     return data.project;
   }, []);
 
@@ -264,7 +270,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/studio/analyze', { cache: 'no-store' })
+    fetch('/api/control/studio/analyze', { cache: 'no-store' })
       .then(readJson)
       .then((data) => {
         if (!active) return;
@@ -280,7 +286,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/studio/publish', { cache: 'no-store' })
+    fetch('/api/control/studio/publish', { cache: 'no-store' })
       .then(readJson)
       .then((data) => {
         if (!active) return;
@@ -294,14 +300,26 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
   }, []);
 
   useEffect(() => {
-    if (!publishOptions.channelId && channels[0]?.id) {
-      setPublishOptions((current) => ({ ...current, channelId: String(channels[0].id) }));
+    if (usableYouTubeAuthorizations.length
+      && !usableYouTubeAuthorizations.some((authorization) => authorization.id === publishOptions.authorizationId)) {
+      setPublishOptions((current) => ({
+        ...current,
+        authorizationId: usableYouTubeAuthorizations[0].id,
+        channelId: '',
+      }));
+    } else if (!usableYouTubeAuthorizations.length
+      && (publishOptions.authorizationId || (!publishOptions.channelId && channels[0]?.id))) {
+      setPublishOptions((current) => ({
+        ...current,
+        authorizationId: '',
+        channelId: current.channelId || String(channels[0]?.id || ''),
+      }));
     }
-  }, [channels, publishOptions.channelId]);
+  }, [channels, publishOptions.authorizationId, publishOptions.channelId, usableYouTubeAuthorizations]);
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/studio/transcribe?quality=${quality}`, { cache: 'no-store' })
+    fetch(`/api/control/studio/transcribe?quality=${quality}`, { cache: 'no-store' })
       .then(readJson)
       .then((data) => { if (active) setHealth(data); })
       .catch((nextError) => { if (active) setHealth({ ready: false, error: nextError.message }); });
@@ -310,7 +328,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/studio/context', { cache: 'no-store' })
+    fetch('/api/control/studio/context', { cache: 'no-store' })
       .then(readJson)
       .then((data) => { if (active) setContextStatus(data); })
       .catch((nextError) => {
@@ -382,9 +400,9 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
       form.set('quality', options.quality);
       form.set('sourceLang', options.sourceLang);
       form.set('targetLang', options.targetLang);
-      request = fetch('/api/studio/transcribe', { method: 'POST', body: form });
+      request = fetch('/api/control/studio/transcribe', { method: 'POST', body: form });
     } else if (currentProject?.hasVideo) {
-      request = fetch('/api/studio/transcribe', {
+      request = fetch('/api/control/studio/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -405,7 +423,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     const endpoints = {
       frames: 'frames', context: 'context', correct: 'correct', translate: 'translate',
     };
-    const data = await readJson(await fetch(`/api/studio/${endpoints[stage]}`, {
+    const data = await readJson(await fetch(`/api/control/studio/${endpoints[stage]}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -617,7 +635,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
         : (editorMode === 'context'
           ? { contextMd: editorText }
           : { subtitleText: editorText, format: 'ass' });
-      const data = await readJson(await fetch(`/api/studio/project/${project.id}`, {
+      const data = await readJson(await fetch(`/api/control/studio/project/${project.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       }));
       applyProject(data.project, editorMode);
@@ -635,7 +653,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     resetMessages();
     setBusy('analyze');
     try {
-      const data = await readJson(await fetch('/api/studio/analyze', {
+      const data = await readJson(await fetch('/api/control/studio/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId: project.id, provider: analysisProvider, temperature }),
@@ -659,7 +677,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     if (!changes.length || changes.some((item) => !item.split(':').slice(1).join(':').trim())) return;
     setBusy('analysis-save');
     try {
-      const data = await readJson(await fetch('/api/studio/analyze', {
+      const data = await readJson(await fetch('/api/control/studio/analyze', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -690,13 +708,13 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     setBusy('refine');
     try {
       if (dirty && editorMode === 'subtitle') {
-        await readJson(await fetch(`/api/studio/project/${project.id}`, {
+        await readJson(await fetch(`/api/control/studio/project/${project.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subtitleText: editorText, format: 'ass' }),
         }));
       }
-      const data = await readJson(await fetch('/api/studio/refine', {
+      const data = await readJson(await fetch('/api/control/studio/refine', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId: project.id, instruction, model, temperature }),
       }));
@@ -715,7 +733,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     if (!project) return;
     resetMessages();
     try {
-      const data = await readJson(await fetch('/api/studio/refine', {
+      const data = await readJson(await fetch('/api/control/studio/refine', {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: project.id }),
       }));
       applyProject(data.project, editorMode);
@@ -731,7 +749,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     };
     setPublishOptions(next);
     if (autoPublishEnabled) {
-      fetch('/api/studio/publish', {
+      fetch('/api/control/studio/publish', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: true, options: next }),
@@ -744,7 +762,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     resetMessages();
     setBusy('publish');
     try {
-      const data = await readJson(await fetch('/api/studio/publish', {
+      const data = await readJson(await fetch('/api/control/studio/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId: project.id, options: publishOptions }),
@@ -764,7 +782,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
     resetMessages();
     setBusy('auto-publish');
     try {
-      const data = await readJson(await fetch('/api/studio/publish', {
+      const data = await readJson(await fetch('/api/control/studio/publish', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled, options: publishOptions }),
@@ -780,7 +798,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
 
   const deleteProject = async () => {
     if (!project || !window.confirm(`Delete ${project.name} and its local Studio files?`)) return;
-    await readJson(await fetch(`/api/studio/project/${project.id}`, { method: 'DELETE' }));
+    await readJson(await fetch(`/api/control/studio/project/${project.id}`, { method: 'DELETE' }));
     setProject(null);
     rememberWatchedProject(null);
     setEditorText('');
@@ -850,7 +868,10 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
   const publishStepSelected = publishOptions.voiceover || publishOptions.metadata || publishOptions.upload;
   const canPublish = Boolean(project?.hasVideo && project?.transcriptMd && publishStepSelected)
     && (!publishOptions.voiceover || canUseStudioTranslation)
-    && (!publishOptions.upload || publishOptions.channelId || channels.length === 0);
+    && (!publishOptions.upload
+      || usableYouTubeAuthorizations.some((authorization) => authorization.id === publishOptions.authorizationId)
+      || publishOptions.channelId
+      || (usableYouTubeAuthorizations.length === 0 && channels.length === 0));
 
   return (
     <div className={styles.studioWorkspace}>
@@ -1065,7 +1086,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
           ) : (frameItems.length ? (
             <>
               <img className={styles.studioPreviewFallback}
-                src={`/api/studio/media/${project.id}?frame=${encodeURIComponent(frameItems[0].file)}`}
+                src={`/api/control/studio/media/${project.id}?frame=${encodeURIComponent(frameItems[0].file)}`}
                 alt={`Saved frame from ${project.name}`} />
               <span className={styles.studioPreviewFallbackLabel}>Source video missing · saved frame</span>
             </>
@@ -1087,7 +1108,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
               <button key={`${frame.file}-${frame.timeMs}`} title={`${(frame.timeMs / 1000).toFixed(1)}s`} onClick={() => {
                 if (videoRef.current) videoRef.current.currentTime = frame.timeMs / 1000;
               }}>
-                <img src={`/api/studio/media/${project.id}?frame=${encodeURIComponent(frame.file)}`} alt="" />
+                <img src={`/api/control/studio/media/${project.id}?frame=${encodeURIComponent(frame.file)}`} alt="" />
               </button>
             ))}
           </div>
@@ -1136,12 +1157,23 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
           </div>
           {publishOptions.upload && (
             <label className={styles.studioPublishChannel}>
-              <span>Channel</span>
-              <select className={styles.select} value={publishOptions.channelId}
-                onChange={(event) => updatePublishOption('channelId', event.target.value)}>
-                {!channels.length && <option value="">Environment default</option>}
-                {channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
-              </select>
+              <span>{usableYouTubeAuthorizations.length ? 'Authorized account' : 'Channel'}</span>
+              {usableYouTubeAuthorizations.length ? (
+                <select className={styles.select} value={publishOptions.authorizationId}
+                  onChange={(event) => updatePublishOption('authorizationId', event.target.value)}>
+                  {usableYouTubeAuthorizations.map((authorization) => (
+                    <option key={authorization.id} value={authorization.id}>
+                      {authorization.channelTitle || authorization.channelId} · {authorization.emailAddress}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select className={styles.select} value={publishOptions.channelId}
+                  onChange={(event) => updatePublishOption('channelId', event.target.value)}>
+                  {!channels.length && <option value="">Environment default</option>}
+                  {channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+                </select>
+              )}
             </label>
           )}
           <button className={styles.buttonPrimary} onClick={sendToPipeline}
@@ -1154,7 +1186,7 @@ export default function SubtitleStudio({ channels = [], onPublished }) {
           <select className={styles.select} value={downloadFormat} onChange={(event) => setDownloadFormat(event.target.value)}>
             <option value="md">Transcript Markdown</option><option value="context">Context Markdown</option><option value="ass">ASS</option><option value="srt">SRT</option><option value="video">Video</option>
           </select>
-          <a className={styles.buttonSecondary} aria-disabled={!project} href={project ? `/api/studio/project/${project.id}?download=${downloadFormat}` : undefined}>Download</a>
+          <a className={styles.buttonSecondary} aria-disabled={!project} href={project ? `/api/control/studio/project/${project.id}?download=${downloadFormat}` : undefined}>Download</a>
         </div>
 
         {(notice || error) && <div className={error ? styles.errorText : styles.studioNotice}>{error || notice}</div>}

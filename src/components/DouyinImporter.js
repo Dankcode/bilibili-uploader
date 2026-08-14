@@ -24,7 +24,7 @@ export default function DouyinImporter({ onCreated }) {
       ];
       const created = [];
       for (const url of urls) {
-        const response = await fetch('/api/pipeline/jobs', {
+        const response = await fetch('/api/control/pipeline/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

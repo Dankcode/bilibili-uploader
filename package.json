@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 4455",
+    "dev": "node scripts/run_server.mjs dev",
+    "dev:web": "next dev -H 0.0.0.0 -p 4455",
+    "worker": "node --experimental-default-type=module --import ./scripts/register_loader.mjs scripts/server_worker.mjs",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/run_server.mjs start",
+    "start:web": "next start -H 0.0.0.0 -p 4455",
     "lint": "next lint",
     "test": "node --experimental-default-type=module --test test/*.test.mjs",
     "proof:face-swap": "node --experimental-default-type=module scripts/prove_facefusion.mjs"

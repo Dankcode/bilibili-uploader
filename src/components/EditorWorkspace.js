@@ -11,7 +11,7 @@ const SubtitleStudio = dynamic(() => import('./SubtitleStudio'), {
   ssr: false,
 });
 
-export default function EditorWorkspace({ channels = [], onPublished, onJobQueued }) {
+export default function EditorWorkspace({ channels = [], youtubeAuthorizations = [], onPublished, onJobQueued }) {
   const [tab, setTab] = useState('subtitles');
   const [filePath, setFilePath] = useState('');
   const [fileName, setFileName] = useState('');
@@ -31,7 +31,7 @@ export default function EditorWorkspace({ channels = [], onPublished, onJobQueue
     const form = new FormData();
     form.append('file', file);
     try {
-      const response = await fetch('/api/operations/import', { method: 'POST', body: form });
+      const response = await fetch('/api/control/operations/import', { method: 'POST', body: form });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not import video');
       setFilePath(payload.file.path);
@@ -50,7 +50,7 @@ export default function EditorWorkspace({ channels = [], onPublished, onJobQueue
     setError('');
     setNotice('');
     try {
-      const response = await fetch('/api/pipeline/jobs', {
+      const response = await fetch('/api/control/pipeline/jobs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create', sourceId: 'localFile', sourceInput: filePath,
@@ -73,7 +73,7 @@ export default function EditorWorkspace({ channels = [], onPublished, onJobQueue
     <div className={styles.segmentedTabs} role="tablist" aria-label="Editor views">
       {[['subtitles', 'Subtitle studio'], ['cut', 'Cut and format'], ['scenes', 'Scene library']].map(([id, label]) => <button key={id} type="button" className={tab === id ? styles.segmentActive : ''} onClick={() => setTab(id)}>{label}</button>)}
     </div>
-    {tab === 'subtitles' && <SubtitleStudio channels={channels} onPublished={onPublished} />}
+    {tab === 'subtitles' && <SubtitleStudio channels={channels} youtubeAuthorizations={youtubeAuthorizations} onPublished={onPublished} />}
     {tab === 'scenes' && <SceneRepository />}
     {tab === 'cut' && <form className={styles.cutPlanner} onSubmit={queueEdit}>
       {(notice || error) && <div className={error ? styles.inlineError : styles.inlineNotice}>{error || notice}</div>}

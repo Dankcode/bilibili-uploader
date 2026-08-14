@@ -13,6 +13,7 @@ const DEFAULT_AUTO_PUBLISH = {
     metadata: true,
     upload: true,
     reviewMetadata: false,
+    authorizationId: '',
     channelId: '',
     privacyStatus: 'private',
   },

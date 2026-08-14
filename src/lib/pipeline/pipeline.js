@@ -15,6 +15,14 @@ import {
 import { getSource, getProcessor, getUploader } from './registry';
 import { getCredentials } from './connections';
 import { getPreset } from './presets';
+import {
+  attachPublicationToYouTubeBinding,
+  bindJobToYouTubeAuthorization,
+  getJobYouTubeAuthorization,
+  getYouTubeAuthorization,
+  markYouTubeAuthorizationVerified,
+  publicYouTubeAuthorization,
+} from '../youtube/authorizations';
 import * as bilibiliSource from './sources/bilibili';
 import * as douyinSource from './sources/douyin';
 import * as localFileSource from './sources/localFile';
@@ -67,6 +75,10 @@ function validateJobInput(input) {
   const sourceInput = String(input.sourceInput || '').trim();
   const processorIds = Array.isArray(input.processorIds) ? input.processorIds.map(String) : [];
   const uploaderId = String(input.uploaderId || '').trim();
+  const options = input.options && typeof input.options === 'object' ? input.options : {};
+  const youtubeAuthorizationId = String(
+    input.youtubeAuthorizationId || options.youtube?.authorizationId || '',
+  ).trim();
 
   if (!sourceInput) throw new Error('sourceInput is required');
   if (!getSource(sourceId)) throw new Error(`Unknown sourceId "${sourceId}"`);
@@ -74,6 +86,10 @@ function validateJobInput(input) {
     if (!getProcessor(processorId)) throw new Error(`Unknown processorId "${processorId}"`);
   }
   if (uploaderId && !getUploader(uploaderId)) throw new Error(`Unknown uploaderId "${uploaderId}"`);
+  if (youtubeAuthorizationId && uploaderId !== 'youtube') {
+    throw new Error('A YouTube authorization can only be used with the YouTube uploader');
+  }
+  if (youtubeAuthorizationId) getYouTubeAuthorization(youtubeAuthorizationId, { requireUsable: true });
 
   const scheduledFor = String(input.scheduledFor || input.scheduled_for || '').trim();
   if (scheduledFor && Number.isNaN(new Date(scheduledFor).getTime())) {
@@ -85,7 +101,8 @@ function validateJobInput(input) {
     sourceInput,
     processorIds,
     uploaderId,
-    options: input.options && typeof input.options === 'object' ? input.options : {},
+    options,
+    youtubeAuthorizationId,
     videoRowId: input.videoRowId || input.video_row_id || null,
     sceneScriptId: input.sceneScriptId || input.scene_script_id || null,
     videoRecordId: String(input.videoRecordId || input.video_record_id || '').trim(),
@@ -177,6 +194,7 @@ function syncJobCatalog(job, status) {
 }
 
 function scheduleWorker(delay = 25) {
+  if (process.env.VIDEO_INLINE_WORKER !== '1') return;
   if (workerScheduled || workerRunning) return;
   workerScheduled = true;
   workerTimer = setTimeout(() => {
@@ -238,13 +256,23 @@ function insertJob(input, { schedule = true } = {}) {
     createdAt,
     createdAt
   );
-  createSteps(result.lastInsertRowid, job.sourceId, job.processorIds, job.uploaderId);
+  const jobId = Number(result.lastInsertRowid);
+  createSteps(jobId, job.sourceId, job.processorIds, job.uploaderId);
+  if (job.youtubeAuthorizationId) {
+    bindJobToYouTubeAuthorization(jobId, job.youtubeAuthorizationId);
+  }
   if (schedule) scheduleWorker();
-  return { id: Number(result.lastInsertRowid), status: 'queued', videoRecordId: record.id, batchId: job.batchId };
+  return {
+    id: jobId,
+    status: 'queued',
+    videoRecordId: record.id,
+    batchId: job.batchId,
+    youtubeAuthorizationId: job.youtubeAuthorizationId,
+  };
 }
 
 export function createJob(input) {
-  return insertJob(input);
+  return db.transaction(() => insertJob(input))();
 }
 
 export function createJobBatch(input = {}) {
@@ -270,6 +298,10 @@ export function createJobBatch(input = {}) {
         sourceInput: item.sourceInput || item.path || item.url,
         processorIds: item.processorIds || input.defaults?.processorIds || template.processorIds || [],
         uploaderId: item.uploaderId ?? input.defaults?.uploaderId ?? template.uploaderId ?? '',
+        youtubeAuthorizationId: item.youtubeAuthorizationId
+          ?? input.defaults?.youtubeAuthorizationId
+          ?? template.youtubeAuthorizationId
+          ?? '',
         options: {
           ...(template.options || {}),
           ...(input.defaults?.options || {}),
@@ -368,21 +400,43 @@ async function runStep(job, step, currentFilePath, currentMeta) {
   } else if (role === 'uploader') {
     const adapter = UPLOADER_ADAPTERS[id];
     if (!adapter) throw new Error(`Uploader adapter unavailable: ${id}`);
-    result = await adapter.upload(currentFilePath, { ...currentMeta, ...(options[id] || {}) }, onProgress);
-    saveAsset(job.id, 'remote', result?.url || result?.remoteId || '', result || {});
-    recordPublication({
-      videoId: job.video_record_id,
-      jobId: job.id,
-      platformId: id,
-      channelId: currentMeta.channelId || '',
-      remoteId: result?.remoteId || '',
-      url: result?.url || '',
-      status: 'published',
-      metadata: result || {},
-    });
-    if (job.video_row_id && result?.url) {
-      finalizeUpload(job.video_row_id, result.url, new Date().toISOString().slice(0, 10));
-    }
+    const authorization = id === 'youtube'
+      ? getJobYouTubeAuthorization(job.id, { requireUsable: true })
+      : null;
+    const uploadMeta = {
+      ...currentMeta,
+      ...(options[id] || {}),
+      ...(authorization ? {
+        youtubeAuthorization: {
+          id: authorization.id,
+          emailAddress: authorization.emailAddress,
+          channelId: authorization.channelId,
+          channelTitle: authorization.channelTitle,
+          credentialRef: authorization.credentialRef,
+        },
+      } : {}),
+    };
+    result = await adapter.upload(currentFilePath, uploadMeta, onProgress);
+    db.transaction(() => {
+      saveAsset(job.id, 'remote', result?.url || result?.remoteId || '', result || {});
+      const publicationId = recordPublication({
+        videoId: job.video_record_id,
+        jobId: job.id,
+        platformId: id,
+        channelId: result?.channelId || authorization?.channelId || uploadMeta.channelId || '',
+        remoteId: result?.remoteId || '',
+        url: result?.url || '',
+        status: 'published',
+        metadata: result || {},
+      });
+      if (authorization && publicationId) {
+        attachPublicationToYouTubeBinding(job.id, publicationId);
+        markYouTubeAuthorizationVerified(authorization.id);
+      }
+      if (job.video_row_id && result?.url) {
+        finalizeUpload(job.video_row_id, result.url, new Date().toISOString().slice(0, 10));
+      }
+    })();
     currentMeta = { ...currentMeta, ...(result || {}) };
   } else {
     throw new Error(`Unknown step role: ${role}`);
@@ -473,6 +527,35 @@ export async function runNextQueuedJob() {
   return job.id;
 }
 
+export function recoverStaleJobs(maxAgeMs = 15 * 60 * 1000) {
+  const staleBefore = new Date(Date.now() - Math.max(60000, Number(maxAgeMs) || 0)).toISOString();
+  const staleJobs = db.prepare(`
+    SELECT id FROM video_jobs
+    WHERE status = 'running' AND (heartbeat_at = '' OR heartbeat_at < ?)
+  `).all(staleBefore);
+  if (staleJobs.length === 0) return 0;
+  const recover = db.transaction(() => {
+    const resetStep = db.prepare(`
+      UPDATE video_job_steps
+      SET status = 'pending', progress_note = 'Recovered after worker interruption',
+          started_at = NULL, finished_at = NULL
+      WHERE job_id = ? AND status = 'running'
+    `);
+    const resetJob = db.prepare(`
+      UPDATE video_jobs
+      SET status = 'queued', current_step = '', error = 'Recovered after worker interruption',
+          claimed_at = '', heartbeat_at = '', worker_id = '', updated_at = ?
+      WHERE id = ?
+    `);
+    for (const job of staleJobs) {
+      resetStep.run(job.id);
+      resetJob.run(nowIso(), job.id);
+    }
+  });
+  recover();
+  return staleJobs.length;
+}
+
 export function listJobs(filter = {}) {
   const limit = Math.max(1, Math.min(100, Number(filter.limit) || 100));
   const status = filter.status ? String(filter.status) : '';
@@ -501,6 +584,7 @@ export function listJobs(filter = {}) {
     workerId: job.worker_id || '',
     maxAttempts: job.max_attempts || 3,
     sceneScriptId: job.scene_script_id,
+    youtubeAuthorization: publicYouTubeAuthorization(getJobYouTubeAuthorization(job.id)),
     createdAt: job.created_at,
     updatedAt: job.updated_at,
     steps: getSteps.all(job.id).map((step) => ({

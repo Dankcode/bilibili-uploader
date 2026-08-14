@@ -1,16 +1,28 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-
-const dbPath = path.join(process.cwd(), 'config', 'bilibili.db');
-
-// Ensure config directory exists
-const configDir = path.dirname(dbPath);
-if (!fs.existsSync(configDir)) {
-  fs.mkdirSync(configDir, { recursive: true });
-}
+import { readRuntimeSettings, resolveDatabasePath } from '../runtime/settings';
 
 let db = null;
+let activeDbPath = '';
+
+function selectedDbPath() {
+  return resolveDatabasePath(readRuntimeSettings());
+}
+
+function getDatabase() {
+  const nextPath = selectedDbPath();
+  if (!db || activeDbPath !== nextPath) initDB();
+  return db;
+}
+
+const databaseFacade = new Proxy({}, {
+  get(_target, property) {
+    const database = getDatabase();
+    const value = database[property];
+    return typeof value === 'function' ? value.bind(database) : value;
+  },
+});
 
 function hasColumn(tableName, columnName) {
   return db.prepare(`PRAGMA table_info(${tableName})`).all().some((column) => column.name === columnName);
@@ -39,8 +51,15 @@ function coalesceValue(nextValue, previousValue, fallback = null) {
  * Initialize the database schema and ensure connection is open.
  */
 export function initDB() {
+  const dbPath = selectedDbPath();
+  if (db && activeDbPath !== dbPath) {
+    db.close();
+    db = null;
+  }
   if (!db) {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     db = new Database(dbPath);
+    activeDbPath = dbPath;
     console.log('SQLite Database connected at:', dbPath);
   }
   db.pragma('journal_mode = WAL');
@@ -52,6 +71,24 @@ export function initDB() {
       channel_id TEXT UNIQUE,
       name TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS youtube_authorizations (
+      id TEXT PRIMARY KEY,
+      google_subject TEXT DEFAULT '',
+      email_address TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      channel_title TEXT DEFAULT '',
+      credential_ref TEXT NOT NULL UNIQUE,
+      scopes_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'configured',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      authorized_at TEXT DEFAULT '',
+      verified_at TEXT DEFAULT '',
+      last_error TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(email_address, channel_id)
     );
 
     CREATE TABLE IF NOT EXISTS spaces (
@@ -256,6 +293,17 @@ export function initDB() {
       FOREIGN KEY(publication_id) REFERENCES video_publications(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS youtube_upload_bindings (
+      job_id INTEGER PRIMARY KEY,
+      authorization_id TEXT NOT NULL,
+      publication_id INTEGER UNIQUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(job_id) REFERENCES video_jobs(id) ON DELETE RESTRICT,
+      FOREIGN KEY(authorization_id) REFERENCES youtube_authorizations(id) ON DELETE RESTRICT,
+      FOREIGN KEY(publication_id) REFERENCES video_publications(id) ON DELETE RESTRICT
+    );
+
     CREATE TABLE IF NOT EXISTS automation_batches (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -300,6 +348,17 @@ export function initDB() {
       completed_at TEXT DEFAULT ''
     );
 
+    CREATE TABLE IF NOT EXISTS runtime_workers (
+      id TEXT PRIMARY KEY,
+      role TEXT NOT NULL DEFAULT 'pipeline',
+      host TEXT NOT NULL DEFAULT '',
+      pid INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'online',
+      started_at TEXT NOT NULL,
+      heartbeat_at TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}'
+    );
+
     CREATE INDEX IF NOT EXISTS idx_video_jobs_status_created ON video_jobs(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_video_job_steps_job_id ON video_job_steps(job_id);
     CREATE INDEX IF NOT EXISTS idx_video_assets_job_id ON video_assets(job_id);
@@ -312,8 +371,12 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_video_publications_video ON video_publications(video_id, published_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_video_publications_remote ON video_publications(platform_id, remote_id) WHERE remote_id != '';
     CREATE INDEX IF NOT EXISTS idx_video_metrics_publication_captured ON video_metric_snapshots(publication_id, captured_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_youtube_authorizations_channel ON youtube_authorizations(channel_id);
+    CREATE INDEX IF NOT EXISTS idx_youtube_authorizations_status ON youtube_authorizations(enabled, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_youtube_upload_bindings_authorization ON youtube_upload_bindings(authorization_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_batch_items_status ON automation_batch_items(batch_id, status);
     CREATE INDEX IF NOT EXISTS idx_face_swap_proofs_created ON face_swap_proofs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_runtime_workers_heartbeat ON runtime_workers(heartbeat_at DESC);
   `);
   addColumnIfMissing('videos', 'tags', "TEXT DEFAULT '[]'");
   addColumnIfMissing('studio_projects', 'analysis_json', "TEXT DEFAULT '{}'");
@@ -337,6 +400,45 @@ export function initDB() {
       ON video_jobs(batch_id, status);
   `);
   console.log('SQLite Database initialized at:', dbPath);
+  return databaseFacade;
+}
+
+export function reopenDatabase() {
+  if (db?.open) db.close();
+  db = null;
+  activeDbPath = '';
+  return initDB();
+}
+
+export function getDatabaseStatus() {
+  const database = getDatabase();
+  const stats = fs.statSync(activeDbPath);
+  const workers = database.prepare(`
+    SELECT id, role, host, pid, status, started_at AS startedAt,
+           heartbeat_at AS heartbeatAt, metadata_json AS metadataJson
+    FROM runtime_workers
+    ORDER BY heartbeat_at DESC
+    LIMIT 10
+  `).all().map((worker) => ({
+    ...worker,
+    metadata: (() => {
+      try {
+        return JSON.parse(worker.metadataJson || '{}');
+      } catch {
+        return {};
+      }
+    })(),
+  })).map((worker) => ({
+    ...worker,
+    online: Date.now() - new Date(worker.heartbeatAt).getTime()
+      < Math.max(30000, (Number(worker.metadata.pollSeconds) || 5) * 2500),
+  }));
+  return {
+    path: activeDbPath,
+    bytes: stats.size,
+    journalMode: database.pragma('journal_mode', { simple: true }),
+    workers,
+  };
 }
 
 /**
@@ -534,22 +636,15 @@ export function manualEdit(id, data) {
 // Auto-initialize on import
 initDB();
 
-// Handle graceful shutdown
-const closeDB = () => {
+export const closeDB = () => {
   if (db && db.open) {
     console.log('Closing SQLite Database...');
     db.close();
+    db = null;
+    activeDbPath = '';
   }
 };
 
-process.on('SIGINT', () => {
-  closeDB();
-  process.exit(0);
-});
+process.once('exit', closeDB);
 
-process.on('SIGTERM', () => {
-  closeDB();
-  process.exit(0);
-});
-
-export default db;
+export default databaseFacade;

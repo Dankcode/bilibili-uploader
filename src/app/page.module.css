@@ -744,9 +744,47 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--sp-4);
+}
+
+.connectionSummary {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.connectionSummary::-webkit-details-marker { display: none; }
+
+.connectionSummary > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connectionSummary > svg {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  transition: transform var(--dur) var(--ease);
+}
+
+.connectionRow[open] .connectionSummary > svg {
+  transform: rotate(180deg);
+}
+
+.connectionDetails {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+
+.connectionRow:not([open]) .connectionDetails {
+  display: none;
 }
 .connectionMeta {
   display: flex;
@@ -755,6 +793,273 @@
   font-size: var(--fs-xs);
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+
+.settingsWorkspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.runtimeSection,
+.serviceSection {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.settingsSectionHeader {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.settingsSectionHeader h2 {
+  margin-top: 2px;
+  font-size: var(--fs-lg);
+  font-weight: 620;
+}
+
+.settingsEyebrow {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+}
+
+.runtimeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 28px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.runtimeBadgeOnline {
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-color: transparent;
+}
+
+.runtimeBadgeOffline {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: transparent;
+}
+
+.connectionModes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: var(--sp-5);
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.connectionModes button {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.connectionModes button:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.connectionModes .connectionModeActive {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.connectionModes button span,
+.runtimeStatusGrid div span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.connectionModes button strong {
+  color: inherit;
+  font-size: var(--fs-sm);
+}
+
+.connectionModes button small {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.runtimeForm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-5) var(--sp-5);
+}
+
+.settingsField,
+.settingsFieldWide {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.settingsField > span,
+.settingsFieldWide > span {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 16px;
+}
+
+.settingsFieldWide {
+  grid-column: 1 / -1;
+}
+
+.secretInputRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: var(--sp-2);
+}
+
+.iconButton {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.runtimeStatusGrid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.runtimeStatusGrid > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  color: var(--text-faint);
+}
+
+.runtimeStatusGrid span {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.runtimeStatusGrid strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtimeActions {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+}
+
+.runtimeActions button,
+.connectionRow .operationRow button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+}
+
+.settingsMessageOk,
+.settingsMessageError {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+
+.settingsMessageOk { color: var(--ok); }
+.settingsMessageError { color: var(--danger); }
+
+.serviceGroups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-5);
+}
+
+.connectionGroup h3 {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.connectionList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+
+.connectionList .connectionRow {
+  height: 100%;
+}
+
+.connectionRow .operationRow {
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+.spin {
+  animation: settingsSpin 0.8s linear infinite;
+}
+
+@keyframes settingsSpin {
+  to { transform: rotate(360deg); }
 }
 
 /* ---------- Troubleshooter checks ---------- */
@@ -3264,6 +3569,7 @@
   .capacityMeter { display: none; }
   .cutPlannerGrid { grid-template-columns: minmax(0, 1fr); }
   .formGridThree { grid-template-columns: minmax(0, 1fr); }
+  .connectionList { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 680px) {
@@ -3297,4 +3603,18 @@
   .proofMediaGrid { grid-template-columns: minmax(0, 1fr); }
   .proofImageFrame,
   .proofVideoFrame { height: 210px; }
+  .settingsSectionHeader,
+  .connectionModes,
+  .runtimeForm,
+  .runtimeStatusGrid,
+  .runtimeActions,
+  .serviceGroups { margin-left: 0; margin-right: 0; padding-left: 12px; padding-right: 12px; }
+  .connectionModes { grid-template-columns: minmax(0, 1fr); gap: 1px; }
+  .connectionModes button { min-height: 54px; }
+  .runtimeForm,
+  .runtimeStatusGrid { grid-template-columns: minmax(0, 1fr); }
+  .settingsFieldWide { grid-column: auto; }
+  .runtimeActions { flex-wrap: wrap; }
+  .settingsMessageOk,
+  .settingsMessageError { flex-basis: 100%; }
 }
