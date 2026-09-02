@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { readRuntimeSettings, resolveDatabasePath } from '../runtime/settings';
+import { readRuntimeSettings, resolveDatabasePath } from '../runtime/settings.js';
 
 let db = null;
 let activeDbPath = '';
@@ -80,6 +80,8 @@ export function initDB() {
       channel_id TEXT NOT NULL,
       channel_title TEXT DEFAULT '',
       credential_ref TEXT NOT NULL UNIQUE,
+      client_ref TEXT DEFAULT '',
+      long_uploads_status TEXT DEFAULT 'unknown',
       scopes_json TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL DEFAULT 'configured',
       enabled INTEGER NOT NULL DEFAULT 1,
@@ -146,7 +148,8 @@ export function initDB() {
       progress_note TEXT DEFAULT '',
       log TEXT DEFAULT '',
       started_at TEXT,
-      finished_at TEXT
+      finished_at TEXT,
+      metrics_json TEXT DEFAULT '{}'
     );
 
     CREATE TABLE IF NOT EXISTS video_assets (
@@ -168,6 +171,115 @@ export function initDB() {
       last_error TEXT DEFAULT '',
       updated_at TEXT NOT NULL,
       created_at TEXT NOT NULL
+    );
+
+    -- Mail remains a projection of operations state: these rows are durable
+    -- evidence and queues, never prerequisites for media processing.
+    CREATE TABLE IF NOT EXISTS mail_accounts (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'gmail',
+      email_address TEXT NOT NULL UNIQUE,
+      display_name TEXT DEFAULT '',
+      youtube_channel_id TEXT DEFAULT '',
+      label_prefix TEXT NOT NULL DEFAULT 'Studio',
+      credential_ref TEXT NOT NULL DEFAULT '',
+      scopes_json TEXT NOT NULL DEFAULT '[]',
+      labels_json TEXT NOT NULL DEFAULT '{}',
+      history_id TEXT DEFAULT '',
+      last_sync_at TEXT DEFAULT '',
+      last_error TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'untested',
+      enabled INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS video_mail_threads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      gmail_thread_id TEXT DEFAULT '',
+      rfc822_root_id TEXT DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      label_path TEXT NOT NULL DEFAULT '',
+      message_count INTEGER NOT NULL DEFAULT 0,
+      last_status TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(video_id) REFERENCES video_records(id) ON DELETE CASCADE,
+      FOREIGN KEY(account_id) REFERENCES mail_accounts(id) ON DELETE CASCADE,
+      UNIQUE(video_id, account_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id TEXT NOT NULL,
+      thread_row_id INTEGER,
+      video_id TEXT DEFAULT '',
+      direction TEXT NOT NULL,
+      gmail_message_id TEXT DEFAULT '',
+      gmail_thread_id TEXT DEFAULT '',
+      rfc822_id TEXT DEFAULT '',
+      from_addr TEXT DEFAULT '',
+      subject TEXT DEFAULT '',
+      snippet TEXT DEFAULT '',
+      body_text TEXT DEFAULT '',
+      labels_json TEXT NOT NULL DEFAULT '[]',
+      event_kind TEXT DEFAULT '',
+      sent_at TEXT DEFAULT '',
+      received_at TEXT DEFAULT '',
+      raw_headers_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(account_id) REFERENCES mail_accounts(id) ON DELETE CASCADE,
+      FOREIGN KEY(thread_row_id) REFERENCES video_mail_threads(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_ingest_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_row_id INTEGER NOT NULL,
+      account_id TEXT NOT NULL,
+      video_id TEXT DEFAULT '',
+      publication_id INTEGER,
+      parser_id TEXT NOT NULL,
+      parser_version INTEGER NOT NULL DEFAULT 1,
+      category TEXT NOT NULL DEFAULT 'other',
+      severity TEXT NOT NULL DEFAULT 'info',
+      title TEXT DEFAULT '',
+      detail TEXT DEFAULT '',
+      remote_video_id TEXT DEFAULT '',
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      acknowledged_at TEXT DEFAULT '',
+      occurred_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(message_row_id) REFERENCES mail_messages(id) ON DELETE CASCADE,
+      FOREIGN KEY(account_id) REFERENCES mail_accounts(id) ON DELETE CASCADE,
+      FOREIGN KEY(publication_id) REFERENCES video_publications(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id TEXT NOT NULL,
+      video_id TEXT DEFAULT '',
+      job_id INTEGER,
+      event_kind TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 5,
+      next_retry_at TEXT DEFAULT '',
+      last_error TEXT DEFAULT '',
+      claimed_at TEXT DEFAULT '',
+      worker_id TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(account_id) REFERENCES mail_accounts(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS mail_oauth_states (
+      state TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS studio_projects (
@@ -232,8 +344,32 @@ export function initDB() {
       published_at TEXT DEFAULT '',
       current_version_id INTEGER,
       metadata_json TEXT NOT NULL DEFAULT '{}',
+      context_summary_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+
+    -- A creator scrape is source research, not a queued upload. Keep it in a
+    -- separate durable catalog so operators can review and re-use it without
+    -- accidentally creating jobs for every discovered video.
+    CREATE TABLE IF NOT EXISTS bilibili_scraped_videos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      creator_id TEXT NOT NULL,
+      bvid TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      source_title TEXT NOT NULL DEFAULT '',
+      source_description TEXT NOT NULL DEFAULT '',
+      duration_seconds INTEGER NOT NULL DEFAULT 0,
+      uploaded_at TEXT NOT NULL DEFAULT '',
+      thumbnail_url TEXT NOT NULL DEFAULT '',
+      uploader_name TEXT NOT NULL DEFAULT '',
+      selected_for_upload INTEGER NOT NULL DEFAULT 1,
+      delivery_title TEXT NOT NULL DEFAULT '',
+      delivery_description TEXT NOT NULL DEFAULT '',
+      last_scraped_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(creator_id, bvid)
     );
 
     CREATE TABLE IF NOT EXISTS video_versions (
@@ -367,6 +503,8 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_pipeline_presets_updated ON pipeline_presets(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_video_records_status_updated ON video_records(status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_video_records_schedule ON video_records(scheduled_at, status);
+    CREATE INDEX IF NOT EXISTS idx_bilibili_scraped_creator_updated ON bilibili_scraped_videos(creator_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_bilibili_scraped_selected ON bilibili_scraped_videos(creator_id, selected_for_upload);
     CREATE INDEX IF NOT EXISTS idx_video_versions_video_created ON video_versions(video_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_video_publications_video ON video_publications(video_id, published_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_video_publications_remote ON video_publications(platform_id, remote_id) WHERE remote_id != '';
@@ -377,6 +515,10 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_batch_items_status ON automation_batch_items(batch_id, status);
     CREATE INDEX IF NOT EXISTS idx_face_swap_proofs_created ON face_swap_proofs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_runtime_workers_heartbeat ON runtime_workers(heartbeat_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_messages_gmail_id ON mail_messages(account_id, gmail_message_id) WHERE gmail_message_id != '';
+    CREATE INDEX IF NOT EXISTS idx_mail_messages_video ON mail_messages(video_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mail_ingest_unack ON mail_ingest_events(acknowledged_at, severity, occurred_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mail_outbox_dispatch ON mail_outbox(status, next_retry_at, created_at ASC);
   `);
   addColumnIfMissing('videos', 'tags', "TEXT DEFAULT '[]'");
   addColumnIfMissing('studio_projects', 'analysis_json', "TEXT DEFAULT '{}'");
@@ -391,6 +533,19 @@ export function initDB() {
   addColumnIfMissing('video_jobs', 'heartbeat_at', "TEXT DEFAULT ''");
   addColumnIfMissing('video_jobs', 'worker_id', "TEXT DEFAULT ''");
   addColumnIfMissing('video_jobs', 'max_attempts', 'INTEGER DEFAULT 3');
+  addColumnIfMissing('video_job_steps', 'metrics_json', "TEXT DEFAULT '{}'");
+  addColumnIfMissing('video_records', 'context_summary_json', "TEXT DEFAULT '{}'");
+  // An OAuth client belongs to the Google Cloud project, while each selected
+  // channel needs its own refresh token. Existing installations used one name
+  // for both; retain that working layout until an operator intentionally shares
+  // a client secret across more than one channel.
+  addColumnIfMissing('youtube_authorizations', 'client_ref', "TEXT DEFAULT ''");
+  addColumnIfMissing('youtube_authorizations', 'long_uploads_status', "TEXT DEFAULT 'unknown'");
+  db.exec(`
+    UPDATE youtube_authorizations
+    SET client_ref = credential_ref
+    WHERE client_ref IS NULL OR client_ref = '';
+  `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_video_jobs_dispatch
       ON video_jobs(status, scheduled_for, priority DESC, created_at ASC);

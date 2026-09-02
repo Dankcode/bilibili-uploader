@@ -8,6 +8,10 @@ await import('../scripts/register_loader.mjs');
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'youtube-authorizations-'));
 const previousDatabasePath = process.env.VIDEO_SQLITE_PATH;
+// A real (never-executed) file: job creation now validates local source paths
+// at queue time, so a fictional path is rejected before the job is stored.
+const fixtureVideoPath = path.join(directory, 'not-executed-fixture.mp4');
+fs.writeFileSync(fixtureVideoPath, 'not a real video, never executed');
 process.env.VIDEO_SQLITE_PATH = path.join(directory, 'operations.db');
 
 const authorizationStore = await import('../src/lib/youtube/authorizations.js');
@@ -55,7 +59,7 @@ test('immutably links a queued job, authorized account, publication, and video',
   const authorization = authorizationStore.listYouTubeAuthorizations()[0];
   const job = pipeline.createJob({
     sourceId: 'localFile',
-    sourceInput: '/tmp/not-executed-fixture.mp4',
+    sourceInput: fixtureVideoPath,
     uploaderId: 'youtube',
     title: 'Authorization lineage fixture',
     options: {
@@ -117,12 +121,47 @@ test('disabled authorizations cannot be selected for new jobs', () => {
   assert.throws(
     () => pipeline.createJob({
       sourceId: 'localFile',
-      sourceInput: '/tmp/not-executed-disabled.mp4',
+      sourceInput: fixtureVideoPath,
       uploaderId: 'youtube',
       options: { youtube: { authorizationId: authorization.id } },
     }),
     /not usable/,
   );
+});
+
+test('keeps per-channel tokens separate while two channels share one OAuth client', () => {
+  const first = authorizationStore.registerYouTubeAuthorization({
+    emailAddress: 'shared@example.com', channelId: 'UC_shared_channel_01',
+    credentialRef: 'shared-token-one', clientRef: 'shared-google-client',
+  });
+  const second = authorizationStore.registerYouTubeAuthorization({
+    emailAddress: 'shared@example.com', channelId: 'UC_shared_channel_02',
+    credentialRef: 'shared-token-two', clientRef: 'shared-google-client',
+  });
+  assert.notEqual(first.id, second.id);
+  assert.equal('clientRef' in first, false, 'client filenames must not reach the browser');
+  const storedFirst = authorizationStore.getYouTubeAuthorization(first.id);
+  const storedSecond = authorizationStore.getYouTubeAuthorization(second.id);
+  assert.equal(storedFirst.clientRef, 'shared-google-client');
+  assert.equal(storedSecond.clientRef, 'shared-google-client');
+  assert.notEqual(storedFirst.credentialRef, storedSecond.credentialRef);
+});
+
+test('refuses a resolved long source on a channel without long-upload approval', () => {
+  const authorization = authorizationStore.registerYouTubeAuthorization({
+    emailAddress: 'short@example.com', channelId: 'UC_short_channel_01',
+    credentialRef: 'short-channel-token', longUploadsStatus: 'disallowed',
+  });
+  assert.throws(() => pipeline.createJob({
+    sourceId: 'localFile', sourceInput: fixtureVideoPath, uploaderId: 'youtube',
+    youtubeAuthorizationId: authorization.id, sourceDurationSeconds: 901,
+  }), /15 minutes/);
+  const allowed = authorizationStore.updateYouTubeAuthorization(authorization.id, { longUploadsStatus: 'allowed' });
+  assert.equal(allowed.longUploadsStatus, 'allowed');
+  assert.equal(pipeline.createJob({
+    sourceId: 'localFile', sourceInput: fixtureVideoPath, uploaderId: 'youtube',
+    youtubeAuthorizationId: authorization.id, sourceDurationSeconds: 901,
+  }).status, 'queued');
 });
 
 test('normalizes YouTube IDs and rejects path-shaped credential selectors', () => {

@@ -5,7 +5,7 @@ visual idea is **the evidence desk**: a dense, calm operator surface where
 timestamps, screenshots, and language revisions remain inspectable. The
 identity deliberately avoids the purple gradients, floating glass cards, soft
 pill buttons, and decorative sparkles associated with generic AI products.
-Solid mineral-green surfaces, a lichen signal color, hairline borders, and
+Neutral graphite surfaces, a lichen signal color, hairline borders, and
 near-square geometry make the product recognizable in screenshots and demos.
 
 All values live as CSS custom properties in `src/app/globals.css`. Nothing in
@@ -23,15 +23,15 @@ creates depth without shadows or gradients.
 
 | Token | Value | Use |
 |---|---|---|
-| `--bg` | `#0d0f0c` | App background |
-| `--surface` | `#141813` | Cards, sidebar, tables |
-| `--surface-2` | `#1a2018` | Inputs, table header, hover |
-| `--surface-3` | `#222a1f` | Active segmented control, tracks |
-| `--border` | `#283025` | Default hairline |
-| `--border-strong` | `#394435` | Inputs, emphasis dividers |
-| `--text` | `#edf1e8` | Primary text |
-| `--text-muted` | `#a7b19e` | Secondary text |
-| `--text-faint` | `#727d69` | Labels, placeholders, metadata |
+| `--bg` | `#0b0d0f` | App background |
+| `--surface` | `#111417` | Cards, sidebar, tables |
+| `--surface-2` | `#171b1f` | Inputs, table header, hover |
+| `--surface-3` | `#1e2429` | Active segmented control, tracks |
+| `--border` | `#252b30` | Default hairline |
+| `--border-strong` | `#384149` | Inputs, emphasis dividers |
+| `--text` | `#eef1f3` | Primary text |
+| `--text-muted` | `#a7b0b7` | Secondary text |
+| `--text-faint` | `#717c84` | Labels, placeholders, metadata |
 | `--accent` | `#c7f36b` | Primary actions, active nav, focus |
 | `--ok` `--warn` `--danger` `--running` | green / amber / red / blue | Status only |
 
@@ -66,13 +66,11 @@ weight, not size (600–650), so tables and controls dominate the page.
 
 A fixed **sidebar** (`--sidebar-w` 232px) + fluid **main** column.
 
-- **Sidebar**: brand block, primary navigation (the six views), and a mono
+- **Sidebar**: brand block, primary navigation (five workspace and two system views), and a mono
   footer showing LAN address and global status. Nav is the app's spine —
   destinations, not actions.
-- **Top bar** (`--topbar-h` 56px, sticky, blurred): the current view title, a
-  context badge (active source), the **workspace context selectors** (Channel →
-  Source, a clear hierarchy), and the primary workflow actions (Sync & Scrape,
-  Continuous Loop). Context + actions live here so they're constant across views.
+- **Top bar** (`--topbar-h` 56px, sticky, blurred): the current view title,
+  global video search, active-work capacity, and the Import videos action.
 - **Content**: one padded column of cards/tables.
 
 Below 860px the sidebar collapses to a horizontal strip and selectors wrap —
@@ -98,6 +96,17 @@ preserving the LAN-from-mobile use case.
   with a mono meta line.
 - **Diagnostic check** — dot (`check_ok/warn/fail`) + message + fix hint.
 - **Modal** — centered, blurred overlay; used for add-channel/add-source.
+- **Process node** — a fixed 208 × 92px step card on the per-video route. Its
+  role, status word, duration, metrics, and running progress are visible without
+  opening the inspector. `--review` aliases warning for human-approval gates.
+- **Process edge** — a 2px arrow between nodes. Pending, active, complete, and
+  blocked states use `--edge`, `--edge-active`, `--edge-done`, and `--edge-fail`.
+- **Node inspector** — a 380px right drawer for logs, metrics, artifacts, and
+  correction review. Logs stay out of the canvas itself.
+
+The per-video process route is the only full-bleed detail view. It has a sticky
+sub-header for library back-navigation and job actions; its horizontal chain
+becomes vertical below 860px.
 
 ## 4. Principles
 

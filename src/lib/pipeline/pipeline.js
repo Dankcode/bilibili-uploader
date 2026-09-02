@@ -12,7 +12,7 @@ import {
   syncAutomationBatch,
   updateVideoRecord,
 } from '../operations/store';
-import { getSource, getProcessor, getUploader } from './registry';
+import { getSource, getProcessor, getUploader, validateProcessorChain } from './registry';
 import { getCredentials } from './connections';
 import { getPreset } from './presets';
 import {
@@ -31,7 +31,11 @@ import * as aiEditorProcessor from './processors/aiEditor';
 import * as sceneCutProcessor from './processors/sceneCut';
 import * as faceFusionProcessor from './processors/faceFusion';
 import * as metadataProcessor from './processors/metadata';
+import * as videoContextProcessor from './processors/videoContext';
+import * as ocrContextProcessor from './processors/ocrContext';
 import * as youtubeUploader from './uploaders/youtube';
+import { isAllowedBilibiliHost, normalizeBilibiliVideoInput } from '../video/bilibiliUrl.js';
+import { emitMailEvent } from '../mail/events.js';
 
 const SOURCE_ADAPTERS = {
   localFile: localFileSource,
@@ -40,6 +44,8 @@ const SOURCE_ADAPTERS = {
 };
 
 const PROCESSOR_ADAPTERS = {
+  videoContext: videoContextProcessor,
+  ocrContext: ocrContextProcessor,
   voiceover: voiceoverProcessor,
   aiEditor: aiEditorProcessor,
   sceneCut: sceneCutProcessor,
@@ -61,12 +67,100 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+/**
+ * OPERATIONAL LOGGING — every line carries the job id so a run can be followed
+ * in stdout without reading SQLite by hand. Before this the pipeline emitted a
+ * single console.error for a catastrophic worker failure and nothing else, so a
+ * failed job left no trace in the server log at all.
+ *
+ * Never log credentials, tokens, cookies, or provider keys.
+ */
+function logJob(jobId, message, ...details) {
+  console.log(`[Pipeline] job=${jobId} ${message}`, ...details);
+}
+
+function logJobError(jobId, message, error) {
+  console.error(`[Pipeline] job=${jobId} ${message}: ${error?.message || error}`);
+  if (error?.stack) console.error(error.stack);
+}
+
 function parseJson(value, fallback) {
   try {
     return value ? JSON.parse(value) : fallback;
   } catch {
     return fallback;
   }
+}
+
+/**
+ * Every API upload must be intentionally assigned to a channel at queue time.
+ * This prevents a single newly-authorized account from silently receiving a
+ * batch that an operator meant for a different channel.
+ */
+function resolveYouTubeAuthorizationId(requestedId) {
+  if (requestedId) return requestedId;
+  const env = globalThis.process?.env || {};
+  if ((env.YOUTUBE_UPLOAD_METHOD || 'api').toLowerCase() === 'pygui') return '';
+  if (env.YOUTUBE_CHANNEL_ID) return '';
+  throw new Error(
+    'Choose an authorized YouTube channel for this video before it is queued. '
+    + 'Authorize a channel in Connections, then select it in the batch planner.',
+  );
+}
+
+/**
+ * Bilibili input is checked at queue time too. A space URL is left to the source
+ * adapter (it has to scrape the page to know what is on it); anything else must
+ * already look like a Bilibili video.
+ */
+function assertBilibiliSourceInput(sourceInput) {
+  let hostname = '';
+  try {
+    hostname = new URL(sourceInput).hostname.toLowerCase();
+  } catch {
+    // Not a URL — fall through to identifier validation.
+  }
+  if (hostname === 'space.bilibili.com') return;
+  if (hostname && !isAllowedBilibiliHost(hostname)) {
+    throw new Error(
+      `Bilibili source refused: ${hostname} is not a Bilibili host. `
+      + 'The stored session cookie is only ever sent to bilibili.com or b23.tv.',
+    );
+  }
+  normalizeBilibiliVideoInput(sourceInput);
+}
+
+/**
+ * Local source paths are checked at queue time, not at run time. Mirrors the
+ * check in sources/localFile.js so the two cannot drift apart.
+ */
+function assertReadableLocalSource(sourceInput) {
+  if (!path.isAbsolute(sourceInput)) {
+    throw new Error(`Local source must be an absolute path: ${sourceInput}`);
+  }
+  const resolved = path.resolve(sourceInput);
+  let stats;
+  try {
+    stats = fs.statSync(resolved);
+  } catch {
+    throw new Error(`Local source file not found: ${sourceInput}`);
+  }
+  if (!stats.isFile()) throw new Error(`Local source is not a file: ${sourceInput}`);
+  try {
+    fs.accessSync(resolved, fs.constants.R_OK);
+  } catch {
+    throw new Error(`Local source file is not readable: ${sourceInput}`);
+  }
+  if (stats.size === 0) throw new Error(`Local source file is empty: ${sourceInput}`);
+}
+
+function assertLongUploadAllowed(authorization, durationSeconds) {
+  const duration = Number(durationSeconds) || 0;
+  if (duration <= 15 * 60 || authorization?.longUploadsStatus === 'allowed') return;
+  throw new Error(
+    `The selected YouTube channel is not phone-verified for uploads longer than 15 minutes. `
+    + `This video is ${Math.ceil(duration / 60)} minutes; verify the channel with YouTube, then resolve and queue it again.`,
+  );
 }
 
 function validateJobInput(input) {
@@ -82,14 +176,31 @@ function validateJobInput(input) {
 
   if (!sourceInput) throw new Error('sourceInput is required');
   if (!getSource(sourceId)) throw new Error(`Unknown sourceId "${sourceId}"`);
-  for (const processorId of processorIds) {
-    if (!getProcessor(processorId)) throw new Error(`Unknown processorId "${processorId}"`);
-  }
+  const chain = validateProcessorChain(processorIds);
+  if (!chain.ok) throw new Error(chain.errors.join(' '));
   if (uploaderId && !getUploader(uploaderId)) throw new Error(`Unknown uploaderId "${uploaderId}"`);
   if (youtubeAuthorizationId && uploaderId !== 'youtube') {
     throw new Error('A YouTube authorization can only be used with the YouTube uploader');
   }
-  if (youtubeAuthorizationId) getYouTubeAuthorization(youtubeAuthorizationId, { requireUsable: true });
+  const selectedAuthorization = youtubeAuthorizationId
+    ? getYouTubeAuthorization(youtubeAuthorizationId, { requireUsable: true })
+    : null;
+
+  // Resolve the publishing identity up front, rather than running the source and
+  // every processor and only then failing on the last step for want of a
+  // credential. The operator must choose the channel for every API upload.
+  const resolvedAuthorizationId = uploaderId === 'youtube'
+    ? resolveYouTubeAuthorizationId(youtubeAuthorizationId)
+    : youtubeAuthorizationId;
+  if (uploaderId === 'youtube' && selectedAuthorization) {
+    assertLongUploadAllowed(selectedAuthorization, input.sourceDurationSeconds || input.durationSeconds);
+  }
+
+  // Validate the source input while the operator is still looking at the form.
+  // Discovering a bad path or a non-Bilibili URL at run time turns a batch of
+  // fifty bad inputs into fifty failures that arrive one at a time.
+  if (sourceId === 'localFile') assertReadableLocalSource(sourceInput);
+  if (sourceId === 'bilibili') assertBilibiliSourceInput(sourceInput);
 
   const scheduledFor = String(input.scheduledFor || input.scheduled_for || '').trim();
   if (scheduledFor && Number.isNaN(new Date(scheduledFor).getTime())) {
@@ -102,7 +213,7 @@ function validateJobInput(input) {
     processorIds,
     uploaderId,
     options,
-    youtubeAuthorizationId,
+    youtubeAuthorizationId: resolvedAuthorizationId,
     videoRowId: input.videoRowId || input.video_row_id || null,
     sceneScriptId: input.sceneScriptId || input.scene_script_id || null,
     videoRecordId: String(input.videoRecordId || input.video_record_id || '').trim(),
@@ -114,6 +225,7 @@ function validateJobInput(input) {
     campaign: String(input.campaign || '').trim(),
     language: String(input.language || '').trim(),
     presetId: String(input.presetId || '').trim(),
+    sourceDurationSeconds: Math.max(0, Number(input.sourceDurationSeconds || input.durationSeconds) || 0),
   };
 }
 
@@ -163,8 +275,16 @@ function setStepStatus(stepId, status, patch = {}) {
     fields.push('finished_at = ?');
     values.push(patch.finishedAt);
   }
+  if (patch.metrics !== undefined) {
+    fields.push('metrics_json = ?');
+    values.push(JSON.stringify(patch.metrics || {}));
+  }
   values.push(stepId);
   db.prepare(`UPDATE video_job_steps SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  if (status === 'failed') {
+    const row = db.prepare('SELECT j.id AS job_id,j.video_record_id,j.current_step,vr.title FROM video_job_steps s JOIN video_jobs j ON j.id=s.job_id LEFT JOIN video_records vr ON vr.id=j.video_record_id WHERE s.id=?').get(stepId);
+    if (row?.video_record_id) emitMailEvent({ videoId: row.video_record_id, jobId: row.job_id, eventKind: 'job.step.failed', stepId, payload: { videoTitle: row.title || '', detail: patch.progressNote || row.current_step || 'Pipeline step failed' } });
+  }
 }
 
 function saveAsset(jobId, kind, filePath, meta = {}) {
@@ -177,7 +297,10 @@ function saveAsset(jobId, kind, filePath, meta = {}) {
 function getLatestLocalAsset(jobId) {
   const asset = db.prepare(`
     SELECT file_path, meta_json FROM video_assets
-    WHERE job_id = ? AND kind != 'remote'
+    WHERE job_id = ? AND kind IN (
+      'original', 'voiceover', 'faceFusion', 'metadata', 'aiEditor', 'sceneCut',
+      'videoContext', 'ocrContext'
+    )
     ORDER BY id DESC
     LIMIT 1
   `).get(jobId);
@@ -324,6 +447,57 @@ export function createJobBatch(input = {}) {
   return { ...batch, totalItems: created.length, jobs: created };
 }
 
+/**
+ * Edit a workflow before any work begins. The authorization binding is changed
+ * only while every step is still pending and no publication exists, preserving
+ * the immutable channel lineage once a run starts.
+ */
+export function updateQueuedJob(jobId, patch = {}) {
+  const existing = db.prepare('SELECT * FROM video_jobs WHERE id = ?').get(Number(jobId));
+  if (!existing) throw new Error(`Job not found: ${jobId}`);
+  if (existing.status !== 'queued') throw new Error('Only queued jobs can be edited. Cancel and create a new run after processing starts.');
+  const hasStarted = db.prepare("SELECT 1 FROM video_job_steps WHERE job_id = ? AND status != 'pending' LIMIT 1").get(existing.id);
+  if (hasStarted) throw new Error('This queued job has already started a step and cannot be edited in place.');
+  const binding = db.prepare('SELECT publication_id FROM youtube_upload_bindings WHERE job_id = ?').get(existing.id);
+  if (binding?.publication_id) throw new Error('A job with a publication cannot be assigned to a different channel.');
+
+  const previousOptions = parseJson(existing.options_json, {});
+  const input = validateJobInput({
+    sourceId: existing.source_id,
+    sourceInput: existing.source_input,
+    processorIds: patch.processorIds ?? parseJson(existing.processor_ids_json, []),
+    uploaderId: patch.uploaderId ?? existing.uploader_id,
+    options: { ...previousOptions, ...(patch.options || {}) },
+    youtubeAuthorizationId: patch.youtubeAuthorizationId ?? patch.options?.youtube?.authorizationId ?? '',
+    videoRowId: existing.video_row_id,
+    sceneScriptId: existing.scene_script_id,
+    videoRecordId: existing.video_record_id,
+    batchId: existing.batch_id,
+    priority: patch.priority ?? existing.priority,
+    scheduledFor: patch.scheduledFor ?? existing.scheduled_for,
+    maxAttempts: existing.max_attempts,
+  });
+  const apply = db.transaction(() => {
+    db.prepare(`
+      UPDATE video_jobs
+      SET processor_ids_json = ?, uploader_id = ?, options_json = ?, priority = ?, scheduled_for = ?, updated_at = ?
+      WHERE id = ?
+    `).run(JSON.stringify(input.processorIds), input.uploaderId, JSON.stringify(input.options), input.priority, input.scheduledFor, nowIso(), existing.id);
+    db.prepare('DELETE FROM video_job_steps WHERE job_id = ?').run(existing.id);
+    createSteps(existing.id, input.sourceId, input.processorIds, input.uploaderId);
+    db.prepare('DELETE FROM youtube_upload_bindings WHERE job_id = ?').run(existing.id);
+    if (input.youtubeAuthorizationId) bindJobToYouTubeAuthorization(existing.id, input.youtubeAuthorizationId);
+    if (existing.video_record_id) updateVideoRecord(existing.video_record_id, {
+      priority: input.priority,
+      status: input.scheduledFor ? 'scheduled' : 'queued',
+      scheduledAt: input.scheduledFor,
+    });
+  });
+  apply();
+  scheduleWorker();
+  return { id: existing.id, status: 'queued', youtubeAuthorizationId: input.youtubeAuthorizationId };
+}
+
 async function runStep(job, step, currentFilePath, currentMeta) {
   const [role, id] = step.step.split(':');
   const credentials = getCredentials(id);
@@ -335,9 +509,11 @@ async function runStep(job, step, currentFilePath, currentMeta) {
   const workDir = path.join(process.cwd(), process.env.VIDEO_WORK_DIR || 'video-work', String(job.id));
   fs.mkdirSync(workDir, { recursive: true });
 
+  const stepStartedAtMs = Date.now();
   setStepStatus(step.id, 'running', { startedAt: nowIso(), progressNote: 'Starting' });
   db.prepare('UPDATE video_jobs SET current_step = ?, updated_at = ? WHERE id = ?').run(step.step, nowIso(), job.id);
   appendStepLog(step.id, 'Step started');
+  logJob(job.id, `step=${step.step} attempt=${step.attempt || 1} started`);
 
   let result = null;
   if (role === 'source') {
@@ -378,7 +554,26 @@ async function runStep(job, step, currentFilePath, currentMeta) {
       })
       : null;
     const processorArtifacts = { ...(result.artifacts || {}), ...(validation ? { validation } : {}) };
+    // Analysis-only processors intentionally return the input path unchanged.
+    // Their metadata and artifact files are durable outputs even though no
+    // video version is created.
     saveAsset(job.id, id, result.outputPath, processorArtifacts);
+    for (const artifact of Array.isArray(result.artifactFiles) ? result.artifactFiles : []) {
+      if (artifact?.kind && artifact?.path) saveAsset(job.id, artifact.kind, artifact.path, artifact.meta || {});
+    }
+    if (result.metrics) setStepStatus(step.id, 'running', { metrics: result.metrics });
+    if (job.video_record_id && ['videoContext', 'ocrContext'].includes(id)) {
+      const previous = db.prepare('SELECT context_summary_json FROM video_records WHERE id = ?').get(job.video_record_id);
+      const summary = {
+        ...parseJson(previous?.context_summary_json, {}),
+        segmentCount: result.artifacts?.segmentCount ?? result.metrics?.segmentCount,
+        frameCount: result.artifacts?.frameCount ?? result.metrics?.frameCount,
+        correctionCount: result.artifacts?.correctionCount ?? result.metrics?.correctionCount,
+        glossaryTerms: (result.artifacts?.glossary || []).map((item) => item.term).slice(0, 40),
+      };
+      db.prepare('UPDATE video_records SET context_summary_json = ?, updated_at = ? WHERE id = ?')
+        .run(JSON.stringify(summary), nowIso(), job.video_record_id);
+    }
     if (validation) {
       recordVideoVersion({
         videoId: job.video_record_id,
@@ -412,14 +607,16 @@ async function runStep(job, step, currentFilePath, currentMeta) {
           emailAddress: authorization.emailAddress,
           channelId: authorization.channelId,
           channelTitle: authorization.channelTitle,
+          clientRef: authorization.clientRef,
           credentialRef: authorization.credentialRef,
         },
       } : {}),
     };
     result = await adapter.upload(currentFilePath, uploadMeta, onProgress);
+    let publicationId = null;
     db.transaction(() => {
       saveAsset(job.id, 'remote', result?.url || result?.remoteId || '', result || {});
-      const publicationId = recordPublication({
+      publicationId = recordPublication({
         videoId: job.video_record_id,
         jobId: job.id,
         platformId: id,
@@ -437,14 +634,32 @@ async function runStep(job, step, currentFilePath, currentMeta) {
         finalizeUpload(job.video_row_id, result.url, new Date().toISOString().slice(0, 10));
       }
     })();
+    if (publicationId && job.video_record_id) emitMailEvent({
+      videoId: job.video_record_id, jobId: job.id, eventKind: 'publish.ok', stepId: step.id,
+      payload: { videoTitle: currentMeta.title || '', remoteId: result?.remoteId || '', url: result?.url || '', channelTitle: authorization?.channelTitle || '' },
+    });
     currentMeta = { ...currentMeta, ...(result || {}) };
   } else {
     throw new Error(`Unknown step role: ${role}`);
   }
 
-  setStepStatus(step.id, 'ok', { progress: 100, progressNote: 'Done', finishedAt: nowIso() });
-  appendStepLog(step.id, 'Step finished');
-  return { currentFilePath, currentMeta, pauseForReview: Boolean(result?.pauseForReview) };
+  const durationMs = Date.now() - stepStartedAtMs;
+  setStepStatus(step.id, 'ok', {
+    progress: 100,
+    progressNote: 'Done',
+    finishedAt: nowIso(),
+    // metrics_json has always existed and always been empty; a step's own
+    // duration is the first thing anyone wants when a run is slow.
+    metrics: { durationMs, role, adapterId: id },
+  });
+  appendStepLog(step.id, `Step finished in ${durationMs} ms`);
+  logJob(job.id, `step=${step.step} ok in ${durationMs} ms`);
+  return {
+    currentFilePath,
+    currentMeta,
+    pauseForReview: Boolean(result?.pauseForReview),
+    reviewType: result?.reviewType || 'metadata',
+  };
 }
 
 export async function runNextQueuedJob() {
@@ -473,9 +688,14 @@ export async function runNextQueuedJob() {
 
   workerRunning = true;
   cancelSignals.set(job.id, { canceled: false });
+  const jobStartedAtMs = Date.now();
   let currentFilePath = null;
   let currentMeta = {};
+  // `job` is the row as claimed, so job.current_step is stale by the time a
+  // failure is logged. Track the step actually in flight.
+  let activeStepName = '';
   try {
+    logJob(job.id, `claimed by ${workerId}: source=${job.source_id} processors=${job.processor_ids_json} uploader=${job.uploader_id || 'none'}`);
     syncJobCatalog(job, 'running');
     const steps = db.prepare('SELECT * FROM video_job_steps WHERE job_id = ? ORDER BY id ASC').all(job.id);
     for (const step of steps) {
@@ -488,21 +708,25 @@ export async function runNextQueuedJob() {
         }
         continue;
       }
+      activeStepName = step.step;
       const output = await runStep(job, step, currentFilePath, currentMeta);
       currentFilePath = output.currentFilePath;
       currentMeta = output.currentMeta;
       if (output.pauseForReview) {
         db.prepare(`
           UPDATE video_jobs
-          SET status = 'review', current_step = 'review:metadata', error = '', updated_at = ?
+          SET status = 'review', current_step = ?, error = '', updated_at = ?
           WHERE id = ?
-        `).run(nowIso(), job.id);
+        `).run(`review:${output.reviewType}`, nowIso(), job.id);
         syncJobCatalog(job, 'review');
+        logJob(job.id, `paused for ${output.reviewType} review`);
         return job.id;
       }
     }
     db.prepare("UPDATE video_jobs SET status = 'done', current_step = '', error = '', updated_at = ? WHERE id = ?").run(nowIso(), job.id);
     syncJobCatalog(job, 'done');
+    if (job.video_record_id) emitMailEvent({ videoId: job.video_record_id, jobId: job.id, eventKind: 'job.completed', payload: { videoTitle: db.prepare('SELECT title FROM video_records WHERE id=?').get(job.video_record_id)?.title || '' } });
+    logJob(job.id, `done in ${Date.now() - jobStartedAtMs} ms`);
   } catch (error) {
     const status = cancelSignals.get(job.id)?.canceled ? 'canceled' : 'failed';
     const activeStep = db.prepare("SELECT id FROM video_job_steps WHERE job_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1").get(job.id);
@@ -515,6 +739,12 @@ export async function runNextQueuedJob() {
     }
     db.prepare('UPDATE video_jobs SET status = ?, error = ?, updated_at = ? WHERE id = ?').run(status, error.message, nowIso(), job.id);
     syncJobCatalog(job, status);
+    if (job.video_record_id) emitMailEvent({ videoId: job.video_record_id, jobId: job.id, eventKind: `job.${status}`, payload: { videoTitle: db.prepare('SELECT title FROM video_records WHERE id=?').get(job.video_record_id)?.title || '', error: error.message } });
+    if (status === 'canceled') {
+      logJob(job.id, `canceled after ${Date.now() - jobStartedAtMs} ms`);
+    } else {
+      logJobError(job.id, `failed at ${activeStepName || 'claim'} after ${Date.now() - jobStartedAtMs} ms`, error);
+    }
     if (job.video_row_id) {
       updateVideoStatus(job.video_row_id, 'Not started');
       logError(job.video_row_id, error.message);
@@ -594,6 +824,7 @@ export function listJobs(filter = {}) {
       status: step.status,
       progress: step.progress,
       progressNote: step.progress_note,
+      metrics: parseJson(step.metrics_json, {}),
       log: step.log,
       startedAt: step.started_at,
       finishedAt: step.finished_at,
@@ -666,20 +897,68 @@ export function approveMetadata(jobId, patch = {}) {
   return { id: Number(jobId), status: 'queued' };
 }
 
+export function approveCorrections(jobId, selection = {}) {
+  const job = db.prepare('SELECT * FROM video_jobs WHERE id = ?').get(jobId);
+  if (!job) throw new Error(`Job not found: ${jobId}`);
+  if (job.status !== 'review' || job.current_step !== 'review:corrections') {
+    throw new Error('Only jobs waiting for correction review can be approved');
+  }
+  const asset = db.prepare(`
+    SELECT * FROM video_assets WHERE job_id = ? AND kind = 'ocrContext'
+    ORDER BY id DESC LIMIT 1
+  `).get(jobId);
+  if (!asset) throw new Error('OCR context review asset was not found');
+  const current = parseJson(asset.meta_json, {});
+  const corrections = Array.isArray(current.corrections) ? current.corrections : [];
+  const accepted = Array.isArray(selection.acceptedIndexes)
+    ? new Set(selection.acceptedIndexes.map(Number))
+    : new Set(corrections.map((item) => Number(item.index)));
+  const source = Array.isArray(current.segments) ? current.segments : [];
+  const proposed = new Map((current.correctedSegments || []).map((segment) => [Number(segment.index), segment]));
+  const correctedSegments = source.length
+    ? source.map((segment) => accepted.has(Number(segment.index)) ? (proposed.get(Number(segment.index)) || segment) : segment)
+    : current.correctedSegments;
+  db.prepare('UPDATE video_assets SET meta_json = ? WHERE id = ?').run(JSON.stringify({
+    ...current,
+    correctedSegments,
+    correctionsApplied: accepted.size,
+    correctionsApprovedAt: nowIso(),
+  }), asset.id);
+  db.prepare("UPDATE video_jobs SET status = 'queued', current_step = '', error = '', updated_at = ? WHERE id = ?")
+    .run(nowIso(), jobId);
+  syncJobCatalog(job, 'queued');
+  scheduleWorker();
+  return { id: Number(jobId), status: 'queued' };
+}
+
+/**
+ * Cancels a job. A job that has already finished is reported with the status it
+ * actually has — returning "canceling" for a job that is already `failed` or
+ * `canceled` leaves any UI that renders a spinner on that response spinning
+ * forever, waiting for a transition that will never come.
+ */
 export function cancelJob(jobId) {
   const job = db.prepare('SELECT * FROM video_jobs WHERE id = ?').get(jobId);
   if (!job) throw new Error(`Job not found: ${jobId}`);
+
   if (job.status === 'running') {
     const signal = cancelSignals.get(Number(jobId));
     if (signal) signal.canceled = true;
+    logJob(jobId, 'cancel requested while running');
+    return { id: Number(jobId), status: 'canceling' };
   }
+
   if (job.status === 'queued' || job.status === 'review') {
     db.prepare("UPDATE video_jobs SET status = 'canceled', error = 'Canceled by user', updated_at = ? WHERE id = ?").run(nowIso(), jobId);
     db.prepare("UPDATE video_job_steps SET status = 'skipped', progress_note = 'Canceled by user' WHERE job_id = ? AND status = 'pending'").run(jobId);
     if (job.video_row_id) updateVideoStatus(job.video_row_id, 'Not started');
     syncJobCatalog(job, 'canceled');
+    logJob(jobId, `canceled from ${job.status}`);
+    return { id: Number(jobId), status: 'canceled' };
   }
-  return { id: Number(jobId), status: (job.status === 'queued' || job.status === 'review') ? 'canceled' : 'canceling' };
+
+  // Already terminal (done / failed / canceled) — nothing to cancel.
+  return { id: Number(jobId), status: job.status, alreadyFinished: true };
 }
 
 export function bulkJobAction(action, jobIds = []) {

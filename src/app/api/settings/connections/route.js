@@ -11,6 +11,8 @@
 import { NextResponse } from 'next/server';
 import { listServiceChecklist } from '../../../../lib/pipeline/registry';
 import { listConnections, saveConnection, testService, setConnectionEnabled } from '../../../../lib/pipeline/connections';
+import { refreshBilibiliLoginStatus, startBilibiliLogin } from '../../../../lib/video/bilibili';
+import { confirmYouTubeAuthorization, getYouTubeAuthorizationStatus, startDefaultYouTubeAuthorization, startYouTubeAuthorization } from '../../../../lib/youtube/oauth';
 
 export async function GET() {
   const connections = listConnections();
@@ -30,6 +32,28 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
+    if (body.action === 'bilibili-login-start') {
+      return NextResponse.json({ bilibiliLogin: await startBilibiliLogin() });
+    }
+    if (body.action === 'bilibili-login-status') {
+      return NextResponse.json({ bilibiliLogin: await refreshBilibiliLoginStatus() });
+    }
+    if (body.action === 'youtube-login-start') {
+      return NextResponse.json({ youtubeAuthorization: startYouTubeAuthorization({
+        clientRef: body.clientRef, credentialRef: body.credentialRef, expectedEmail: body.expectedEmail,
+      }) });
+    }
+    if (body.action === 'youtube-login-start-default') {
+      return NextResponse.json({ youtubeAuthorization: startDefaultYouTubeAuthorization({
+        expectedEmail: body.expectedEmail,
+      }) });
+    }
+    if (body.action === 'youtube-login-status') {
+      return NextResponse.json({ youtubeAuthorization: getYouTubeAuthorizationStatus(body.credentialRef) });
+    }
+    if (body.action === 'youtube-login-confirm') {
+      return NextResponse.json({ youtubeAuthorization: confirmYouTubeAuthorization({ credentialRef: body.credentialRef, channelId: body.channelId }) });
+    }
     if (body.action === 'save') {
       return NextResponse.json({ connection: saveConnection(body.serviceId, body.credentials || {}) });
     }
@@ -39,7 +63,7 @@ export async function POST(request) {
     if (body.action === 'enable') {
       return NextResponse.json({ connection: setConnectionEnabled(body.serviceId, Boolean(body.enabled)) });
     }
-    return NextResponse.json({ error: 'Unknown action. Valid actions: save|test|enable' }, { status: 400 });
+    return NextResponse.json({ error: 'Unknown action. Valid actions: save|test|enable|bilibili-login-start|bilibili-login-status|youtube-login-start-default|youtube-login-start|youtube-login-status|youtube-login-confirm' }, { status: 400 });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }

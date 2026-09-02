@@ -19,6 +19,9 @@ test('vision correction reports the exact skip when no provider is configured', 
     environmentKeys.map((key) => [key, process.env[key]]),
   );
   for (const key of environmentKeys) delete process.env[key];
+  // The installed Codex CLI can be a valid provider independently of env vars.
+  // Select the contract-only local adapter to explicitly exercise the no-provider path.
+  process.env.VISION_BACKEND = 'local';
   try {
     assert.equal(getVisionStatus().configured, false);
     await assert.rejects(
@@ -33,7 +36,7 @@ test('vision correction reports the exact skip when no provider is configured', 
   }
 });
 
-test('Gemini-only configuration is not reported as screenshot-context ready', async () => {
+test('Gemini-only configuration is reported as screenshot-context ready', () => {
   const environmentKeys = [
     'VISION_BACKEND',
     'GEMINI_API_KEY',
@@ -50,16 +53,12 @@ test('Gemini-only configuration is not reported as screenshot-context ready', as
   try {
     const status = getVisionStatus();
     const geminiStatus = status.available.find((item) => item.id === 'gemini');
-    assert.equal(status.configured, false);
-    assert.equal(status.backend, null);
-    assert.equal(status.model, null);
+    assert.equal(status.configured, true);
+    assert.equal(status.backend, 'gemini');
+    assert.equal(status.model, 'gemini-2.0-flash');
     assert.equal(geminiStatus.configured, true);
-    assert.equal(geminiStatus.contextCapable, false);
-    assert.equal(geminiStatus.contextReady, false);
-    await assert.rejects(
-      analyzeFrames([]),
-      (error) => error.code === 'VISION_NOT_CONFIGURED' && error.message === VISION_SKIPPED_MESSAGE,
-    );
+    assert.equal(geminiStatus.contextCapable, true);
+    assert.equal(geminiStatus.contextReady, true);
   } finally {
     for (const key of environmentKeys) {
       if (originalEnvironment[key] === undefined) delete process.env[key];

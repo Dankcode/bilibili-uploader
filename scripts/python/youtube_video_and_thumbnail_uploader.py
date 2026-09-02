@@ -66,12 +66,13 @@ def normalize_credential_ref(value):
     return credential_ref
 
 
-def authenticate(credential_ref):
-    credential_ref = normalize_credential_ref(credential_ref)
+def authenticate(token_ref, client_ref=None):
+    token_ref = normalize_credential_ref(token_ref)
+    client_ref = normalize_credential_ref(client_ref or token_ref)
     credentials = None
-    token_path = f'./{credential_ref}_token.json'
-    legacy_pickle_path = f'./{credential_ref}_token.pickle'
-    client_secret_path = f'./{credential_ref}_client_secret.json'
+    token_path = f'./{token_ref}_token.json'
+    legacy_pickle_path = f'./{token_ref}_token.pickle'
+    client_secret_path = f'./{client_ref}_client_secret.json'
 
     if os.path.exists(token_path):
         print('Loading OAuth credentials from JSON...')
@@ -127,8 +128,8 @@ def verify_authorized_channel(youtube, expected_channel_id):
     return actual_channel_id
 
 
-def uploads_video_initialisation(credential_ref, video_to_upload, title, description, tags, expected_channel_id=''):
-    credentials = authenticate(credential_ref)
+def uploads_video_initialisation(token_ref, video_to_upload, title, description, tags, expected_channel_id='', client_ref=None):
+    credentials = authenticate(token_ref, client_ref)
     tag_list = tags if isinstance(tags, list) else [tag for tag in str(tags).split() if tag]
 
     youtube = build('youtube', 'v3', credentials=credentials)
@@ -159,6 +160,7 @@ if __name__ == '__main__':
     tags = sys.argv[4]
     credential_ref = sys.argv[5]
     expected_channel_id = sys.argv[6] if len(sys.argv) > 6 else ''
+    client_ref = sys.argv[7] if len(sys.argv) > 7 else credential_ref
 
     video_id = uploads_video_initialisation(
         credential_ref,
@@ -167,6 +169,7 @@ if __name__ == '__main__':
         description,
         tags,
         expected_channel_id,
+        client_ref,
     )
     if video_id:
         print(video_id)
