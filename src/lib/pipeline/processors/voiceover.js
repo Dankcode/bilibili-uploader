@@ -40,6 +40,7 @@ import { rescriptSegments } from '../../ai/getEnglish';
 import { getTtsBackend } from '../../tts';
 import { burnSubtitles, extractAudio, fitClipToWindow, mixVoiceover, probeDuration } from '../../media/ffmpeg';
 import { checkAndIncrementUsage } from '../usage';
+import { buildSubtitleContextHints } from '../../context/contextTrack.js';
 
 export const id = 'voiceover';
 
@@ -148,7 +149,7 @@ export async function testConnection(credentials = {}) {
  * @param {function} onProgress (0..100, note)
  * @param {object} credentials  the 'voiceover' connection credentials
  */
-export async function process(inputPath, options = {}, onProgress = () => {}, credentials = {}) {
+export async function process(inputPath, options = {}, onProgress = () => {}, credentials = {}, meta = {}) {
   if (!inputPath || !fs.existsSync(inputPath)) throw new Error(`Voiceover input not found: ${inputPath}`);
   const creds = resolveCreds(credentials);
   const sttBackend = getSttBackend(options.sttBackend || creds.sttBackend);
@@ -161,7 +162,10 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
   // 1) Transcribe (or reuse a transcript the scene pipeline already produced).
   onProgress(5, 'Extracting audio');
   const suppliedTranslation = normalizeExistingTranscript(options.existingTranslation);
-  let transcript = suppliedTranslation || normalizeExistingTranscript(options.existingTranscript);
+  const contextTranscript = meta.correctedSegments || meta.segments;
+  let transcript = suppliedTranslation
+    || normalizeExistingTranscript(options.existingTranscript)
+    || normalizeExistingTranscript(contextTranscript);
   if (!transcript?.segments?.length) {
     const audioPath = path.join(tmpDir, 'source.wav');
     await extractAudio(inputPath, audioPath);
@@ -198,12 +202,13 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
       partial: false,
     };
   } else {
+    const contextHints = buildSubtitleContextHints(transcript.segments, meta.contexts || []);
     translated = await translateTranscript({
       segments: transcript.segments,
       sourceLang: options.sourceLang || transcript.language,
       targetLang: options.targetLang || 'English',
       backend: creds.translationBackend,
-      style: options.style,
+      style: [options.style, contextHints ? `Preserve these exact on-screen names and terms:\n${contextHints}` : ''].filter(Boolean).join('\n\n'),
       transliterate: options.showTransliteration !== false,
       credentials: creds,
       refine: creds.translationBackend === 'gemini' && creds.geminiRefine && !doRescript,
@@ -219,6 +224,7 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
         targetLang: options.targetLang || 'English',
         style: options.rescriptStyle || creds.rescriptStyle,
         credentials: creds,
+        glossary: meta.glossary || [],
       });
       translated.rescriptProvider = rescripted.provider;
       translated.rescriptModel = rescripted.model;
@@ -297,6 +303,8 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
       rescripted: Boolean(doRescript),
       segmentCount: clips.length,
       durationSec: await probeDuration(outputPath).catch(() => null),
+      contextSource: meta.contextSource || (meta.contexts?.length ? 'videoContext' : 'none'),
+      correctionsApplied: Number(meta.correctionsApplied) || 0,
     },
   };
 }

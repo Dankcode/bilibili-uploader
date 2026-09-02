@@ -9,7 +9,7 @@
  */
 import { NextResponse } from 'next/server';
 import {
-  approveMetadata, bulkJobAction, cancelJob, createJob, createJobBatch, listJobs, retryJob,
+  approveCorrections, approveMetadata, bulkJobAction, cancelJob, createJob, createJobBatch, listJobs, retryJob, updateQueuedJob,
 } from '../../../../lib/pipeline/pipeline';
 
 export async function GET(request) {
@@ -43,10 +43,16 @@ export async function POST(request) {
     if (body.action === 'cancel') {
       return NextResponse.json({ job: cancelJob(body.jobId) });
     }
+    if (body.action === 'update') {
+      return NextResponse.json({ job: updateQueuedJob(body.jobId, body.patch) });
+    }
     if (body.action === 'approveMetadata') {
       return NextResponse.json({ job: approveMetadata(body.jobId, body.metadata) });
     }
-    return NextResponse.json({ error: 'Unknown action. Valid actions: create|createBatch|retry|cancel|bulkRetry|bulkCancel|approveMetadata' }, { status: 400 });
+    if (body.action === 'approveCorrections') {
+      return NextResponse.json({ job: approveCorrections(body.jobId, body.corrections) });
+    }
+    return NextResponse.json({ error: 'Unknown action. Valid actions: create|createBatch|update|retry|cancel|bulkRetry|bulkCancel|approveMetadata|approveCorrections' }, { status: 400 });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }

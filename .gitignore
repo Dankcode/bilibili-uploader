@@ -48,6 +48,12 @@ config/client_secret.json
 config/token.json
 config/storage.json
 videos/
+# App Router uses "videos" for the tracked Library/process route; keep media
+# downloads out of Git while allowing that source directory.
+!src/app/videos/
+!src/app/videos/**
+!src/app/api/operations/videos/
+!src/app/api/operations/videos/**
 compilation_vids/
 video-work/
 __pycache__/

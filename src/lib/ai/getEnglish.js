@@ -261,6 +261,13 @@ async function rescriptSegments(segments, options = {}) {
   const style = options.style
     ? `Voice & style: ${options.style}.`
     : "Voice & style: clear, engaging, natural spoken narration for a general audience.";
+  const glossary = (Array.isArray(options.glossary) ? options.glossary : [])
+    .map((item) => String(item?.term || item || '').trim())
+    .filter(Boolean)
+    .slice(0, 120);
+  const glossaryRule = glossary.length
+    ? `\n- Render these evidence-backed terms exactly as written: ${glossary.join(', ')}`
+    : '';
 
   const prompt = `You are a scriptwriter polishing a machine translation into a ${targetLang} voiceover script.
 ${style}
@@ -269,6 +276,7 @@ HARD RULES:
 - Return exactly one rewritten line per input segment. Do NOT merge, split, add, or drop segments.
 - Preserve every "index".
 - Keep each line's spoken length close to the original so it fits the same on-screen time window.
+${glossaryRule}
 
 Return ONLY JSON: { "segments": [ { "index": 0, "textEn": "..." } ] }
 

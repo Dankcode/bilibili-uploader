@@ -15,10 +15,11 @@ const BUILT_IN_PRESETS = [
     id: 'edit-and-publish',
     name: 'Edit and publish',
     template: {
-      processorIds: ['sceneCut', 'voiceover', 'metadata'],
+      processorIds: ['sceneCut', 'videoContext', 'voiceover', 'metadata'],
       uploaderId: 'youtube',
       options: {
         sceneCut: { encodingPreset: 'medium', crf: 20 },
+        videoContext: { visionMode: 'always', intervalSeconds: 20 },
         voiceover: { burnSubtitles: true },
         metadata: { reviewMetadata: false },
         youtube: { privacyStatus: 'private' },
@@ -29,9 +30,11 @@ const BUILT_IN_PRESETS = [
     id: 'studio-full-auto',
     name: 'Studio Full Auto',
     template: {
-      processorIds: ['voiceover', 'metadata'],
+      processorIds: ['videoContext', 'ocrContext', 'voiceover', 'metadata'],
       uploaderId: 'youtube',
       options: {
+        videoContext: { visionMode: 'always', intervalSeconds: 20 },
+        ocrContext: { region: 'full', applyCorrections: 'auto' },
         voiceover: { burnSubtitles: true },
         metadata: { reviewMetadata: false },
         youtube: { privacyStatus: 'private' },
@@ -42,9 +45,9 @@ const BUILT_IN_PRESETS = [
     id: 'dub-only',
     name: 'Dub only',
     template: {
-      processorIds: ['voiceover'],
+      processorIds: ['videoContext', 'voiceover'],
       uploaderId: '',
-      options: { voiceover: { burnSubtitles: false } },
+      options: { videoContext: { visionMode: 'always', intervalSeconds: 20 }, voiceover: { burnSubtitles: false } },
     },
   },
   {
@@ -54,6 +57,31 @@ const BUILT_IN_PRESETS = [
       processorIds: [],
       uploaderId: 'youtube',
       options: { youtube: { privacyStatus: 'private' } },
+    },
+  },
+  {
+    id: 'subtitle-max-accuracy',
+    name: 'Subtitle max accuracy',
+    template: {
+      processorIds: ['videoContext', 'ocrContext', 'voiceover'],
+      uploaderId: '',
+      options: {
+        videoContext: { quality: 'best', intervalSeconds: 10, visionMode: 'always' },
+        ocrContext: { denseSampling: true, retranscribe: true, applyCorrections: 'review' },
+        voiceover: { burnSubtitles: true },
+      },
+    },
+  },
+  {
+    id: 'hardcoded-subs-extract',
+    name: 'Hardcoded subtitles extract',
+    template: {
+      processorIds: ['videoContext', 'ocrContext'],
+      uploaderId: '',
+      options: {
+        videoContext: { visionMode: 'off' },
+        ocrContext: { region: 'bottom', denseInterval: 0.5, denseSampling: true, applyCorrections: 'off' },
+      },
     },
   },
 ];

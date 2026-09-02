@@ -73,6 +73,19 @@
   /* ---- Layout ---- */
   --sidebar-w: 232px;
   --topbar-h: 56px;
+
+  /* ---- Process canvas ---- */
+  --node-w: 208px;
+  --node-h: 92px;
+  --node-gap: var(--sp-5);
+  --edge-w: 2px;
+  --arrow-size: 7px;
+  --edge: var(--border-strong);
+  --edge-active: var(--running);
+  --edge-done: var(--ok);
+  --edge-fail: var(--danger);
+  --review: var(--warn);
+  --review-soft: var(--warn-soft);
 }
 
 * {

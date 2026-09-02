@@ -1,18 +1,26 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
+import ffmpegPath from 'ffmpeg-static';
 
-const execPromise = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Merges video and audio files using ffmpeg.
  */
 const mergeVideoAudio = async (videoPath, audioPath, outputPath) => {
-  const command = `ffmpeg -i "${videoPath}" -i "${audioPath}" -c copy -movflags frag_keyframe+empty_moov -f mp4 "${outputPath}"`;
   try {
-    const { stdout, stderr } = await execPromise(command);
+    if (!ffmpegPath) throw new Error('Bundled FFmpeg binary is unavailable');
+    const { stdout, stderr } = await execFileAsync(ffmpegPath, [
+      '-i', videoPath,
+      '-i', audioPath,
+      '-c', 'copy',
+      '-movflags', 'frag_keyframe+empty_moov',
+      '-f', 'mp4',
+      outputPath,
+    ]);
     return stdout || stderr;
   } catch (error) {
     throw new Error(`FFmpeg merge failed: ${error.message}`);
@@ -50,7 +58,7 @@ async function downloadFile(url, destPath, config, type, maxRetries = 3) {
  * Core Downloader function to fetch video/audio and merge them.
  */
 export default async function Downloader(videoName, referer, videoURL, audioURL, options = {}) {
-  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15';
+  const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   
   const config = {
     headers: {

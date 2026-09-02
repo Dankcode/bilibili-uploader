@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3, Clapperboard, Library, Menu, PanelLeftClose, PanelLeftOpen, PlugZap,
-  Search, Stethoscope, Upload, Workflow, X, LayoutDashboard,
+  Search, Stethoscope, Upload, Workflow, X, LayoutDashboard, Inbox, Server,
 } from 'lucide-react';
 import AutomationHub from '@/components/AutomationHub';
 import EditorWorkspace from '@/components/EditorWorkspace';
@@ -12,24 +12,28 @@ import ServiceConnections from '@/components/ServiceConnections';
 import Troubleshooter from '@/components/Troubleshooter';
 import VideoAnalytics from '@/components/VideoAnalytics';
 import VideoLibrary from '@/components/VideoLibrary';
+import ProcessDetail from '@/components/process/ProcessDetail';
+import MailCenter from '@/components/MailCenter';
 import styles from './page.module.css';
 
 const NAV_GROUPS = [
   {
     label: 'Workspace',
     items: [
-      ['overview', 'Overview', LayoutDashboard],
-      ['library', 'Library', Library],
-      ['automation', 'Automation', Workflow],
-      ['editor', 'Editor', Clapperboard],
-      ['analytics', 'Analytics', BarChart3],
+      ['overview', 'Overview', LayoutDashboard, 'See live pipeline health and edit a queued video process.'],
+      ['library', 'Library', Library, 'Browse the SQL video catalog and manage records.'],
+      ['automation', 'Automation', Workflow, 'Plan batches and bind each upload to a YouTube channel.'],
+      ['editor', 'Editor', Clapperboard, 'Edit timelines, subtitles, and publishing metadata.'],
+      ['analytics', 'Analytics', BarChart3, 'Review performance for published videos.'],
+      ['mail', 'Mail', Inbox, 'Review Gmail tracking events and unresolved platform notices.'],
     ],
   },
   {
     label: 'System',
     items: [
-      ['connections', 'Connections', PlugZap],
-      ['diagnostics', 'Diagnostics', Stethoscope],
+      ['connections', 'Connections', PlugZap, 'Authorize providers and YouTube channels.'],
+      ['runtime', 'Runtime', Server, 'Configure database location, backend API, and worker.'],
+      ['diagnostics', 'Diagnostics', Stethoscope, 'Run system checks and inspect configuration.'],
     ],
   },
 ];
@@ -40,7 +44,9 @@ const VIEW_META = {
   automation: ['Automation', 'Batch control'],
   editor: ['Video editor', 'Timeline and subtitles'],
   analytics: ['Analytics', 'Platform performance'],
-  connections: ['Connections', 'Providers and channels'],
+  mail: ['Mail', 'Tracking inbox'],
+  connections: ['Connections', 'Accounts and provider credentials'],
+  runtime: ['Runtime', 'Database, API, and worker topology'],
   diagnostics: ['Diagnostics', 'System checks'],
 };
 
@@ -57,6 +63,13 @@ export default function Dashboard() {
   const [composerKey, setComposerKey] = useState(0);
   const [proofKey, setProofKey] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [processVideoId, setProcessVideoId] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('code') && params.get('state')) setActiveView('connections');
+    else if (VIEW_META[params.get('view')]) setActiveView(params.get('view'));
+  }, []);
 
   const loadOverview = useCallback(async () => {
     setOverviewError('');
@@ -129,7 +142,7 @@ export default function Dashboard() {
         <nav className={styles.opsNav} aria-label="Primary navigation">
           {NAV_GROUPS.map((group) => <div className={styles.opsNavGroup} key={group.label}>
             {!sidebarCollapsed && <span>{group.label}</span>}
-            {group.items.map(([id, label, Icon]) => <button type="button" key={id} className={activeView === id ? styles.opsNavActive : ''} onClick={() => navigate(id)} title={sidebarCollapsed ? label : undefined}><Icon size={17} /><span>{label}</span>{id === 'library' && counts.needsReview > 0 && <i>{counts.needsReview}</i>}</button>)}
+            {group.items.map(([id, label, Icon, hint]) => <button type="button" key={id} className={activeView === id ? styles.opsNavActive : ''} onClick={() => navigate(id)} aria-label={`${label}: ${hint}`}><Icon size={17} /><span>{label}</span><small className={styles.navHint} role="tooltip">{hint}</small>{id === 'library' && counts.needsReview > 0 && <i>{counts.needsReview}</i>}</button>)}
           </div>)}
         </nav>
 
@@ -154,14 +167,17 @@ export default function Dashboard() {
         </header>
 
         <main className={styles.opsContent}>
-          {activeView === 'overview' && <OperationsOverview payload={overviewPayload} loading={overviewLoading} error={overviewError} onRefresh={refreshWorkspace} onNavigate={navigate} />}
+          {activeView === 'overview' && <OperationsOverview payload={overviewPayload} loading={overviewLoading} error={overviewError} onRefresh={refreshWorkspace} onNavigate={navigate} onOpenProcess={setProcessVideoId} />}
           {activeView === 'library' && <VideoLibrary externalQuery={globalQuery} refreshKey={refreshKey} />}
-          {activeView === 'automation' && <AutomationHub openComposerKey={composerKey} openProofKey={proofKey} onQueued={refreshWorkspace} />}
+          {activeView === 'automation' && <AutomationHub openComposerKey={composerKey} openProofKey={proofKey} onQueued={refreshWorkspace} youtubeAuthorizations={youtubeAuthorizations} />}
           {activeView === 'editor' && <EditorWorkspace channels={channels} youtubeAuthorizations={youtubeAuthorizations} onPublished={() => navigate('analytics')} onJobQueued={() => { refreshWorkspace(); navigate('automation'); }} />}
           {activeView === 'analytics' && <VideoAnalytics refreshKey={refreshKey} />}
-          {activeView === 'connections' && <ServiceConnections />}
+          {activeView === 'mail' && <MailCenter />}
+          {activeView === 'connections' && <ServiceConnections section="accounts" />}
+          {activeView === 'runtime' && <ServiceConnections section="runtime" />}
           {activeView === 'diagnostics' && <Troubleshooter />}
         </main>
+        {processVideoId && <div className={styles.modalOverlay} onMouseDown={(event) => event.target === event.currentTarget && setProcessVideoId('')}><div className={styles.dashboardProcessDrawer}><ProcessDetail videoId={processVideoId} embedded onClose={() => setProcessVideoId('')} onChanged={refreshWorkspace} /></div></div>}
       </div>
     </div>
   );

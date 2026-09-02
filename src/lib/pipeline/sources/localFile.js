@@ -3,8 +3,19 @@ import path from 'path';
 
 export const id = 'localFile';
 
-export async function testConnection() {
-  return { ok: true, detail: 'Local file adapter is available' };
+/**
+ * When the planner knows which path the job will use, check that path — a
+ * blanket "adapter is available" tells the operator nothing they can act on.
+ */
+export async function testConnection(credentials = {}, context = {}) {
+  const sourceInput = String(context.sourceInput || '').trim();
+  if (!sourceInput) return { ok: true, detail: 'Local file adapter is available' };
+  try {
+    await resolveInput(sourceInput);
+    return { ok: true, detail: `Readable: ${path.basename(sourceInput)}` };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
 }
 
 export async function resolveInput(filePath) {

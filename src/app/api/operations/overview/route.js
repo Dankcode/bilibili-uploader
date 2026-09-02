@@ -37,6 +37,12 @@ export async function GET() {
           status: byId.get('youtube')?.status || 'untested',
           detail: byId.get('youtube')?.lastError || 'YouTube delivery connection',
         },
+        {
+          id: 'gmail',
+          label: 'Gmail tracking',
+          status: byId.get('gmail')?.status || 'untested',
+          detail: byId.get('gmail')?.lastError || 'Optional non-blocking tracking and inbox sync',
+        },
       ],
     });
   } catch (error) {

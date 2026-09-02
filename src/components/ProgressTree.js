@@ -13,7 +13,8 @@ import styles from '../app/page.module.css';
 const ROLE_LABEL = { source: 'Source', processor: 'Process', uploader: 'Upload' };
 const ID_LABEL = {
   bilibili: 'Bilibili', douyin: 'Douyin',
-  voiceover: 'AI Voiceover', faceFusion: 'Face Fusion', aiEditor: 'AI Editor', sceneCut: 'Scene Cut',
+  videoContext: 'Video Context', ocrContext: 'On-screen Text OCR',
+  voiceover: 'AI Voiceover', faceFusion: 'Face Fusion', aiEditor: 'AI Editor', sceneCut: 'Scene Cut', metadata: 'AI Metadata',
   youtube: 'YouTube',
 };
 

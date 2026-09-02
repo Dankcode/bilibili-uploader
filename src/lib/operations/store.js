@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import path from 'path';
 import db from '../db/sqlite.js';
+import { graphFromJob, graphFromPreset } from '../pipeline/graph.js';
 
 const VIDEO_STATUSES = new Set([
   'draft', 'queued', 'processing', 'review', 'scheduled', 'published', 'completed', 'failed', 'canceled',
@@ -72,9 +73,95 @@ function rowToVideo(row) {
     publishedAt: row.published_at,
     currentVersionId: row.current_version_id,
     metadata: parseJson(row.metadata_json, {}),
+    contextSummary: parseJson(row.context_summary_json, {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+export function getVideoProcessGraph(videoId) {
+  backfillOperationsCatalog();
+  const videoRow = db.prepare('SELECT * FROM video_records WHERE id = ?').get(String(videoId));
+  if (!videoRow) return null;
+  const video = rowToVideo(videoRow);
+  const job = db.prepare('SELECT * FROM video_jobs WHERE video_record_id = ? ORDER BY created_at DESC, id DESC LIMIT 1').get(video.id);
+  const steps = job ? db.prepare('SELECT * FROM video_job_steps WHERE job_id = ? ORDER BY id ASC').all(job.id) : [];
+  const assets = job ? db.prepare('SELECT * FROM video_assets WHERE job_id = ? ORDER BY id ASC').all(job.id) : [];
+  const graph = job ? graphFromJob({ ...job, steps, assets }) : graphFromPreset(video.presetId, { sourceId: video.sourceType });
+  const versions = db.prepare('SELECT * FROM video_versions WHERE video_id = ? ORDER BY created_at DESC').all(video.id).map((row) => ({
+    id: row.id, kind: row.kind, duration: row.duration_seconds, width: row.width, height: row.height,
+    validationStatus: row.validation_status, validation: parseJson(row.validation_json, {}), createdAt: row.created_at,
+  }));
+  const publicationRow = db.prepare(`
+    SELECT p.*, ya.id AS authorization_id, ya.email_address, ya.channel_id AS auth_channel_id, ya.channel_title
+    FROM video_publications p
+    LEFT JOIN youtube_upload_bindings b ON b.publication_id = p.id
+    LEFT JOIN youtube_authorizations ya ON ya.id = b.authorization_id
+    WHERE p.video_id = ? ORDER BY p.created_at DESC LIMIT 1
+  `).get(video.id);
+  const queuedAuthorization = job ? db.prepare(`
+    SELECT ya.id, ya.email_address, ya.channel_id, ya.channel_title, ya.status, ya.enabled
+    FROM youtube_upload_bindings b
+    JOIN youtube_authorizations ya ON ya.id = b.authorization_id
+    WHERE b.job_id = ?
+  `).get(job.id) : null;
+  let batchSiblings = { batchId: job?.batch_id || '', ordinal: 1, total: 1, prevVideoId: null, nextVideoId: null };
+  if (job?.batch_id) {
+    const siblings = db.prepare('SELECT video_id, ordinal FROM automation_batch_items WHERE batch_id = ? ORDER BY ordinal').all(job.batch_id);
+    const index = siblings.findIndex((item) => item.video_id === video.id);
+    batchSiblings = {
+      batchId: job.batch_id, ordinal: index + 1, total: siblings.length,
+      prevVideoId: siblings[index - 1]?.video_id || null,
+      nextVideoId: siblings[index + 1]?.video_id || null,
+    };
+  }
+  const jobPublic = job ? {
+    id: job.id, status: job.status, currentStep: job.current_step, error: job.error || '',
+    batchId: job.batch_id || '', priority: job.priority || 0,
+    processorIds: parseJson(job.processor_ids_json, []), uploaderId: job.uploader_id || '', options: parseJson(job.options_json, {}),
+    youtubeAuthorization: queuedAuthorization ? {
+      id: queuedAuthorization.id, emailAddress: queuedAuthorization.email_address,
+      channelId: queuedAuthorization.channel_id, channelTitle: queuedAuthorization.channel_title,
+      status: queuedAuthorization.status, enabled: Boolean(queuedAuthorization.enabled),
+    } : null,
+    attempts: Math.max(1, ...steps.map((step) => Number(step.attempt) || 1)), maxAttempts: job.max_attempts || 3,
+    createdAt: job.created_at, updatedAt: job.updated_at, heartbeatAt: job.heartbeat_at || '', scheduledFor: job.scheduled_for || '',
+  } : null;
+  return {
+    video: {
+      id: video.id, title: video.title, campaign: video.campaign, status: video.status,
+      sourceType: video.sourceType, sourceRef: video.sourceRef, language: video.language,
+      priority: video.priority, scheduledAt: video.scheduledAt, presetId: video.presetId,
+    },
+    job: jobPublic,
+    graph,
+    versions,
+    publication: publicationRow ? {
+      platformId: publicationRow.platform_id, url: publicationRow.url,
+      youtubeAuthorization: publicationRow.authorization_id ? {
+        id: publicationRow.authorization_id, emailAddress: publicationRow.email_address,
+        channelId: publicationRow.auth_channel_id, channelTitle: publicationRow.channel_title,
+      } : null,
+    } : null,
+    batchSiblings,
+    capabilities: {
+      canRetry: ['failed', 'canceled'].includes(job?.status),
+      canCancel: ['queued', 'running', 'review'].includes(job?.status),
+      canApproveMetadata: job?.status === 'review' && job?.current_step === 'review:metadata',
+      canApproveCorrections: job?.status === 'review' && job?.current_step === 'review:corrections',
+      editable: job?.status === 'queued' && steps.every((step) => step.status === 'pending'),
+    },
+    planned: !job,
+  };
+}
+
+export function getVideoProcessStepLog(videoId, stepId) {
+  const row = db.prepare(`
+    SELECT s.id, s.step, s.log FROM video_job_steps s
+    JOIN video_jobs j ON j.id = s.job_id
+    WHERE s.id = ? AND j.video_record_id = ?
+  `).get(Number(stepId), String(videoId));
+  return row ? { id: row.id, step: row.step, log: row.log || '' } : null;
 }
 
 export function ensureVideoRecord(input = {}) {
@@ -431,6 +518,14 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
       FROM video_metric_snapshots m
     )
     SELECT vr.*,
+      legacy.chinese_name AS legacy_source_title,
+      legacy.chinese_description AS legacy_source_description,
+      legacy.bilibili_url AS legacy_source_url,
+      legacy.valid_upload AS legacy_source_valid,
+      legacy.english_name AS legacy_delivery_title,
+      legacy.english_description AS legacy_delivery_description,
+      legacy.youtube_url AS legacy_delivery_url,
+      legacy.release_date AS legacy_release_date,
       lj.id AS job_id, lj.status AS job_status, lj.current_step, lj.error AS job_error,
       lj.processor_ids_json, lj.uploader_id, lj.batch_id,
       vp.id AS publication_id, vp.platform_id, vp.url AS publication_url,
@@ -439,6 +534,7 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
       vm.views, vm.impressions, vm.watch_time_seconds, vm.likes, vm.comments, vm.shares,
       vm.clicks, vm.conversions, vm.captured_at AS metrics_captured_at
     FROM video_records vr
+    LEFT JOIN videos legacy ON legacy.id = vr.legacy_video_id
     LEFT JOIN latest_job lj ON lj.video_record_id = vr.id AND lj.row_num = 1
     LEFT JOIN latest_publication vp ON vp.video_id = vr.id AND vp.row_num = 1
     LEFT JOIN youtube_upload_bindings yub ON yub.publication_id = vp.id
@@ -453,8 +549,22 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
     total,
     limit: boundedLimit,
     offset: boundedOffset,
-    videos: rows.map((row) => ({
-      ...rowToVideo(row),
+    videos: rows.map((row) => {
+      const video = rowToVideo(row);
+      const metadata = video.metadata || {};
+      const content = {
+        sourceTitle: cleanText(metadata.sourceTitle || row.legacy_source_title || video.title, 240),
+        sourceDescription: cleanText(metadata.sourceDescription || row.legacy_source_description, 4000),
+        sourceUrl: cleanText(metadata.sourceUrl || row.legacy_source_url || video.sourceUrl, 4000),
+        sourceValid: cleanText(metadata.sourceValid || row.legacy_source_valid, 80),
+        deliveryTitle: cleanText(metadata.deliveryTitle || metadata.titleEn || row.legacy_delivery_title || video.title, 240),
+        deliveryDescription: cleanText(metadata.deliveryDescription || metadata.descriptionEn || row.legacy_delivery_description, 4000),
+        deliveryUrl: cleanText(row.publication_url || metadata.deliveryUrl || row.legacy_delivery_url, 4000),
+        releaseDate: cleanText(row.legacy_release_date || video.publishedAt, 80),
+      };
+      return {
+      ...video,
+      content,
       job: row.job_id ? {
         id: row.job_id,
         status: row.job_status,
@@ -486,7 +596,8 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
         conversions: row.conversions || 0,
         capturedAt: row.metrics_captured_at || '',
       },
-    })),
+    };
+    }),
   };
 }
 
@@ -536,6 +647,10 @@ export function getOperationsOverview() {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
+  const mailCounts = db.prepare(`SELECT
+    SUM(CASE WHEN acknowledged_at='' THEN 1 ELSE 0 END) AS unacknowledged,
+    SUM(CASE WHEN acknowledged_at='' AND severity='critical' THEN 1 ELSE 0 END) AS critical
+    FROM mail_ingest_events`).get();
   return {
     counts: {
       total: counts.total || 0,
@@ -544,6 +659,8 @@ export function getOperationsOverview() {
       needsReview: counts.needs_review || 0,
       published: counts.published || 0,
       successRate,
+      unacknowledgedMailEvents: mailCounts.unacknowledged || 0,
+      criticalMailEvents: mailCounts.critical || 0,
     },
     throughput,
     recentVideos,

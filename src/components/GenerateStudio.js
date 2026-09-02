@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import styles from '../app/page.module.css';
 import ProgressTree from './ProgressTree';
+import PublishTarget from './PublishTarget';
 
 const SOURCES = [
   { id: 'bilibili', label: 'Bilibili' },
@@ -30,7 +31,7 @@ const CHAIN = [
   { id: 'metadata', label: 'Auto Metadata', hint: 'title, description, and tags from the transcript' },
 ];
 
-export default function GenerateStudio({ defaultSourceInput = '' }) {
+export default function GenerateStudio({ defaultSourceInput = '', youtubeAuthorizations = [], onAuthorizationAdded }) {
   const [connections, setConnections] = useState([]);
   const [sourceId, setSourceId] = useState('bilibili');
   const [sourceInput, setSourceInput] = useState(defaultSourceInput);
@@ -46,6 +47,9 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
   const [checking, setChecking] = useState(false);
   const [presets, setPresets] = useState([]);
   const [presetId, setPresetId] = useState('studio-full-auto');
+  const [youtubeAuthorizationId, setYoutubeAuthorizationId] = useState('');
+  const [sourcePreview, setSourcePreview] = useState(null);
+  const [resolving, setResolving] = useState(false);
 
   useEffect(() => { setSourceInput((v) => v || defaultSourceInput); }, [defaultSourceInput]);
 
@@ -112,10 +116,26 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
 
   const plannedSteps = () => ({
     sourceId,
+    // Send the input the run will actually use, so the source check reports on
+    // that path/URL instead of only confirming the adapter exists.
+    sourceInput: sourceInput.trim(),
     processorIds: CHAIN.filter((c) => steps[c.id]).map((c) => c.id),
     uploaderId: publish ? 'youtube' : '',
+    youtubeAuthorizationId: publish ? youtubeAuthorizationId : '',
+    sourceDurationSeconds: sourcePreview?.durationSeconds || 0,
     options: plannedOptions(),
   });
+
+  const resolveSource = async () => {
+    if (!sourceInput.trim()) return setError('Enter a source video URL or ID first.');
+    setError(''); setResolving(true);
+    try {
+      const response = await fetch('/api/pipeline/source/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sourceId, sourceInput: sourceInput.trim() }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not resolve source');
+      setSourcePreview(payload.items?.[0] || null);
+    } catch (nextError) { setError(nextError.message); } finally { setResolving(false); }
+  };
 
   const runPreflight = async () => {
     setError('');
@@ -136,11 +156,12 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
   };
 
   // Re-checking is required whenever the chain changes.
-  useEffect(() => { setPreflight(null); }, [sourceId, steps.voiceover, steps.faceFusion, steps.metadata, publish, sttBackend, sttQuality, presetId]);
+  useEffect(() => { setPreflight(null); setSourcePreview(null); }, [sourceId, sourceInput, steps.voiceover, steps.faceFusion, steps.metadata, publish, youtubeAuthorizationId, sttBackend, sttQuality, presetId]);
 
   const generate = async () => {
     setError('');
     if (!sourceInput.trim()) { setError('Enter a source video URL or ID first.'); return; }
+    if (publish && !youtubeAuthorizationId) { setError('Choose an authorized YouTube channel before automating.'); return; }
     const processorIds = CHAIN.filter((c) => steps[c.id]).map((c) => c.id);
     const body = {
       action: 'create',
@@ -148,6 +169,8 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
       sourceInput: sourceInput.trim(),
       processorIds,
       uploaderId: publish ? 'youtube' : '',
+      youtubeAuthorizationId: publish ? youtubeAuthorizationId : '',
+      sourceDurationSeconds: sourcePreview?.durationSeconds || 0,
       // Private-first publish; all other per-step options fall back to saved
       // connection defaults so this stays one-click.
       options: plannedOptions(),
@@ -201,6 +224,8 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
             <label className={styles.fieldLabel}>Video URL or ID</label>
             <input className={styles.input} value={sourceInput} placeholder="Paste a video URL / space ID"
               onChange={(e) => setSourceInput(e.target.value)} />
+            {sourceId === 'bilibili' && <button type="button" className={styles.editBtn} disabled={resolving} onClick={resolveSource}>{resolving ? 'Resolving…' : 'Resolve video'}</button>}
+            {sourcePreview && <div className={styles.jobSource}>{sourcePreview.title} · {sourcePreview.uploader || 'Bilibili'} · {Math.floor((sourcePreview.durationSeconds || 0) / 60)}:{String(Math.floor((sourcePreview.durationSeconds || 0) % 60)).padStart(2, '0')}</div>}
 
             <label className={styles.fieldLabel}>Pipeline steps</label>
             <div className={styles.stepToggles}>
@@ -228,6 +253,7 @@ export default function GenerateStudio({ defaultSourceInput = '' }) {
                 </span>
               </label>
             </div>
+            {publish && <PublishTarget authorizations={youtubeAuthorizations} value={youtubeAuthorizationId} onChange={setYoutubeAuthorizationId} durationSeconds={sourcePreview?.durationSeconds || 0} />}
 
             {steps.voiceover && (
               <>

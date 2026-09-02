@@ -292,3 +292,43 @@ export function buildSubtitleContextHints(segments, contexts, { maxCharacters = 
   }
   return lines.join('\n');
 }
+
+export function mergeContextTracks(visionContexts = [], ocrSpans = []) {
+  const base = (Array.isArray(visionContexts) ? visionContexts : []).map(normalizeFrameContext);
+  const merged = base.map((context) => {
+    const overlaps = (Array.isArray(ocrSpans) ? ocrSpans : [])
+      .filter((span) => Number(span.start) < context.windowEnd && Number(span.end) > context.windowStart);
+    if (!overlaps.length) return context;
+    const visibleText = [];
+    const technicalTerms = [...context.technicalTerms];
+    const entities = [...context.entities];
+    const transcriptionHints = [...context.transcriptionHints];
+    for (const span of overlaps) {
+      pushUnique(visibleText, [span.text], 32);
+      pushUnique(technicalTerms, String(span.text || '').match(/[A-Za-z][A-Za-z0-9+./_-]{2,}/g) || [], 32);
+      pushUnique(transcriptionHints, [span.text], 32);
+    }
+    return normalizeFrameContext({
+      ...context,
+      windowStart: Math.min(context.windowStart, ...overlaps.map((span) => Number(span.start))),
+      windowEnd: Math.max(context.windowEnd, ...overlaps.map((span) => Number(span.end))),
+      visibleText,
+      technicalTerms,
+      entities,
+      transcriptionHints,
+    });
+  });
+  const covered = (span) => base.some((context) => Number(span.start) < context.windowEnd && Number(span.end) > context.windowStart);
+  for (const span of (Array.isArray(ocrSpans) ? ocrSpans : []).filter((item) => !covered(item))) {
+    merged.push(normalizeFrameContext({
+      id: span.id,
+      captureTime: (Number(span.start) + Number(span.end)) / 2,
+      windowStart: Number(span.start),
+      windowEnd: Number(span.end),
+      visibleText: [span.text],
+      technicalTerms: String(span.text || '').match(/[A-Za-z][A-Za-z0-9+./_-]{2,}/g) || [],
+      transcriptionHints: [span.text],
+    }, merged.length));
+  }
+  return merged.sort((left, right) => left.captureTime - right.captureTime);
+}

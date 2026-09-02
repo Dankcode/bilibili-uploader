@@ -15,6 +15,8 @@ import * as aiEditor from './processors/aiEditor';
 import * as sceneCut from './processors/sceneCut';
 import * as faceFusion from './processors/faceFusion';
 import * as metadata from './processors/metadata';
+import * as videoContext from './processors/videoContext';
+import * as ocrContext from './processors/ocrContext';
 
 const execFileAsync = promisify(execFile);
 
@@ -22,13 +24,14 @@ const execFileAsync = promisify(execFile);
 // run-specific preflight so "the steps you'll run" are exactly what gets tested.
 const STEP_ADAPTERS = {
   localFile, bilibili, douyin,
-  voiceover, aiEditor, sceneCut, faceFusion, metadata,
+  videoContext, ocrContext, voiceover, aiEditor, sceneCut, faceFusion, metadata,
   youtube,
 };
 const STEP_LABELS = {
   localFile: 'Local file source', bilibili: 'Bilibili source', douyin: 'Douyin source',
   voiceover: 'AI Voiceover', aiEditor: 'AI Editor', sceneCut: 'Scene Cut', faceFusion: 'Face Fusion',
   metadata: 'AI Metadata',
+  videoContext: 'Video Context', ocrContext: 'On-screen Text OCR',
   youtube: 'YouTube upload',
 };
 const STEP_FIX = {
@@ -39,6 +42,8 @@ const STEP_FIX = {
   aiEditor: 'Set and Test the HuggingFace editor endpoint in Settings ▸ aiEditor.',
   sceneCut: 'No external service — this runs locally with ffmpeg.',
   metadata: 'Configure Kimi, OpenAI, or Gemini for the metadata processor, then Test.',
+  videoContext: 'Configure local/API Whisper and at least one of Gemini, Codex CLI, or Kimi Vision.',
+  ocrContext: 'Install rapidocr_onnxruntime with pip install -r requirements.txt and keep python3 available.',
   youtube: 'Configure the Python OAuth uploader and register an authorized YouTube account.',
 };
 
@@ -54,11 +59,20 @@ function fail(id, label, detail, fixHint) {
   return { id, label, status: 'fail', detail: String(detail || '').slice(0, 240), fixHint };
 }
 
-async function settle(check) {
+/**
+ * Runs one check and converts a thrown error into a failed row.
+ *
+ * The row keeps the check's own id and label: an anonymous
+ * "unknown / Unexpected check failure" row leaves the operator counting
+ * positions in the response array to work out which of fifteen checks broke.
+ * The stack is logged too, because the fix hint promises one.
+ */
+async function settle(id, label, check) {
   try {
     return await check();
   } catch (error) {
-    return fail('unknown', 'Unexpected check failure', error.message, 'Check server logs for the full stack trace.');
+    console.error(`[Diagnostics] Check "${id}" threw:`, error?.stack || error);
+    return fail(id, label, error.message, 'This check crashed — see the server log for the full stack trace.');
   }
 }
 
@@ -145,37 +159,50 @@ function checkQuota() {
 }
 
 export async function runDiagnostics() {
+  // [id, label, check] — the id and label survive a thrown check, so a crash is
+  // still attributed to the check that caused it.
   const checks = [
-    () => checkDbOpen(),
-    () => checkDbIntegrity(),
-    () => checkCommand('ffmpeg', 'ffmpeg', 'ffmpeg', ['-version'], 'Install ffmpeg and make sure it is on PATH.'),
-    () => checkCommand('python', 'Python uploader runtime', 'python3', ['--version'], 'Install Python 3.10+ and keep python3 on PATH.'),
-    () => checkDisk(),
-    () => checkLocalWhisper(),
-    () => checkQuota(),
-    async () => {
+    ['db_open', 'Pipeline tables', () => checkDbOpen()],
+    ['db_integrity', 'SQLite integrity', () => checkDbIntegrity()],
+    ['ffmpeg', 'ffmpeg', () => checkCommand('ffmpeg', 'ffmpeg', 'ffmpeg', ['-version'], 'Install ffmpeg and make sure it is on PATH.')],
+    ['python', 'Python uploader runtime', () => checkCommand('python', 'Python uploader runtime', 'python3', ['--version'], 'Install Python 3.10+ and keep python3 on PATH.')],
+    ['disk_space', 'Video work disk', () => checkDisk()],
+    ['local_whisper', 'Local Whisper', () => checkLocalWhisper()],
+    ['quota', 'Daily API quota', () => checkQuota()],
+    ['douyin_sidecar', 'Douyin sidecar', async () => {
       const result = await douyin.testConnection(getCredentials('douyin'));
       return result.ok ? ok('douyin_sidecar', 'Douyin sidecar', 'Reachable') : warn('douyin_sidecar', 'Douyin sidecar', result.error, 'Start vendor/douyin-downloader with python run.py --server --port 8756.');
-    },
-    async () => {
+    }],
+    ['youtube_upload', 'YouTube uploader', async () => {
       const result = await youtube.testConnection(getCredentials('youtube'));
-      return result.ok ? ok('youtube_upload', 'YouTube uploader', 'Uploader script/config present') : warn('youtube_upload', 'YouTube uploader', result.error, 'Register an OAuth authorization or configure the Python uploader.');
-    },
-    async () => {
+      return result.ok ? ok('youtube_upload', 'YouTube uploader', result.detail || 'Uploader ready') : warn('youtube_upload', 'YouTube uploader', result.error, STEP_FIX.youtube);
+    }],
+    ['videoContext', 'Video Context', async () => {
+      const result = await videoContext.testConnection(getCredentials('videoContext'));
+      const chain = result.vision?.chain?.map((item) => `${item.label}: ${item.contextReady ? 'ready' : 'not ready'}`).join(' → ');
+      return result.ok
+        ? (result.vision.configured ? ok('videoContext', 'Video Context', chain) : warn('videoContext', 'Video Context', `${chain}. Transcript/frame extraction is ready; vision will be skipped.`, STEP_FIX.videoContext))
+        : warn('videoContext', 'Video Context', result.stt?.error || 'STT not ready', STEP_FIX.videoContext);
+    }],
+    ['ocrContext', 'On-screen Text OCR', async () => {
+      const result = await ocrContext.testConnection(getCredentials('ocrContext'));
+      return result.ok ? ok('ocrContext', 'On-screen Text OCR', 'RapidOCR ready') : warn('ocrContext', 'On-screen Text OCR', result.error, STEP_FIX.ocrContext);
+    }],
+    ['voiceover', 'AI Voiceover (Whisper + TTS)', async () => {
       const result = await voiceover.testConnection(getCredentials('voiceover'));
       return result.ok ? ok('voiceover', 'AI Voiceover (Whisper + TTS)', 'Transcription + TTS backend ready') : warn('voiceover', 'AI Voiceover (Whisper + TTS)', result.error, STEP_FIX.voiceover);
-    },
-    async () => {
+    }],
+    ['faceFusion', 'Face Fusion', async () => {
       const result = await faceFusion.testConnection(getCredentials('faceFusion'));
       return result.ok ? ok('faceFusion', 'Face Fusion', 'Repo + Python ready') : warn('faceFusion', 'Face Fusion', result.error, STEP_FIX.faceFusion);
-    },
-    async () => {
+    }],
+    ['hf_editor_lan', 'HF editor LAN service', async () => {
       const result = await aiEditor.testConnection(getCredentials('aiEditor'));
       return result.ok ? ok('hf_editor_lan', 'HF editor LAN service', 'Reachable') : warn('hf_editor_lan', 'HF editor LAN service', result.error, 'Save and test the HuggingFace editor endpoint in Settings.');
-    },
-    () => checkAiKey(),
+    }],
+    ['ai_key', 'AI metadata key', () => checkAiKey()],
   ];
-  return Promise.all(checks.map(settle));
+  return Promise.all(checks.map(([id, label, check]) => settle(id, label, check)));
 }
 
 /**
@@ -192,6 +219,12 @@ export async function runPreflight(plan = {}) {
   const processorIds = Array.isArray(plan.processorIds) ? plan.processorIds.map(String) : [];
   const uploaderId = plan.uploaderId ? String(plan.uploaderId) : '';
   const options = plan.options && typeof plan.options === 'object' ? plan.options : {};
+  // The authorization this job would publish with, so the uploader check can
+  // verify the real credential instead of guessing.
+  const context = {
+    authorizationId: String(plan.youtubeAuthorizationId || options.youtube?.authorizationId || '').trim(),
+    sourceInput: String(plan.sourceInput || '').trim(),
+  };
 
   const order = [
     ...(sourceId ? [{ role: 'source', id: sourceId }] : []),
@@ -200,10 +233,10 @@ export async function runPreflight(plan = {}) {
   ];
 
   // System checks the run depends on (media processing needs ffmpeg + disk).
-  const needsFfmpeg = processorIds.some((id) => ['voiceover', 'faceFusion', 'sceneCut'].includes(id));
+  const needsFfmpeg = processorIds.some((id) => ['videoContext', 'ocrContext', 'voiceover', 'faceFusion', 'sceneCut'].includes(id));
   const system = [];
   if (needsFfmpeg) {
-    system.push(await settle(() => checkCommand('ffmpeg', 'ffmpeg (media processing)', 'ffmpeg', ['-version'], 'Install ffmpeg and keep it on PATH.')));
+    system.push(await settle('ffmpeg', 'ffmpeg (media processing)', () => checkCommand('ffmpeg', 'ffmpeg (media processing)', 'ffmpeg', ['-version'], 'Install ffmpeg and keep it on PATH.')));
   }
   system.push(settleSync(checkDisk));
 
@@ -214,7 +247,7 @@ export async function runPreflight(plan = {}) {
       return { id, role, label, status: 'warn', detail: 'No automated check for this step.', fixHint: STEP_FIX[id] || '' };
     }
     try {
-      const result = await adapter.testConnection({ ...getCredentials(id), ...(options[id] || {}) });
+      const result = await adapter.testConnection({ ...getCredentials(id), ...(options[id] || {}) }, context);
       return result.ok
         ? { id, role, label, status: 'ok', detail: 'Ready', fixHint: '' }
         : { id, role, label, status: 'fail', detail: String(result.error || 'Not ready').slice(0, 240), fixHint: STEP_FIX[id] || '' };

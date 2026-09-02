@@ -76,6 +76,9 @@ export default async function UploadVideo(videoPath, title, description, tags, i
   const selectedAuthorization = identity && typeof identity === 'object' ? identity : null;
   const rawCredentialRef = selectedAuthorization?.credentialRef || identity || process.env.YOUTUBE_CHANNEL_ID;
   const credentialRef = rawCredentialRef ? normalizeYouTubeCredentialRef(rawCredentialRef) : '';
+  const clientRef = selectedAuthorization?.clientRef
+    ? normalizeYouTubeCredentialRef(selectedAuthorization.clientRef)
+    : credentialRef;
 
   if (uploadMethod === 'pygui' && selectedAuthorization?.id) {
     throw new Error('Account-bound uploads require the YouTube API OAuth uploader; guided PyGUI cannot verify the selected account');
@@ -92,7 +95,7 @@ export default async function UploadVideo(videoPath, title, description, tags, i
 
     const args = uploadMethod === 'pygui'
       ? [videoPath, title, description, tags]
-      : [videoPath, title, description, tags, credentialRef, selectedAuthorization?.channelId || ''];
+      : [videoPath, title, description, tags, credentialRef, selectedAuthorization?.channelId || '', clientRef];
     const result = await runPythonScript(scriptPath, args);
     const videoIdOrUrl = parseUploadResult(result);
     if (!videoIdOrUrl) throw new Error('Uploader completed without printing a video URL or ID');

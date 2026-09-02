@@ -23,6 +23,7 @@ const ROLE_LABELS = {
   source: 'Sources',
   processor: 'Processors',
   uploader: 'Uploaders',
+  notifier: 'Notifications',
 };
 
 const CONNECTION_MODES = [
@@ -69,7 +70,7 @@ function fieldLabel(field) {
   return `${field.label}${field.required === false && !/\(optional\)/i.test(field.label) ? ' (optional)' : ''}`;
 }
 
-export default function ServiceConnections() {
+export default function ServiceConnections({ section = 'accounts' }) {
   const [rows, setRows] = useState([]);
   const [drafts, setDrafts] = useState({});
   const [serviceStatus, setServiceStatus] = useState('');
@@ -87,6 +88,18 @@ export default function ServiceConnections() {
   });
   const [youtubeAuthorizationMessage, setYoutubeAuthorizationMessage] = useState(null);
   const [youtubeAuthorizationBusy, setYoutubeAuthorizationBusy] = useState('');
+  const [bilibiliLoginMessage, setBilibiliLoginMessage] = useState(null);
+  const [bilibiliLoginBusy, setBilibiliLoginBusy] = useState('');
+  const [youtubeLoginCredentialRef, setYoutubeLoginCredentialRef] = useState('youtube-ops');
+  const [youtubeLoginClientRef, setYoutubeLoginClientRef] = useState('youtube');
+  const [youtubeLoginEmail, setYoutubeLoginEmail] = useState('');
+  const [youtubeLoginMessage, setYoutubeLoginMessage] = useState(null);
+  const [youtubeLoginStatus, setYoutubeLoginStatus] = useState(null);
+  const [youtubeLoginBusy, setYoutubeLoginBusy] = useState('');
+  const [youtubeClientStatus, setYoutubeClientStatus] = useState(null);
+  const [youtubeClientBusy, setYoutubeClientBusy] = useState(false);
+
+  const activeYoutubeCredentialRef = youtubeLoginStatus?.credentialRef || youtubeLoginCredentialRef;
 
   const loadRows = async () => {
     const response = await fetch('/api/control/settings/connections', { cache: 'no-store' });
@@ -125,11 +138,62 @@ export default function ServiceConnections() {
     setYoutubeAuthorizations(data.authorizations || []);
   };
 
+  const loadYoutubeClient = async () => {
+    const response = await fetch('/api/control/settings/youtube-client', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not load Google OAuth client status');
+    setYoutubeClientStatus(data.client || null);
+  };
+
   useEffect(() => {
-    Promise.all([loadRows(), loadRuntime(), loadYoutubeAuthorizations()]).catch((error) => {
+    Promise.all([loadRows(), loadRuntime(), loadYoutubeAuthorizations(), loadYoutubeClient()]).catch((error) => {
       setRuntimeMessage({ tone: 'error', text: error.message });
     });
   }, []);
+
+  useEffect(() => {
+    if (section !== 'accounts') return undefined;
+    const params = new URLSearchParams(window.location.search);
+    const state = params.get('state');
+    const code = params.get('code');
+    const oauthError = params.get('error');
+    if (!state || (!code && !oauthError)) return undefined;
+    let cancelled = false;
+    setYoutubeLoginBusy('youtube-login-callback');
+    setYoutubeLoginMessage({ tone: 'info', text: 'Finishing Google sign-in…' });
+    fetch('/api/control/settings/youtube-oauth/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state, code, error: oauthError }),
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not complete Google sign-in');
+        return data.youtubeAuthorization;
+      })
+      .then(async (status) => {
+        if (cancelled) return;
+        setYoutubeLoginStatus(status);
+        setYoutubeLoginMessage({ tone: status.state === 'error' ? 'error' : 'info', text: status.message });
+        if (status.state === 'connected') await loadYoutubeAuthorizations();
+      })
+      .catch((error) => {
+        if (!cancelled) setYoutubeLoginMessage({ tone: 'error', text: error.message });
+      })
+      .finally(() => {
+        if (!cancelled) setYoutubeLoginBusy('');
+      });
+    window.history.replaceState({}, '', window.location.pathname);
+    return () => { cancelled = true; };
+  }, [section]);
+
+  // Advance from the native Google browser window to channel confirmation
+  // without making the operator manually press "Check sign-in".
+  useEffect(() => {
+    if (youtubeLoginStatus?.state !== 'waiting' || !youtubeLoginStatus?.credentialRef) return undefined;
+    const timer = window.setInterval(() => { runYoutubeLogin('youtube-login-status'); }, 2000);
+    return () => window.clearInterval(timer);
+  }, [youtubeLoginStatus?.state, youtubeLoginStatus?.credentialRef]);
 
   const grouped = useMemo(() => rows.reduce((acc, row) => {
     const key = row.role || 'other';
@@ -137,6 +201,11 @@ export default function ServiceConnections() {
     acc[key].push(row);
     return acc;
   }, {}), [rows]);
+  const configurableGroups = useMemo(() => Object.fromEntries(
+    Object.entries(grouped)
+      .map(([role, services]) => [role, services.filter((row) => row.id === 'gmail' || row.credentialFields?.length)])
+      .filter(([, services]) => services.length),
+  ), [grouped]);
 
   const database = runtimeDatabase(runtimeStatus);
   const worker = runtimeWorker(runtimeStatus);
@@ -203,6 +272,16 @@ export default function ServiceConnections() {
     }
   };
 
+  const startGmailAuthorization = async () => {
+    setServiceStatus('Opening Google authorization…');
+    try {
+      const response = await fetch('/api/control/mail/oauth/start', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not start Gmail authorization');
+      window.location.assign(data.url);
+    } catch (error) { setServiceStatus(error.message); }
+  };
+
   const saveService = (row) => {
     const credentials = {};
     for (const field of row.credentialFields || []) {
@@ -211,6 +290,84 @@ export default function ServiceConnections() {
       if (value !== undefined) credentials[field.key] = value;
     }
     postServiceAction({ action: 'save', serviceId: row.id, credentials });
+  };
+
+  const runBilibiliLogin = async (action) => {
+    setBilibiliLoginBusy(action);
+    setBilibiliLoginMessage(null);
+    try {
+      const response = await fetch('/api/control/settings/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not open Bilibili login');
+      const status = data.bilibiliLogin;
+      setBilibiliLoginMessage({ tone: status.authenticated ? 'ok' : 'info', text: status.message });
+      await loadRows();
+    } catch (error) {
+      setBilibiliLoginMessage({ tone: 'error', text: error.message });
+    } finally {
+      setBilibiliLoginBusy('');
+    }
+  };
+
+  const saveYoutubeClient = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setYoutubeClientBusy(true);
+    setYoutubeLoginMessage(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch('/api/control/settings/youtube-client', { method: 'POST', body: form });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not save Google OAuth client configuration');
+      setYoutubeClientStatus(data.client || null);
+      setYoutubeLoginMessage({ tone: 'ok', text: data.client?.flow === 'web-server' ? 'Google web client saved locally. You can now connect a Google account.' : 'Google Desktop client saved locally. You can now connect a Google account.' });
+    } catch (error) {
+      setYoutubeLoginMessage({ tone: 'error', text: error.message });
+    } finally {
+      setYoutubeClientBusy(false);
+    }
+  };
+
+  const runYoutubeLogin = async (action, channelId = '') => {
+    const credentialRef = activeYoutubeCredentialRef.trim();
+    const expectedEmail = youtubeLoginEmail.trim();
+    if (action !== 'youtube-login-start-default' && !credentialRef) {
+      setYoutubeLoginMessage({ tone: 'error', text: 'Enter a local OAuth credential reference first.' });
+      return;
+    }
+    setYoutubeLoginBusy(action);
+    setYoutubeLoginMessage(null);
+    try {
+      const response = await fetch('/api/control/settings/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, credentialRef, clientRef: youtubeLoginClientRef.trim(), expectedEmail, channelId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not open Google/YouTube sign-in');
+      const status = data.youtubeAuthorization;
+      setYoutubeLoginStatus(status);
+      setYoutubeLoginMessage({ tone: status.state === 'error' ? 'error' : (status.state === 'connected' ? 'ok' : 'info'), text: status.message });
+      if (status.authorizationUrl) {
+        window.location.assign(status.authorizationUrl);
+        return;
+      }
+      if (status.state === 'connected') await loadYoutubeAuthorizations();
+    } catch (error) {
+      setYoutubeLoginMessage({ tone: 'error', text: error.message });
+    } finally {
+      setYoutubeLoginBusy('');
+    }
+  };
+
+  const confirmYoutubeLogin = async (channelId) => {
+    await runYoutubeLogin('youtube-login-confirm', channelId);
   };
 
   const registerYoutubeAuthorization = async (event) => {
@@ -256,11 +413,12 @@ export default function ServiceConnections() {
 
   return (
     <div className={styles.settingsWorkspace}>
-      <section className={styles.runtimeSection}>
+      <section className={styles.runtimeSection} hidden={section !== 'runtime'}>
         <header className={styles.settingsSectionHeader}>
           <div>
             <span className={styles.settingsEyebrow}>Data plane</span>
-            <h2>Runtime connection</h2>
+            <h2>Database & API runtime</h2>
+            <span className={styles.connectionMeta}>Keep SQLite beside the worker. Use the remote option only for an authenticated backend reachable over LAN or Tailscale.</span>
           </div>
           <div className={`${styles.runtimeBadge} ${runtimeOnline ? styles.runtimeBadgeOnline : styles.runtimeBadgeOffline}`}>
             {runtimeOnline ? <CheckCircle2 size={14} /> : <WifiOff size={14} />}
@@ -402,7 +560,76 @@ export default function ServiceConnections() {
         </footer>
       </section>
 
-      <section className={styles.serviceSection}>
+      <section className={styles.serviceSection} hidden={section !== 'accounts'}>
+        <header className={styles.settingsSectionHeader}>
+          <div>
+            <span className={styles.settingsEyebrow}>Required accounts</span>
+            <h2>Sign in for automated delivery</h2>
+          </div>
+          <span className={styles.connectionMeta}>Browser sign-in only</span>
+        </header>
+        <div className={styles.connectionList}>
+          <div className={styles.connectionRow}>
+            <div className={styles.connectionDetails}>
+              <strong>Bilibili source</strong>
+              <span className={styles.connectionMeta}>Sign in in the visible Playwright window. SESSDATA stays in the local browser storage file and is never shown in Settings.</span>
+              {bilibiliLoginMessage && (
+                <div className={bilibiliLoginMessage.tone === 'error' ? styles.settingsMessageError : styles.settingsMessageOk} role="status">
+                  {bilibiliLoginMessage.text}
+                </div>
+              )}
+              <div className={styles.operationRow}>
+                <button className={styles.buttonSecondary} type="button" disabled={Boolean(bilibiliLoginBusy)} onClick={() => runBilibiliLogin('bilibili-login-start')}>
+                  {bilibiliLoginBusy === 'bilibili-login-start' ? <LoaderCircle className={styles.spin} size={14} /> : <KeyRound size={14} />} Open Bilibili login
+                </button>
+                <button className={styles.buttonSecondary} type="button" disabled={Boolean(bilibiliLoginBusy)} onClick={() => runBilibiliLogin('bilibili-login-status')}>
+                  {bilibiliLoginBusy === 'bilibili-login-status' ? <LoaderCircle className={styles.spin} size={14} /> : <RefreshCw size={14} />} Check sign-in
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className={styles.connectionRow}>
+            <div className={styles.connectionDetails}>
+              <strong>Google / YouTube upload</strong>
+              <span className={styles.connectionMeta}>Connect once with Google, choose the returned channel, and the app saves its local token as <code>youtube-&lt;channel-id&gt;_token.json</code>. Tokens are never displayed or sent to the browser.</span>
+              <label className={styles.settingsField}>
+                <span>Google OAuth client JSON</span>
+                <input className={styles.input} type="file" accept="application/json,.json" disabled={youtubeClientBusy} onChange={saveYoutubeClient} />
+                <small className={styles.connectionMeta}>{youtubeClientBusy ? 'Saving client configuration…' : youtubeClientStatus?.configured ? (youtubeClientStatus.flow === 'web-server' ? 'Web client configured for the local Google callback.' : 'Desktop client configured locally.') : 'Select a Google Desktop client, or a Web client authorized for http://localhost:4455/.'}</small>
+              </label>
+              <label className={styles.settingsField}>
+                <span>Google account email (optional check)</span>
+                <input className={styles.input} type="email" value={youtubeLoginEmail} onChange={(event) => setYoutubeLoginEmail(event.target.value)} placeholder="name@gmail.com" autoComplete="username" />
+              </label>
+              {youtubeLoginMessage && (
+                <div className={youtubeLoginMessage.tone === 'error' ? styles.settingsMessageError : styles.settingsMessageOk} role="status">
+                  {youtubeLoginMessage.text}
+                </div>
+              )}
+              <div className={styles.operationRow}>
+                <button className={styles.buttonPrimary} type="button" disabled={Boolean(youtubeLoginBusy) || youtubeClientBusy || !youtubeClientStatus?.configured || youtubeLoginStatus?.state === 'waiting'} onClick={() => runYoutubeLogin('youtube-login-start-default')}>
+                  {youtubeLoginBusy === 'youtube-login-start-default' ? <LoaderCircle className={styles.spin} size={14} /> : <KeyRound size={14} />} Connect Google account
+                </button>
+                {youtubeLoginStatus?.state === 'waiting' && <button className={styles.buttonSecondary} type="button" disabled={Boolean(youtubeLoginBusy)} onClick={() => runYoutubeLogin('youtube-login-status')}>
+                  {youtubeLoginBusy === 'youtube-login-status' ? <LoaderCircle className={styles.spin} size={14} /> : <RefreshCw size={14} />} Check sign-in
+                </button>}
+              </div>
+              {youtubeLoginStatus?.state === 'confirm' && <div className={styles.operationRow}>
+                <span className={styles.connectionMeta}>Confirm the channel that will receive uploads:</span>
+                {youtubeLoginStatus.candidate?.channels?.map((channel) => <button key={channel.channelId} className={styles.buttonPrimary} type="button" disabled={Boolean(youtubeLoginBusy)} onClick={() => confirmYoutubeLogin(channel.channelId)}>{channel.channelTitle || channel.channelId}{channel.longUploadsStatus !== 'allowed' ? ' · 15 min limit' : ''}</button>)}
+              </div>}
+              <details>
+                <summary>Use a different local OAuth client</summary>
+                <label className={styles.settingsField}><span>OAuth client reference</span><input className={styles.input} value={youtubeLoginClientRef} onChange={(event) => setYoutubeLoginClientRef(event.target.value)} placeholder="youtube" autoComplete="off" /></label>
+                <label className={styles.settingsField}><span>Per-channel token reference</span><input className={styles.input} value={youtubeLoginCredentialRef} onChange={(event) => setYoutubeLoginCredentialRef(event.target.value)} placeholder="youtube-channel" autoComplete="off" /></label>
+                <button className={styles.buttonSecondary} type="button" disabled={Boolean(youtubeLoginBusy)} onClick={() => runYoutubeLogin('youtube-login-start')}>Open custom Google sign-in</button>
+              </details>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.serviceSection} hidden={section !== 'accounts'}>
         <header className={styles.settingsSectionHeader}>
           <div>
             <span className={styles.settingsEyebrow}>Publishing identity</span>
@@ -411,7 +638,9 @@ export default function ServiceConnections() {
           <span className={styles.globalStatus}>{youtubeAuthorizations.length} registered</span>
         </header>
 
-        <form className={styles.runtimeForm} onSubmit={registerYoutubeAuthorization}>
+        <details className={styles.connectionRow}>
+          <summary className={styles.connectionSummary}><div><strong>Manual existing-token registration</strong><span className={styles.connectionMeta}>Only for a pre-existing local OAuth token; normal setup above creates this automatically.</span></div><ChevronDown size={16} /></summary>
+          <form className={styles.runtimeForm} onSubmit={registerYoutubeAuthorization}>
           <label className={styles.settingsField}>
             <span>Google account email</span>
             <input className={styles.input} type="email" required value={youtubeAuthorizationDraft.emailAddress}
@@ -442,7 +671,8 @@ export default function ServiceConnections() {
               {youtubeAuthorizationBusy === 'register' ? <LoaderCircle className={styles.spin} size={14} /> : <KeyRound size={14} />} Register account
             </button>
           </div>
-        </form>
+          </form>
+        </details>
 
         {youtubeAuthorizationMessage && (
           <div className={youtubeAuthorizationMessage.tone === 'error' ? styles.settingsMessageError : styles.settingsMessageOk} role="status">
@@ -450,6 +680,7 @@ export default function ServiceConnections() {
           </div>
         )}
         <div className={styles.connectionList}>
+          {!youtubeAuthorizations.length && <small className={styles.connectionMeta}>No channel is authorized yet. Complete the Google steps above; the selected channel will appear here automatically.</small>}
           {youtubeAuthorizations.map((authorization) => (
             <div key={authorization.id} className={styles.connectionRow}>
               <div className={styles.connectionDetails}>
@@ -471,16 +702,16 @@ export default function ServiceConnections() {
         </div>
       </section>
 
-      <section className={styles.serviceSection}>
+      <section className={styles.serviceSection} hidden={section !== 'accounts'}>
         <header className={styles.settingsSectionHeader}>
           <div>
-            <span className={styles.settingsEyebrow}>Adapters</span>
-            <h2>Service connections</h2>
+            <span className={styles.settingsEyebrow}>Advanced</span>
+            <h2>Provider configuration</h2>
           </div>
           {serviceStatus && <span className={styles.globalStatus}>{serviceStatus}</span>}
         </header>
         <div className={styles.serviceGroups}>
-          {Object.entries(grouped).map(([role, services]) => (
+          {Object.entries(configurableGroups).map(([role, services]) => (
             <div key={role} className={styles.connectionGroup}>
               <h3>{ROLE_LABELS[role] || role}</h3>
               <div className={styles.connectionList}>
@@ -524,8 +755,9 @@ export default function ServiceConnections() {
                       )}
                       {row.lastError && <div className={styles.errorText}>{row.lastError}</div>}
                       <div className={styles.operationRow}>
-                        <button className={styles.buttonSecondary} type="button" onClick={() => postServiceAction({ action: 'test', serviceId: row.id })}><TestTube2 size={14} /> Test</button>
-                        <button className={styles.buttonPrimary} type="button" onClick={() => saveService(row)}><Save size={14} /> Save</button>
+                        {row.id === 'gmail' && <button className={styles.buttonSecondary} type="button" onClick={startGmailAuthorization}><KeyRound size={14} /> Authorize with Google</button>}
+                        {!!row.credentialFields?.length && <button className={styles.buttonSecondary} type="button" onClick={() => postServiceAction({ action: 'test', serviceId: row.id })}><TestTube2 size={14} /> Test</button>}
+                        {!!row.credentialFields?.length && <button className={styles.buttonPrimary} type="button" onClick={() => saveService(row)}><Save size={14} /> Save</button>}
                       </div>
                     </div>
                   </details>

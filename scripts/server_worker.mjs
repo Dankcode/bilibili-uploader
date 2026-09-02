@@ -3,17 +3,21 @@ import { randomUUID } from 'crypto';
 
 process.env.VIDEO_PROCESS_ROLE = 'worker';
 
-const [{ default: db, closeDB }, pipeline, { WorkflowService }, runtimeSettings] = await Promise.all([
+const [{ default: db, closeDB }, pipeline, { WorkflowService }, runtimeSettings, mediaRetention, mailStore, mailWorker] = await Promise.all([
   import('../src/lib/db/sqlite.js'),
   import('../src/lib/pipeline/pipeline.js'),
   import('../src/lib/services/WorkflowService.js'),
   import('../src/lib/runtime/settings.js'),
+  import('../src/lib/operations/mediaRetention.js'),
+  import('../src/lib/mail/store.js'),
+  import('../src/lib/mail/worker.js'),
 ]);
 
 const workerId = `pipeline-${os.hostname()}-${process.pid}-${randomUUID().slice(0, 6)}`;
 const startedAt = new Date().toISOString();
 let stopping = false;
 let lastSchedulerRun = 0;
+let lastMailSyncRun = 0;
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -47,7 +51,8 @@ process.on('SIGINT', () => stop('SIGINT'));
 process.on('SIGTERM', () => stop('SIGTERM'));
 
 const recovered = pipeline.recoverStaleJobs();
-console.log(`[Worker] ${workerId} started${recovered ? `; recovered ${recovered} stale job(s)` : ''}`);
+const recoveredMail = mailWorker.recoverStaleMailOutbox();
+console.log(`[Worker] ${workerId} started${recovered ? `; recovered ${recovered} stale job(s)` : ''}${recoveredMail ? `; recovered ${recoveredMail} mail item(s)` : ''}`);
 
 while (!stopping) {
   const settings = runtimeSettings.readRuntimeSettings();
@@ -65,9 +70,24 @@ while (!stopping) {
       continue;
     }
 
+    const mailed = await mailWorker.drainMailOutbox(workerId, 2);
+    if (mailed) heartbeat('online', { mailSent: mailed });
+    const mailSyncDue = Date.now() - lastMailSyncRun >= 60_000;
+    if (mailSyncDue) {
+      for (const account of mailStore.listEnabledMailAccounts()) {
+        const minutes = Math.max(5, Number(account.syncIntervalMinutes) || 15);
+        if (!account.lastSyncAt || Date.now() - new Date(account.lastSyncAt).getTime() >= minutes * 60_000) {
+          try { await mailWorker.syncMailAccount(account); } catch (error) { console.warn(`[Worker] Mail sync for ${account.emailAddress} failed: ${error.message}`); }
+        }
+      }
+      lastMailSyncRun = Date.now();
+    }
+
     const schedulerDue = Date.now() - lastSchedulerRun >= settings.schedulerPollSeconds * 1000;
     if (schedulerDue) {
       await WorkflowService.checkAllDueUploads();
+      const cleanup = mediaRetention.runDueLocalMediaCleanup();
+      if (cleanup.ran) console.log(`[Worker] Weekly local-media scan found ${cleanup.candidateCount} file(s) awaiting review`);
       lastSchedulerRun = Date.now();
     }
 

@@ -43,7 +43,6 @@ launch('web control plane', process.execPath, [nextBin, mode, '-H', '0.0.0.0', '
   VIDEO_PROCESS_ROLE: 'frontend',
 });
 launch('pipeline worker', process.execPath, [
-  '--experimental-default-type=module',
   '--import',
   path.join(process.cwd(), 'scripts', 'register_loader.mjs'),
   path.join(process.cwd(), 'scripts', 'server_worker.mjs'),

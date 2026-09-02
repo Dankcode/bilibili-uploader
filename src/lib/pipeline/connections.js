@@ -1,5 +1,5 @@
 import db from '../db/sqlite';
-import { SOURCES, PROCESSORS, UPLOADERS } from './registry';
+import { SOURCES, PROCESSORS, UPLOADERS, NOTIFIERS } from './registry';
 import * as bilibiliSource from './sources/bilibili';
 import * as douyinSource from './sources/douyin';
 import * as localFileSource from './sources/localFile';
@@ -9,11 +9,15 @@ import * as sceneCutProcessor from './processors/sceneCut';
 import * as faceFusionProcessor from './processors/faceFusion';
 import * as metadataProcessor from './processors/metadata';
 import * as youtubeUploader from './uploaders/youtube';
+import * as gmailNotifier from './notifiers/gmail';
+import { getBilibiliLoginStatus } from '../video/bilibili';
+import { decryptSecret, encryptSecret, hasSecretKey, isEncryptedSecret } from '../security/secrets.js';
 
 const SERVICES = [
   ...SOURCES.map((service) => ({ ...service, role: 'source' })),
   ...PROCESSORS.map((service) => ({ ...service, role: 'processor' })),
   ...UPLOADERS.map((service) => ({ ...service, role: 'uploader' })),
+  ...NOTIFIERS.map((service) => ({ ...service, role: 'notifier' })),
 ];
 
 const ADAPTERS = {
@@ -26,6 +30,7 @@ const ADAPTERS = {
   faceFusion: faceFusionProcessor,
   metadata: metadataProcessor,
   youtube: youtubeUploader,
+  gmail: gmailNotifier,
 };
 
 function nowIso() {
@@ -40,6 +45,26 @@ function parseJson(value, fallback = {}) {
   }
 }
 
+function decodeCredentials(service, value) {
+  const saved = parseJson(value, {});
+  const secretKeys = new Set((service.credentialFields || []).filter((field) => field.type === 'secret').map((field) => field.key));
+  return Object.fromEntries(Object.entries(saved).map(([key, item]) => [key, secretKeys.has(key) ? decryptSecret(item) : item]));
+}
+
+function encodeCredentials(service, credentials) {
+  const secretKeys = new Set((service.credentialFields || []).filter((field) => field.type === 'secret').map((field) => field.key));
+  return Object.fromEntries(Object.entries(credentials).map(([key, item]) => {
+    if (!secretKeys.has(key) || !item || isEncryptedSecret(item)) return [key, item];
+    // Existing optional services remain compatible until an operator provides
+    // a key. Gmail is stricter because its refresh token is mailbox access.
+    if (!hasSecretKey()) {
+      if (service.id === 'gmail') throw new Error('Set STUDIO_SECRET_KEY before saving Gmail OAuth credentials.');
+      return [key, item];
+    }
+    return [key, encryptSecret(item)];
+  }));
+}
+
 function getService(serviceId) {
   const service = SERVICES.find((entry) => entry.id === serviceId);
   if (!service) throw new Error(`Unknown service: ${serviceId}`);
@@ -47,6 +72,7 @@ function getService(serviceId) {
 }
 
 function isConfigured(service, credentials) {
+  if (service.id === 'bilibili') return getBilibiliLoginStatus().authenticated;
   const fields = service.credentialFields || [];
   if (fields.length === 0) return true;
   return fields.filter((field) => field.required !== false).every((field) => {
@@ -57,7 +83,7 @@ function isConfigured(service, credentials) {
 
 function publicRow(row) {
   const service = getService(row.service_id);
-  const credentials = parseJson(row.credentials_json, {});
+  const credentials = decodeCredentials(service, row.credentials_json);
   const preferences = Object.fromEntries((service.credentialFields || [])
     .filter((field) => field.type !== 'secret' && credentials[field.key] !== undefined)
     .map((field) => [field.key, credentials[field.key]]));
@@ -100,7 +126,7 @@ export function saveConnection(serviceId, credentials = {}) {
   const service = getService(serviceId);
   const now = nowIso();
   const existing = db.prepare('SELECT * FROM service_connections WHERE service_id = ?').get(serviceId);
-  const previousCredentials = parseJson(existing?.credentials_json, {});
+  const previousCredentials = existing ? decodeCredentials(service, existing.credentials_json) : {};
   const nextCredentials = { ...previousCredentials };
   for (const [key, value] of Object.entries(credentials || {})) {
     if ((service.credentialFields || []).some((field) => field.key === key)) {
@@ -118,7 +144,7 @@ export function saveConnection(serviceId, credentials = {}) {
       status = 'untested',
       last_error = '',
       updated_at = excluded.updated_at
-  `).run(serviceId, JSON.stringify(nextCredentials), now, now);
+  `).run(serviceId, JSON.stringify(encodeCredentials(service, nextCredentials)), now, now);
   return { serviceId, configured, status: 'untested' };
 }
 
@@ -130,26 +156,19 @@ export async function testService(serviceId) {
   const result = await adapter.testConnection(credentials);
   const ok = Boolean(result?.ok);
   const now = nowIso();
+  db.prepare(`INSERT OR IGNORE INTO service_connections (service_id, credentials_json, enabled, status, last_tested_at, last_error, updated_at, created_at)
+    VALUES (?, ?, 0, 'untested', '', '', ?, ?)`)
+    .run(serviceId, JSON.stringify(encodeCredentials(service, credentials)), now, now);
   db.prepare(`
-    INSERT INTO service_connections (
-      service_id, credentials_json, enabled, status, last_tested_at, last_error, updated_at, created_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(service_id) DO UPDATE SET
-      status = excluded.status,
-      last_tested_at = excluded.last_tested_at,
-      last_error = excluded.last_error,
-      updated_at = excluded.updated_at,
-      enabled = CASE WHEN excluded.status = 'ok' THEN service_connections.enabled ELSE 0 END
+    UPDATE service_connections SET status=?, last_tested_at=?, last_error=?, updated_at=?,
+      enabled=CASE WHEN ?='ok' THEN enabled ELSE 0 END WHERE service_id=?
   `).run(
-    serviceId,
-    JSON.stringify(credentials),
-    0,
     ok ? 'ok' : 'failed',
     now,
     ok ? '' : (result?.error || 'Connection test failed'),
     now,
-    now
+    ok ? 'ok' : 'failed',
+    serviceId,
   );
   return {
     serviceId,
@@ -171,7 +190,7 @@ export function setConnectionEnabled(serviceId, enabled) {
 export function getCredentials(serviceId) {
   getService(serviceId);
   const row = db.prepare('SELECT credentials_json FROM service_connections WHERE service_id = ?').get(serviceId);
-  const saved = parseJson(row?.credentials_json, {});
+  const saved = row ? decodeCredentials(getService(serviceId), row.credentials_json) : {};
   if (serviceId === 'douyin' && !saved.sidecarUrl) saved.sidecarUrl = process.env.DOUYIN_SIDECAR_URL || 'http://127.0.0.1:8756';
   return saved;
 }

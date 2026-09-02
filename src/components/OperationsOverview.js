@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+
 import {
   Activity, AlertTriangle, ArrowRight, CheckCircle2, CircleDashed,
   Clock3, Film, PlayCircle, RefreshCw, ShieldCheck,
@@ -21,12 +23,42 @@ function StatusIcon({ status }) {
   return <CircleDashed size={15} />;
 }
 
-export default function OperationsOverview({ payload, loading, error, onRefresh, onNavigate }) {
+export default function OperationsOverview({ payload, loading, error, onRefresh, onNavigate, onOpenProcess }) {
   const overview = payload?.overview;
   const counts = overview?.counts || {};
   const throughput = overview?.throughput || [];
   const recent = overview?.recentVideos || [];
   const maxThroughput = Math.max(1, ...throughput.flatMap((day) => [day.completed || 0, day.failed || 0]));
+  const [retention, setRetention] = useState(null);
+  const [retentionError, setRetentionError] = useState('');
+  const [cleaning, setCleaning] = useState(false);
+
+  const loadRetention = () => fetch('/api/control/operations/media-retention', { cache: 'no-store' })
+    .then((response) => response.ok ? response.json() : Promise.reject(new Error('Could not load local media cleanup.')))
+    .then((data) => { setRetention(data); setRetentionError(''); })
+    .catch((loadError) => setRetentionError(loadError.message));
+  useEffect(() => { loadRetention(); }, []);
+
+  async function updateRetention(enabled) {
+    try {
+      const response = await fetch('/api/control/operations/media-retention', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'settings', enabled, retentionDays: retention?.retentionDays || 7 }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not update cleanup settings.');
+      setRetention(data);
+    } catch (updateError) { setRetentionError(updateError.message); }
+  }
+
+  async function cleanReviewedMedia() {
+    const candidates = retention?.preview?.candidates || [];
+    if (!candidates.length || !window.confirm(`Remove ${candidates.length} reviewed local media file(s)? Video records and upload history will remain.`)) return;
+    setCleaning(true);
+    try {
+      const response = await fetch('/api/control/operations/media-retention', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cleanup', assetIds: candidates.map((candidate) => candidate.assetId) }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not remove local media.');
+      await loadRetention();
+    } catch (cleanupError) { setRetentionError(cleanupError.message); } finally { setCleaning(false); }
+  }
 
   if (loading && !overview) {
     return <div className={styles.loadingSurface}><RefreshCw size={18} className={styles.spin} /> Loading operations</div>;
@@ -88,18 +120,19 @@ export default function OperationsOverview({ payload, loading, error, onRefresh,
             </div>
             <div className={styles.opsTableWrap}>
               <table className={styles.opsTable}>
-                <thead><tr><th>Video</th><th>Workflow</th><th>Stage</th><th>Schedule</th><th>Views</th></tr></thead>
+                <thead><tr><th>Scraped source</th><th>Delivery record</th><th>Workflow</th><th>Stage</th><th>Schedule</th><th>Views</th></tr></thead>
                 <tbody>
                   {recent.map((video) => (
-                    <tr key={video.id}>
-                      <td><strong>{video.title}</strong><span>{video.campaign || video.sourceType}</span></td>
+                    <tr key={video.id} className={styles.overviewVideoRow} onClick={() => onOpenProcess?.(video.id)}>
+                      <td><strong>{video.content?.sourceTitle || video.title}</strong><span>{video.content?.sourceUrl ? 'Bilibili source linked' : (video.campaign || video.sourceType)}</span></td>
+                      <td><strong>{video.content?.deliveryTitle || video.title}</strong><span>{video.content?.deliveryUrl ? 'YouTube delivery linked' : 'Awaiting delivery'}</span></td>
                       <td>{video.job?.processorIds?.length ? video.job.processorIds.join(' / ') : 'Source only'}</td>
                       <td><span className={`${styles.statusPill} ${statusTone(video.job?.status || video.status)}`}>{video.job?.status || video.status}</span></td>
                       <td>{video.scheduledAt ? new Date(video.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Immediate'}</td>
                       <td>{number.format(video.metrics?.views || 0)}</td>
                     </tr>
                   ))}
-                  {!recent.length && <tr><td colSpan="5"><div className={styles.emptyTable}>No videos have entered the operations catalog.</div></td></tr>}
+                  {!recent.length && <tr><td colSpan="6"><div className={styles.emptyTable}>No videos have entered the operations catalog.</div></td></tr>}
                 </tbody>
               </table>
             </div>
@@ -128,14 +161,24 @@ export default function OperationsOverview({ payload, loading, error, onRefresh,
             </div>
             <div className={styles.nextList}>
               {(overview?.nextUp || []).map((video, index) => (
-                <div className={styles.nextRow} key={video.id}>
+                <button type="button" className={styles.nextRow} key={video.id} onClick={() => onOpenProcess?.(video.id)}>
                   <span className={styles.queueNumber}>{String(index + 1).padStart(2, '0')}</span>
                   <span><strong>{video.title}</strong><small><Clock3 size={12} /> {video.job?.currentStep || video.status}</small></span>
-                </div>
+                </button>
               ))}
               {!overview?.nextUp?.length && <div className={styles.emptyRail}>Queue is clear.</div>}
             </div>
             <button type="button" className={styles.railAction} onClick={() => onNavigate('automation')}>Plan a batch <ArrowRight size={14} /></button>
+          </section>
+          <section className={styles.opsPanel}>
+            <div className={styles.opsPanelHeader}><div><span className={styles.eyebrow}>Local storage</span><h2>Weekly media cleanup</h2></div></div>
+            <div className={styles.retentionPanel}>
+              <label><input type="checkbox" checked={Boolean(retention?.enabled)} onChange={(event) => updateRetention(event.target.checked)} /> Enable weekly scan</label>
+              <small>Scans terminal files in <code>video-work</code> after 7 days. Deletion always requires this review button.</small>
+              <strong>{retention?.preview?.candidates?.length || 0} file(s) eligible now</strong>
+              <button type="button" className={styles.toolbarButton} disabled={!retention?.preview?.candidates?.length || cleaning} onClick={cleanReviewedMedia}>{cleaning ? 'Removing…' : 'Review and remove local files'}</button>
+              {retentionError ? <span className={styles.rowError}>{retentionError}</span> : null}
+            </div>
           </section>
         </aside>
       </div>

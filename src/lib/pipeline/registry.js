@@ -33,9 +33,9 @@ export const SOURCES = [
   {
     id: 'bilibili',
     label: 'Bilibili',
-    // Adapter WRAPS the existing working code: lib/video/scraper.js (space
-    // pages via Playwright) + lib/video/bilibili.js processBilibiliUrl (download).
-    credentialFields: [{ key: 'sessdata', label: 'SESSDATA Cookie (for HD)', type: 'secret' }],
+    // Login is captured by a visible Playwright session and stored locally in
+    // config/storage.json; the SESSDATA cookie is never typed into the app.
+    credentialFields: [],
     inputKinds: ['video-url', 'space-url'],
     adapterPath: 'src/lib/pipeline/sources/bilibili.js',
   },
@@ -54,6 +54,34 @@ export const SOURCES = [
 ];
 
 export const PROCESSORS = [
+  {
+    id: 'videoContext',
+    label: 'Video Context Builder (transcript + synchronized frames)',
+    credentialFields: [
+      { key: 'sttBackend', label: 'STT Backend', type: 'text', required: false, placeholder: 'localWhisper | openaiWhisper' },
+      { key: 'sttQuality', label: 'Local STT Quality', type: 'text', required: false, placeholder: 'fast | balanced | best' },
+      { key: 'transcribeApiKey', label: 'Whisper API Key', type: 'secret', required: false },
+      { key: 'transcribeBaseUrl', label: 'Whisper Base URL', type: 'text', required: false },
+      { key: 'transcribeModel', label: 'Whisper Model', type: 'text', required: false },
+      { key: 'visionBackend', label: 'Vision Backend', type: 'text', required: false, placeholder: 'gemini | codex | kimiVision' },
+      { key: 'visionFallback', label: 'Vision Fallback Order', type: 'text', required: false, placeholder: 'gemini,codex,kimiVision' },
+      { key: 'geminiApiKey', label: 'Gemini API Key', type: 'secret', required: false },
+      { key: 'geminiVisionModel', label: 'Gemini Vision Model', type: 'text', required: false, placeholder: 'gemini-2.0-flash' },
+      { key: 'codexBin', label: 'Codex CLI Binary', type: 'text', required: false, placeholder: 'codex' },
+      { key: 'codexModel', label: 'Codex Model', type: 'text', required: false },
+    ],
+    adapterPath: 'src/lib/pipeline/processors/videoContext.js',
+  },
+  {
+    id: 'ocrContext',
+    label: 'On-screen Text OCR (local, dense sampling)',
+    credentialFields: [
+      { key: 'ocrBackend', label: 'OCR Backend', type: 'text', required: false, placeholder: 'rapidocr' },
+      { key: 'pythonBin', label: 'Python Binary', type: 'text', required: false },
+      { key: 'ocrLangs', label: 'OCR Languages', type: 'text', required: false, placeholder: 'ch,en' },
+    ],
+    adapterPath: 'src/lib/pipeline/processors/ocrContext.js',
+  },
   {
     id: 'voiceover',
     label: 'AI Voiceover (Whisper → translate → Kimi re-script → TTS)',
@@ -162,9 +190,58 @@ export const UPLOADERS = [
   // FUTURE: tiktok, instagram-reels — entry + adapter file each.
 ];
 
+export const NOTIFIERS = [
+  {
+    id: 'gmail', label: 'Gmail (tracking + inbox)',
+    credentialFields: [
+      { key: 'clientId', label: 'Google OAuth Client ID', type: 'text' },
+      { key: 'clientSecret', label: 'Google OAuth Client Secret', type: 'secret' },
+      { key: 'redirectUri', label: 'OAuth Redirect URI', type: 'text', required: false, placeholder: 'http://localhost:4455/api/mail/oauth/callback' },
+      { key: 'labelPrefix', label: 'Root Label', type: 'text', required: false, placeholder: 'Studio' },
+      { key: 'ingestEnabled', label: 'Ingest inbound mail (on/off)', type: 'text', required: false, placeholder: 'on' },
+      { key: 'syncIntervalMinutes', label: 'Inbox sync interval (minutes)', type: 'text', required: false, placeholder: '15' },
+    ],
+    adapterPath: 'src/lib/pipeline/notifiers/gmail.js',
+  },
+];
+
 export function getSource(id) { return SOURCES.find((s) => s.id === id) || null; }
 export function getProcessor(id) { return PROCESSORS.find((p) => p.id === id) || null; }
 export function getUploader(id) { return UPLOADERS.find((u) => u.id === id) || null; }
+
+export const PROCESSOR_ORDER = [
+  'sceneCut', 'faceFusion', 'videoContext', 'ocrContext', 'voiceover', 'metadata', 'aiEditor',
+];
+
+export const PROCESSOR_REQUIRES = {
+  ocrContext: ['videoContext'],
+};
+
+export function validateProcessorChain(processorIds = []) {
+  const ids = Array.isArray(processorIds) ? processorIds.map(String) : [];
+  const errors = [];
+  const seen = new Set();
+  let lastOrder = -1;
+  for (const id of ids) {
+    if (!getProcessor(id)) {
+      errors.push(`Unknown processor "${id}".`);
+      continue;
+    }
+    if (seen.has(id)) errors.push(`Processor "${id}" appears more than once.`);
+    for (const dependency of PROCESSOR_REQUIRES[id] || []) {
+      if (!seen.has(dependency)) errors.push(`${id} requires ${dependency} to run earlier.`);
+    }
+    const order = PROCESSOR_ORDER.indexOf(id);
+    if (order >= 0 && order < lastOrder) {
+      const previous = ids[Math.max(0, ids.indexOf(id) - 1)];
+      errors.push(`${id} must run before ${previous}.`);
+    }
+    lastOrder = Math.max(lastOrder, order);
+    seen.add(id);
+  }
+  const normalized = [...ids].sort((left, right) => PROCESSOR_ORDER.indexOf(left) - PROCESSOR_ORDER.indexOf(right));
+  return { ok: errors.length === 0, errors, normalized };
+}
 
 /**
  * Settings-CRM checklist rows for every adapter + scraper sites (scenes/scraper.js
@@ -177,6 +254,7 @@ export function listServiceChecklist(connections = []) {
     ...SOURCES.map((e) => ({ ...e, role: 'source' })),
     ...PROCESSORS.map((e) => ({ ...e, role: 'processor' })),
     ...UPLOADERS.map((e) => ({ ...e, role: 'uploader' })),
+    ...NOTIFIERS.map((e) => ({ ...e, role: 'notifier' })),
   ];
   const byId = new Map(connections.map((row) => [row.serviceId, row]));
   return all.map((entry) => {
