@@ -12,6 +12,9 @@
   --surface: #111417;
   --surface-2: #171b1f;
   --surface-3: #1e2429;
+  --surface-deep: #0f1214;
+  --surface-code: #0e1113;
+  --media-bg: #090b0c;
   --overlay: rgba(7, 9, 6, 0.78);
 
   /* ---- Borders ---- */
@@ -24,6 +27,7 @@
   --text-muted: #a7b0b7;
   --text-faint: #717c84;
   --text-inverse: #10130e;
+  --text-inverse-cool: #101416;
 
   /* ---- Accent: lichen signal ---- */
   --accent: #c7f36b;

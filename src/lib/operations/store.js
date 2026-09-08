@@ -394,6 +394,51 @@ export function listAutomationBatches({ limit = 20 } = {}) {
   }));
 }
 
+function publicAutomationSetting(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    settings: parseJson(row.settings_json, {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Reusable planner settings; deliberately never changes dispatched jobs. */
+export function listAutomationSettings({ limit = 20 } = {}) {
+  return db.prepare(`
+    SELECT * FROM automation_settings
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `).all(boundedInt(limit, 20, 1, 100)).map(publicAutomationSetting);
+}
+
+export function saveAutomationSettings({ id = '', name = '', settings = {} } = {}) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    throw new Error('Automation settings must be an object');
+  }
+  const serialized = JSON.stringify(settings);
+  if (serialized.length > 100000) throw new Error('Automation settings are too large to save');
+  const settingId = cleanText(id, 100) || randomUUID();
+  const timestamp = nowIso();
+  const existing = db.prepare('SELECT created_at FROM automation_settings WHERE id = ?').get(settingId);
+  db.prepare(`
+    INSERT INTO automation_settings (id, name, settings_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      settings_json = excluded.settings_json,
+      updated_at = excluded.updated_at
+  `).run(
+    settingId,
+    cleanText(name, 240) || `Automation settings ${timestamp.slice(0, 16)}`,
+    serialized,
+    existing?.created_at || timestamp,
+    timestamp,
+  );
+  return publicAutomationSetting(db.prepare('SELECT * FROM automation_settings WHERE id = ?').get(settingId));
+}
+
 export function saveFaceSwapProof(proof = {}) {
   const id = cleanText(proof.id, 100) || randomUUID();
   const createdAt = cleanText(proof.createdAt, 80) || nowIso();

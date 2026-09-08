@@ -8,6 +8,8 @@ import * as aiEditorProcessor from './processors/aiEditor';
 import * as sceneCutProcessor from './processors/sceneCut';
 import * as faceFusionProcessor from './processors/faceFusion';
 import * as metadataProcessor from './processors/metadata';
+import * as videoContextProcessor from './processors/videoContext';
+import * as ocrContextProcessor from './processors/ocrContext';
 import * as youtubeUploader from './uploaders/youtube';
 import * as gmailNotifier from './notifiers/gmail';
 import { getBilibiliLoginStatus } from '../video/bilibili';
@@ -29,6 +31,8 @@ const ADAPTERS = {
   sceneCut: sceneCutProcessor,
   faceFusion: faceFusionProcessor,
   metadata: metadataProcessor,
+  videoContext: videoContextProcessor,
+  ocrContext: ocrContextProcessor,
   youtube: youtubeUploader,
   gmail: gmailNotifier,
 };
@@ -71,6 +75,45 @@ function getService(serviceId) {
   return service;
 }
 
+/**
+ * Keep authorization state separate from configuration: a saved credential is
+ * not proof that it still works. This predicate is deliberately shared by the
+ * worker, connection tests, and diagnostics so all surfaces agree about an
+ * expired sign-in.
+ */
+export function isAuthFailure(error) {
+  const text = String(error?.message || error || '').toLowerCase();
+  return /invalid_grant|token has been expired|token.*expired|unauthori[sz]ed|\b401\b|\b403\b|sessdata|risk.?control|\b-352\b|\b412\b|login required|authentication failed/.test(text);
+}
+
+function authStateFor(error, configured) {
+  if (error) return isAuthFailure(error) ? 'expired' : 'unknown';
+  return configured ? 'valid' : 'not_configured';
+}
+
+function untestedAuthState(configured) {
+  return configured ? 'unknown' : 'not_configured';
+}
+
+function fieldValidationError(field, value) {
+  const text = String(value ?? '').trim();
+  if (!text) return field.required === false ? '' : `${field.label} is required.`;
+  if (field.pattern && !(new RegExp(field.pattern)).test(text)) {
+    return field.hint || `${field.label} has an invalid format.`;
+  }
+  return '';
+}
+
+export function validateCredentials(serviceId, credentials = {}) {
+  const service = getService(serviceId);
+  const issues = {};
+  for (const field of service.credentialFields || []) {
+    const error = fieldValidationError(field, credentials[field.key]);
+    if (error) issues[field.key] = error;
+  }
+  return { valid: Object.keys(issues).length === 0, issues };
+}
+
 function isConfigured(service, credentials) {
   if (service.id === 'bilibili') return getBilibiliLoginStatus().authenticated;
   const fields = service.credentialFields || [];
@@ -89,9 +132,12 @@ function publicRow(row) {
     .map((field) => [field.key, credentials[field.key]]));
   return {
     serviceId: row.service_id,
+    label: service.label,
     configured: isConfigured(service, credentials),
     enabled: Boolean(row.enabled),
     status: row.status || 'untested',
+    authState: row.auth_state || 'unknown',
+    checkedAt: row.checked_at || '',
     lastError: row.last_error || '',
     lastTestedAt: row.last_tested_at || '',
     updatedAt: row.updated_at,
@@ -109,9 +155,12 @@ export function listConnections() {
     if (existing) return publicRow(existing);
     return {
       serviceId: service.id,
+      label: service.label,
       configured: (service.credentialFields || []).length === 0,
       enabled: false,
       status: 'untested',
+      authState: 'unknown',
+      checkedAt: '',
       lastError: '',
       lastTestedAt: '',
       updatedAt: '',
@@ -133,48 +182,110 @@ export function saveConnection(serviceId, credentials = {}) {
       nextCredentials[key] = value;
     }
   }
+  const validation = validateCredentials(serviceId, nextCredentials);
+  if (!validation.valid) throw new Error(Object.values(validation.issues)[0]);
   const configured = isConfigured(service, nextCredentials);
   db.prepare(`
     INSERT INTO service_connections (
-      service_id, credentials_json, enabled, status, last_tested_at, last_error, updated_at, created_at
+      service_id, credentials_json, enabled, status, auth_state, checked_at, last_tested_at, last_error, updated_at, created_at
     )
-    VALUES (?, ?, 0, 'untested', '', '', ?, ?)
+    VALUES (?, ?, 0, 'untested', ?, '', '', '', ?, ?)
     ON CONFLICT(service_id) DO UPDATE SET
       credentials_json = excluded.credentials_json,
       status = 'untested',
+      auth_state = excluded.auth_state,
+      checked_at = '',
+      last_tested_at = '',
       last_error = '',
       updated_at = excluded.updated_at
-  `).run(serviceId, JSON.stringify(encodeCredentials(service, nextCredentials)), now, now);
+  `).run(serviceId, JSON.stringify(encodeCredentials(service, nextCredentials)), untestedAuthState(configured), now, now);
   return { serviceId, configured, status: 'untested' };
 }
 
-export async function testService(serviceId) {
+/** The only writer for connection health outcomes. */
+export function recordOutcome(serviceId, { connectionId = '', error = null } = {}) {
   const service = getService(serviceId);
+  const now = nowIso();
+  const existing = db.prepare('SELECT * FROM service_connections WHERE service_id = ?').get(serviceId);
+  const credentials = existing ? decodeCredentials(service, existing.credentials_json) : {};
+  const configured = isConfigured(service, credentials);
+  const message = error ? String(error?.message || error) : '';
+  if (!existing) {
+    db.prepare(`
+      INSERT INTO service_connections (
+        service_id, credentials_json, enabled, status, auth_state, checked_at, last_tested_at, last_error, updated_at, created_at
+      ) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      serviceId,
+      JSON.stringify(encodeCredentials(service, credentials)),
+      message ? 'failed' : 'ok',
+      authStateFor(message, configured),
+      now,
+      now,
+      message,
+      now,
+      now,
+    );
+  } else {
+    db.prepare(`
+      UPDATE service_connections
+      SET status = ?, auth_state = ?, checked_at = ?, last_tested_at = ?, last_error = ?,
+          enabled = CASE WHEN ? = 'failed' THEN 0 ELSE enabled END, updated_at = ?
+      WHERE service_id = ?
+    `).run(
+      message ? 'failed' : 'ok',
+      authStateFor(message, configured),
+      now,
+      now,
+      message,
+      message ? 'failed' : 'ok',
+      now,
+      serviceId,
+    );
+  }
+  return { serviceId, connectionId, configured, status: message ? 'failed' : 'ok', authState: authStateFor(message, configured), checkedAt: now, lastError: message };
+}
+
+/**
+ * Run one adapter probe and persist its result through recordOutcome. Keeping
+ * this beside recordOutcome prevents a new caller from accidentally creating a
+ * second connection-health writer.
+ */
+export async function probeService(serviceId, { credentials = null, context = {}, connectionId = '' } = {}) {
+  getService(serviceId);
   const adapter = ADAPTERS[serviceId];
   if (!adapter?.testConnection) throw new Error(`No testConnection adapter for ${serviceId}`);
-  const credentials = getCredentials(serviceId);
-  const result = await adapter.testConnection(credentials);
-  const ok = Boolean(result?.ok);
-  const now = nowIso();
-  db.prepare(`INSERT OR IGNORE INTO service_connections (service_id, credentials_json, enabled, status, last_tested_at, last_error, updated_at, created_at)
-    VALUES (?, ?, 0, 'untested', '', '', ?, ?)`)
-    .run(serviceId, JSON.stringify(encodeCredentials(service, credentials)), now, now);
-  db.prepare(`
-    UPDATE service_connections SET status=?, last_tested_at=?, last_error=?, updated_at=?,
-      enabled=CASE WHEN ?='ok' THEN enabled ELSE 0 END WHERE service_id=?
-  `).run(
-    ok ? 'ok' : 'failed',
-    now,
-    ok ? '' : (result?.error || 'Connection test failed'),
-    now,
-    ok ? 'ok' : 'failed',
-    serviceId,
-  );
+  const resolvedCredentials = credentials === null ? getCredentials(serviceId) : credentials;
+  try {
+    const result = await adapter.testConnection(resolvedCredentials, context);
+    const outcome = recordOutcome(serviceId, {
+      connectionId,
+      error: result?.ok ? null : (result?.error || 'Connection test failed'),
+    });
+    return { result, outcome };
+  } catch (error) {
+    recordOutcome(serviceId, { connectionId, error });
+    throw error;
+  }
+}
+
+export async function testService(serviceId, credentialsOverride = {}) {
+  const service = getService(serviceId);
+  const supplied = Object.fromEntries(Object.entries(credentialsOverride || {}).filter(([, value]) => value !== undefined));
+  // Testing a newly pasted value must not report a green state that disappears
+  // on refresh. Persist the validated draft first; secrets still stay server
+  // side and are never returned by the connection endpoint.
+  if (Object.keys(supplied).length) saveConnection(serviceId, supplied);
+  const credentials = { ...getCredentials(serviceId), ...supplied };
+  const validation = validateCredentials(serviceId, credentials);
+  if (!validation.valid) throw new Error(Object.values(validation.issues)[0]);
+  const { outcome } = await probeService(serviceId, { credentials });
   return {
     serviceId,
     configured: isConfigured(service, credentials),
-    status: ok ? 'ok' : 'failed',
-    lastError: ok ? '' : (result?.error || 'Connection test failed'),
+    status: outcome.status,
+    authState: outcome.authState,
+    lastError: outcome.lastError,
   };
 }
 

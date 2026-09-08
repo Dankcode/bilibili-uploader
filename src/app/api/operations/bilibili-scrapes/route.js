@@ -9,6 +9,7 @@ export async function GET(request) {
     const params = new URL(request.url).searchParams;
     return NextResponse.json(listScrapedBilibiliVideos({
       creatorId: params.get('creatorId') || '', query: params.get('query') || '', limit: params.get('limit') || 100,
+      includeUploaded: ['1', 'true'].includes(String(params.get('includeUploaded') || '').toLowerCase()),
     }));
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Could not load scraped Bilibili videos' }, { status: 400 });

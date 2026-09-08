@@ -18,8 +18,16 @@ function tone(status) {
   return styles.statusMuted;
 }
 
-export default function VideoLibrary({ externalQuery = '', refreshKey = 0 }) {
-  const [query, setQuery] = useState(externalQuery);
+function deliveryLabel(video) {
+  if (video.publication?.platformId === 'youtube' || video.status === 'published') return 'Uploaded to YouTube';
+  if (['completed', 'done'].includes(video.job?.status || video.status)) return 'Completed · not uploaded';
+  if (['queued', 'processing', 'running', 'scheduled', 'review'].includes(video.job?.status || video.status)) return 'Not uploaded · in automation';
+  return 'Not uploaded';
+}
+
+export default function VideoLibrary({ refreshKey = 0 }) {
+  const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [status, setStatus] = useState('');
   const [offset, setOffset] = useState(0);
   const [data, setData] = useState({ videos: [], total: 0, limit: 50, offset: 0 });
@@ -28,8 +36,6 @@ export default function VideoLibrary({ externalQuery = '', refreshKey = 0 }) {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-
-  useEffect(() => setQuery(externalQuery), [externalQuery]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,11 +126,12 @@ export default function VideoLibrary({ externalQuery = '', refreshKey = 0 }) {
   return (
     <section className={styles.libraryView}>
       <div className={styles.viewToolbar}>
-        <label className={styles.searchField}>
+        <button type="button" className={styles.toolbarButton} onClick={() => setSearchOpen((open) => !open)} aria-expanded={searchOpen}><Search size={14} /> {searchOpen ? 'Hide search' : 'Search'}</button>
+        {searchOpen && <label className={styles.searchField}>
           <Search size={15} />
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0); }} placeholder="Search title, campaign, or source" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0); }} placeholder="Search title, campaign, or source" autoFocus />
           {query && <button type="button" onClick={() => setQuery('')} title="Clear search" aria-label="Clear search"><X size={14} /></button>}
-        </label>
+        </label>}
         <select className={styles.compactSelect} value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }} aria-label="Filter by status">
           <option value="">All stages</option>
           {['draft', 'queued', 'processing', 'review', 'scheduled', 'published', 'completed', 'failed', 'canceled'].map((value) => <option key={value} value={value}>{value}</option>)}
@@ -154,7 +161,7 @@ export default function VideoLibrary({ externalQuery = '', refreshKey = 0 }) {
                 <tr key={video.id} className={styles.libraryRow} onClick={() => window.location.assign(`/videos/${video.id}`)}>
                   <td className={styles.checkboxCell} onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={selected.has(video.id)} onChange={() => toggleOne(video.id)} aria-label={`Select ${video.title}`} /></td>
                   <td><strong>{video.content?.sourceTitle || video.title}</strong><span>{video.content?.sourceUrl ? 'Bilibili source linked' : `${video.sourceType} · ${video.language || 'source language'}`}</span></td>
-                  <td><strong>{video.content?.deliveryTitle || video.title}</strong><span>{video.content?.deliveryUrl ? 'YouTube delivery linked' : (video.publication?.youtubeAuthorization?.channelTitle || video.publication?.youtubeAuthorization?.emailAddress || 'Not published')}</span></td>
+                  <td><strong>{video.content?.deliveryTitle || video.title}</strong><span className={`${styles.statusPill} ${tone(video.publication?.platformId === 'youtube' || video.status === 'published' ? 'published' : (video.job?.status || video.status))}`}>{deliveryLabel(video)}</span><small>{video.content?.deliveryUrl ? 'YouTube delivery linked' : (video.publication?.youtubeAuthorization?.channelTitle || video.publication?.youtubeAuthorization?.emailAddress || 'No YouTube delivery')}</small></td>
                   <td>{video.campaign || 'Unassigned'}</td>
                   <td><span className={`${styles.statusPill} ${tone(video.job?.status || video.status)}`}>{video.job?.status || video.status}</span>{video.job?.error && <small className={styles.rowError}>{video.job.error}</small>}</td>
                   <td>{video.job?.processorIds?.length ? video.job.processorIds.join(' / ') : 'Source only'}</td>

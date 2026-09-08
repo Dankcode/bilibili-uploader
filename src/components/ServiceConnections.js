@@ -70,9 +70,26 @@ function fieldLabel(field) {
   return `${field.label}${field.required === false && !/\(optional\)/i.test(field.label) ? ' (optional)' : ''}`;
 }
 
+function connectionHealthLabel(row) {
+  const checked = row.checkedAt ? ` / checked ${new Date(row.checkedAt).toLocaleString()}` : ' / not checked yet';
+  return `${row.configured ? 'Configured' : 'Needs config'} / ${row.status || 'untested'} / auth: ${row.authState || 'unknown'}${checked}`;
+}
+
+function validateField(field, value) {
+  const text = String(value ?? '').trim();
+  if (!text) return field.required === false ? '' : `${field.label} is required.`;
+  try {
+    if (field.pattern && !(new RegExp(field.pattern)).test(text)) return field.hint || `${field.label} has an invalid format.`;
+  } catch {
+    return 'This field has an invalid validation rule.';
+  }
+  return '';
+}
+
 export default function ServiceConnections({ section = 'accounts' }) {
   const [rows, setRows] = useState([]);
   const [drafts, setDrafts] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const [serviceStatus, setServiceStatus] = useState('');
   const [runtimeForm, setRuntimeForm] = useState(EMPTY_RUNTIME);
   const [runtimeSaved, setRuntimeSaved] = useState({});
@@ -255,6 +272,33 @@ export default function ServiceConnections({ section = 'accounts' }) {
     }));
   };
 
+  const validateDraftField = (serviceId, field, value = drafts[serviceId]?.[field.key]) => {
+    const message = validateField(field, value);
+    setFieldErrors((previous) => ({
+      ...previous,
+      [serviceId]: { ...(previous[serviceId] || {}), [field.key]: message },
+    }));
+    return message;
+  };
+
+  const draftCredentials = (row) => {
+    const credentials = {};
+    for (const field of row.credentialFields || []) {
+      const value = drafts[row.id]?.[field.key];
+      if (field.type === 'secret' && !value) continue;
+      if (value !== undefined) credentials[field.key] = value;
+    }
+    return credentials;
+  };
+
+  const validateServiceDraft = (row) => (row.credentialFields || []).map((field) => {
+    const value = drafts[row.id]?.[field.key];
+    // Secrets are intentionally never returned to the browser. A configured
+    // service may therefore test its saved secret without displaying it again.
+    if (row.configured && !String(value ?? '').trim()) return '';
+    return validateDraftField(row.id, field, value);
+  }).filter(Boolean);
+
   const postServiceAction = async (body) => {
     setServiceStatus(body.action === 'test' ? 'Testing...' : 'Saving...');
     try {
@@ -283,13 +327,21 @@ export default function ServiceConnections({ section = 'accounts' }) {
   };
 
   const saveService = (row) => {
-    const credentials = {};
-    for (const field of row.credentialFields || []) {
-      const value = drafts[row.id]?.[field.key];
-      if (field.type === 'secret' && !value) continue;
-      if (value !== undefined) credentials[field.key] = value;
+    const errors = validateServiceDraft(row);
+    if (errors.length) {
+      setServiceStatus(errors[0]);
+      return;
     }
-    postServiceAction({ action: 'save', serviceId: row.id, credentials });
+    postServiceAction({ action: 'save', serviceId: row.id, credentials: draftCredentials(row) });
+  };
+
+  const testService = (row) => {
+    const errors = validateServiceDraft(row);
+    if (errors.length) {
+      setServiceStatus(errors[0]);
+      return;
+    }
+    postServiceAction({ action: 'test', serviceId: row.id, credentials: draftCredentials(row) });
   };
 
   const runBilibiliLogin = async (action) => {
@@ -721,7 +773,7 @@ export default function ServiceConnections({ section = 'accounts' }) {
                       <div>
                         <strong>{row.label}</strong>
                         <span className={styles.connectionMeta}>
-                          {row.configured ? 'Configured' : 'Needs config'} / {row.status || 'untested'}
+                          {connectionHealthLabel(row)}
                         </span>
                       </div>
                       <ChevronDown size={16} />
@@ -746,9 +798,17 @@ export default function ServiceConnections({ section = 'accounts' }) {
                                 type={field.type === 'secret' ? 'password' : 'text'}
                                 placeholder={field.type === 'secret' && row.configured ? 'Saved value' : (field.placeholder || field.label)}
                                 value={drafts[row.id]?.[field.key] || ''}
-                                onChange={(event) => updateDraft(row.id, field.key, event.target.value)}
+                                onChange={(event) => {
+                                  updateDraft(row.id, field.key, event.target.value);
+                                  if (fieldErrors[row.id]?.[field.key]) validateDraftField(row.id, field, event.target.value);
+                                }}
+                                onBlur={(event) => {
+                                  if (!(row.configured && !event.target.value.trim())) validateDraftField(row.id, field, event.target.value);
+                                }}
                                 autoComplete={field.type === 'secret' ? 'new-password' : 'off'}
                               />
+                              {field.example && <small className={styles.connectionMeta}>Example: <code>{field.example}</code></small>}
+                              {fieldErrors[row.id]?.[field.key] && <small className={styles.errorText}>{fieldErrors[row.id][field.key]}</small>}
                             </label>
                           ))}
                         </div>
@@ -756,8 +816,8 @@ export default function ServiceConnections({ section = 'accounts' }) {
                       {row.lastError && <div className={styles.errorText}>{row.lastError}</div>}
                       <div className={styles.operationRow}>
                         {row.id === 'gmail' && <button className={styles.buttonSecondary} type="button" onClick={startGmailAuthorization}><KeyRound size={14} /> Authorize with Google</button>}
-                        {!!row.credentialFields?.length && <button className={styles.buttonSecondary} type="button" onClick={() => postServiceAction({ action: 'test', serviceId: row.id })}><TestTube2 size={14} /> Test</button>}
-                        {!!row.credentialFields?.length && <button className={styles.buttonPrimary} type="button" onClick={() => saveService(row)}><Save size={14} /> Save</button>}
+                        {!!row.credentialFields?.length && <button className={styles.buttonPrimary} type="button" onClick={() => testService(row)}><TestTube2 size={14} /> Test connection</button>}
+                        {!!row.credentialFields?.length && <button className={styles.buttonSecondary} type="button" onClick={() => saveService(row)}><Save size={14} /> Save</button>}
                       </div>
                     </div>
                   </details>

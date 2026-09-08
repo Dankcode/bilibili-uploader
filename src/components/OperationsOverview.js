@@ -148,7 +148,7 @@ export default function OperationsOverview({ payload, loading, error, onRefresh,
               {(payload?.health || []).map((item) => (
                 <button type="button" className={styles.healthRow} key={item.id} onClick={() => onNavigate(item.id === 'faceFusion' ? 'automation' : 'connections', item.id === 'faceFusion' ? 'proof' : '')}>
                   <span className={`${styles.healthIcon} ${statusTone(item.status)}`}><StatusIcon status={item.status} /></span>
-                  <span><strong>{item.label}</strong><small>{item.detail}</small></span>
+                  <span><strong>{item.label}</strong><small>{item.detail}{item.checkedAt ? ` · checked ${new Date(item.checkedAt).toLocaleString()}` : ''}</small></span>
                   <ArrowRight size={14} />
                 </button>
               ))}

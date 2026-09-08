@@ -6,7 +6,7 @@ import { BarChart3, Clapperboard, Library, PlugZap, Stethoscope, Workflow, Layou
 import styles from '../app/page.module.css';
 
 const NAV = [
-  ['overview', 'Overview', LayoutDashboard], ['library', 'Library', Library], ['automation', 'Automation', Workflow],
+  ['overview', 'Overview', LayoutDashboard], ['library', 'Manage Automated Tasks', Library], ['automation', 'Create New Automations', Workflow],
   ['editor', 'Editor', Clapperboard], ['analytics', 'Analytics', BarChart3], ['connections', 'Connections', PlugZap], ['runtime', 'Runtime', Server], ['diagnostics', 'Diagnostics', Stethoscope],
 ];
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3, Clapperboard, Library, Menu, PanelLeftClose, PanelLeftOpen, PlugZap,
-  Search, Stethoscope, Upload, Workflow, X, LayoutDashboard, Inbox, Server,
+  Stethoscope, Workflow, X, LayoutDashboard, Inbox, Server,
 } from 'lucide-react';
 import AutomationHub from '@/components/AutomationHub';
 import EditorWorkspace from '@/components/EditorWorkspace';
@@ -20,12 +20,12 @@ const NAV_GROUPS = [
   {
     label: 'Workspace',
     items: [
-      ['overview', 'Overview', LayoutDashboard, 'See live pipeline health and edit a queued video process.'],
-      ['library', 'Library', Library, 'Browse the SQL video catalog and manage records.'],
-      ['automation', 'Automation', Workflow, 'Plan batches and bind each upload to a YouTube channel.'],
-      ['editor', 'Editor', Clapperboard, 'Edit timelines, subtitles, and publishing metadata.'],
-      ['analytics', 'Analytics', BarChart3, 'Review performance for published videos.'],
-      ['mail', 'Mail', Inbox, 'Review Gmail tracking events and unresolved platform notices.'],
+      ['overview', 'Overview', LayoutDashboard, 'Monitor automation health, active work, and upcoming publishing.'],
+      ['library', 'Manage Automated Tasks', Library, 'Review, edit, and track every saved automation task.'],
+      ['automation', 'Create New Automations', Workflow, 'Choose sources, set the cadence, and create a new automated run.'],
+      ['editor', 'Editor', Clapperboard, 'Edit video timelines, subtitles, and final publishing metadata.'],
+      ['analytics', 'Analytics', BarChart3, 'Review performance for videos that have been published.'],
+      ['mail', 'Mail', Inbox, 'Review platform notices and Gmail tracking events.'],
     ],
   },
   {
@@ -40,8 +40,8 @@ const NAV_GROUPS = [
 
 const VIEW_META = {
   overview: ['Operations', 'Live workspace'],
-  library: ['Video library', 'SQL catalog'],
-  automation: ['Automation', 'Batch control'],
+  library: ['Manage Automated Tasks', 'Saved tasks and their run history'],
+  automation: ['Create New Automations', 'Sources, cadence, and AI publishing setup'],
   editor: ['Video editor', 'Timeline and subtitles'],
   analytics: ['Analytics', 'Platform performance'],
   mail: ['Mail', 'Tracking inbox'],
@@ -57,10 +57,8 @@ export default function Dashboard() {
   const [overviewError, setOverviewError] = useState('');
   const [channels, setChannels] = useState([]);
   const [youtubeAuthorizations, setYoutubeAuthorizations] = useState([]);
-  const [globalQuery, setGlobalQuery] = useState('');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [composerKey, setComposerKey] = useState(0);
   const [proofKey, setProofKey] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [processVideoId, setProcessVideoId] = useState('');
@@ -114,11 +112,6 @@ export default function Dashboard() {
     setMobileNavOpen(false);
   }
 
-  function openImport() {
-    setComposerKey(Date.now());
-    navigate('automation');
-  }
-
   function refreshWorkspace() {
     setRefreshKey((value) => value + 1);
     loadOverview();
@@ -158,24 +151,19 @@ export default function Dashboard() {
         <header className={styles.opsTopbar}>
           <button type="button" className={styles.mobileMenu} onClick={() => setMobileNavOpen(true)} title="Open navigation" aria-label="Open navigation"><Menu size={18} /></button>
           <div className={styles.viewIdentity}><h1>{activeMeta[0]}</h1><span>{activeMeta[1]}</span></div>
-          <label className={styles.globalSearch}>
-            <Search size={15} />
-            <input value={globalQuery} onFocus={() => activeView !== 'library' && navigate('library')} onChange={(event) => setGlobalQuery(event.target.value)} placeholder="Search videos" aria-label="Search videos" />
-          </label>
           <div className={styles.capacityMeter} title="Active jobs out of batch capacity"><span><i style={{ width: `${Math.min(100, ((counts.active || 0) / 100) * 100)}%` }} /></span><small>{counts.active || 0}/100 active</small></div>
-          <button type="button" className={styles.importButton} onClick={openImport}><Upload size={15} /><span>Import videos</span></button>
         </header>
 
         <main className={styles.opsContent}>
           {activeView === 'overview' && <OperationsOverview payload={overviewPayload} loading={overviewLoading} error={overviewError} onRefresh={refreshWorkspace} onNavigate={navigate} onOpenProcess={setProcessVideoId} />}
-          {activeView === 'library' && <VideoLibrary externalQuery={globalQuery} refreshKey={refreshKey} />}
-          {activeView === 'automation' && <AutomationHub openComposerKey={composerKey} openProofKey={proofKey} onQueued={refreshWorkspace} youtubeAuthorizations={youtubeAuthorizations} />}
+          {activeView === 'library' && <VideoLibrary refreshKey={refreshKey} />}
+          {activeView === 'automation' && <AutomationHub openProofKey={proofKey} onQueued={refreshWorkspace} youtubeAuthorizations={youtubeAuthorizations} />}
           {activeView === 'editor' && <EditorWorkspace channels={channels} youtubeAuthorizations={youtubeAuthorizations} onPublished={() => navigate('analytics')} onJobQueued={() => { refreshWorkspace(); navigate('automation'); }} />}
           {activeView === 'analytics' && <VideoAnalytics refreshKey={refreshKey} />}
           {activeView === 'mail' && <MailCenter />}
           {activeView === 'connections' && <ServiceConnections section="accounts" />}
           {activeView === 'runtime' && <ServiceConnections section="runtime" />}
-          {activeView === 'diagnostics' && <Troubleshooter />}
+          {activeView === 'diagnostics' && <Troubleshooter onNavigate={navigate} />}
         </main>
         {processVideoId && <div className={styles.modalOverlay} onMouseDown={(event) => event.target === event.currentTarget && setProcessVideoId('')}><div className={styles.dashboardProcessDrawer}><ProcessDetail videoId={processVideoId} embedded onClose={() => setProcessVideoId('')} onChanged={refreshWorkspace} /></div></div>}
       </div>

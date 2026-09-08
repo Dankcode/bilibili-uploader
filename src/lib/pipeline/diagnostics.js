@@ -4,29 +4,9 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import db from '../db/sqlite';
 import { getLocalWhisperStatus } from '../studio/localWhisper';
-import { getCredentials } from './connections';
+import { getCredentials, listConnections, probeService } from './connections';
 import { getUsageSummary } from './usage';
-import * as localFile from './sources/localFile';
-import * as bilibili from './sources/bilibili';
-import * as douyin from './sources/douyin';
-import * as youtube from './uploaders/youtube';
-import * as voiceover from './processors/voiceover';
-import * as aiEditor from './processors/aiEditor';
-import * as sceneCut from './processors/sceneCut';
-import * as faceFusion from './processors/faceFusion';
-import * as metadata from './processors/metadata';
-import * as videoContext from './processors/videoContext';
-import * as ocrContext from './processors/ocrContext';
-
 const execFileAsync = promisify(execFile);
-
-// Every adapter that can be a pipeline step, keyed by service id — used by the
-// run-specific preflight so "the steps you'll run" are exactly what gets tested.
-const STEP_ADAPTERS = {
-  localFile, bilibili, douyin,
-  videoContext, ocrContext, voiceover, aiEditor, sceneCut, faceFusion, metadata,
-  youtube,
-};
 const STEP_LABELS = {
   localFile: 'Local file source', bilibili: 'Bilibili source', douyin: 'Douyin source',
   voiceover: 'AI Voiceover', aiEditor: 'AI Editor', sceneCut: 'Scene Cut', faceFusion: 'Face Fusion',
@@ -169,40 +149,60 @@ export async function runDiagnostics() {
     ['disk_space', 'Video work disk', () => checkDisk()],
     ['local_whisper', 'Local Whisper', () => checkLocalWhisper()],
     ['quota', 'Daily API quota', () => checkQuota()],
-    ['douyin_sidecar', 'Douyin sidecar', async () => {
-      const result = await douyin.testConnection(getCredentials('douyin'));
-      return result.ok ? ok('douyin_sidecar', 'Douyin sidecar', 'Reachable') : warn('douyin_sidecar', 'Douyin sidecar', result.error, 'Start vendor/douyin-downloader with python run.py --server --port 8756.');
-    }],
-    ['youtube_upload', 'YouTube uploader', async () => {
-      const result = await youtube.testConnection(getCredentials('youtube'));
-      return result.ok ? ok('youtube_upload', 'YouTube uploader', result.detail || 'Uploader ready') : warn('youtube_upload', 'YouTube uploader', result.error, STEP_FIX.youtube);
-    }],
-    ['videoContext', 'Video Context', async () => {
-      const result = await videoContext.testConnection(getCredentials('videoContext'));
-      const chain = result.vision?.chain?.map((item) => `${item.label}: ${item.contextReady ? 'ready' : 'not ready'}`).join(' → ');
-      return result.ok
-        ? (result.vision.configured ? ok('videoContext', 'Video Context', chain) : warn('videoContext', 'Video Context', `${chain}. Transcript/frame extraction is ready; vision will be skipped.`, STEP_FIX.videoContext))
-        : warn('videoContext', 'Video Context', result.stt?.error || 'STT not ready', STEP_FIX.videoContext);
-    }],
-    ['ocrContext', 'On-screen Text OCR', async () => {
-      const result = await ocrContext.testConnection(getCredentials('ocrContext'));
-      return result.ok ? ok('ocrContext', 'On-screen Text OCR', 'RapidOCR ready') : warn('ocrContext', 'On-screen Text OCR', result.error, STEP_FIX.ocrContext);
-    }],
-    ['voiceover', 'AI Voiceover (Whisper + TTS)', async () => {
-      const result = await voiceover.testConnection(getCredentials('voiceover'));
-      return result.ok ? ok('voiceover', 'AI Voiceover (Whisper + TTS)', 'Transcription + TTS backend ready') : warn('voiceover', 'AI Voiceover (Whisper + TTS)', result.error, STEP_FIX.voiceover);
-    }],
-    ['faceFusion', 'Face Fusion', async () => {
-      const result = await faceFusion.testConnection(getCredentials('faceFusion'));
-      return result.ok ? ok('faceFusion', 'Face Fusion', 'Repo + Python ready') : warn('faceFusion', 'Face Fusion', result.error, STEP_FIX.faceFusion);
-    }],
-    ['hf_editor_lan', 'HF editor LAN service', async () => {
-      const result = await aiEditor.testConnection(getCredentials('aiEditor'));
-      return result.ok ? ok('hf_editor_lan', 'HF editor LAN service', 'Reachable') : warn('hf_editor_lan', 'HF editor LAN service', result.error, 'Save and test the HuggingFace editor endpoint in Settings.');
-    }],
     ['ai_key', 'AI metadata key', () => checkAiKey()],
   ];
-  return Promise.all(checks.map(([id, label, check]) => settle(id, label, check)));
+  const results = await Promise.all(checks.map(([id, label, check]) => settle(id, label, check)));
+  return [
+    ...results.map((row) => decorateIssue(row, { serviceId: row.id })),
+    ...connectionHealthChecks(),
+    ...recentFailedSteps(),
+  ];
+}
+
+/**
+ * Diagnostics deliberately renders stored connection outcomes. It must not
+ * probe adapters on page load, otherwise it can disagree with Overview and
+ * Connections. The explicit refresh action below is the only live probe here.
+ */
+function connectionHealthChecks() {
+  return listConnections().map((connection) => {
+    const checked = connection.checkedAt ? ` Last checked ${connection.checkedAt}.` : ' Not checked yet.';
+    const status = connection.status === 'ok' ? 'ok' : connection.status === 'failed' ? 'fail' : 'warn';
+    const detail = connection.lastError
+      ? `${connection.lastError}${checked}`
+      : connection.status === 'ok'
+        ? `Connection healthy (auth: ${connection.authState || 'unknown'}).${checked}`
+        : connection.configured
+          ? `Credentials are saved but have not passed a connection check.${checked}`
+          : `Not configured.${checked}`;
+    return decorateIssue({
+      id: connection.serviceId,
+      label: connection.label || connection.serviceId,
+      serviceId: connection.serviceId,
+      status,
+      configured: connection.configured,
+      authState: connection.authState,
+      checkedAt: connection.checkedAt,
+      detail,
+      fixHint: STEP_FIX[connection.serviceId] || '',
+    }, { serviceId: connection.serviceId });
+  });
+}
+
+export async function refreshDiagnostics(serviceIds = []) {
+  const requested = Array.isArray(serviceIds) && serviceIds.length ? new Set(serviceIds.map(String)) : null;
+  const targets = listConnections().filter((connection) => !requested || requested.has(connection.serviceId));
+  await Promise.all(targets.map(async (connection) => {
+    try {
+      await probeService(connection.serviceId);
+    } catch (error) {
+      // probeService has already recorded the failed outcome. Keep refreshing
+      // the other independent adapters so a single bad endpoint is not a
+      // fourth, partial diagnosis.
+      console.error(`[Diagnostics] Refresh "${connection.serviceId}" threw:`, error?.message || error);
+    }
+  }));
+  return runDiagnostics();
 }
 
 /**
@@ -241,13 +241,13 @@ export async function runPreflight(plan = {}) {
   system.push(settleSync(checkDisk));
 
   const steps = await Promise.all(order.map(async ({ role, id }) => {
-    const adapter = STEP_ADAPTERS[id];
     const label = STEP_LABELS[id] || id;
-    if (!adapter?.testConnection) {
-      return { id, role, label, status: 'warn', detail: 'No automated check for this step.', fixHint: STEP_FIX[id] || '' };
-    }
     try {
-      const result = await adapter.testConnection({ ...getCredentials(id), ...(options[id] || {}) }, context);
+      const { result } = await probeService(id, {
+        credentials: { ...getCredentials(id), ...(options[id] || {}) },
+        context,
+        connectionId: context.authorizationId,
+      });
       return result.ok
         ? { id, role, label, status: 'ok', detail: 'Ready', fixHint: '' }
         : { id, role, label, status: 'fail', detail: String(result.error || 'Not ready').slice(0, 240), fixHint: STEP_FIX[id] || '' };
@@ -256,7 +256,7 @@ export async function runPreflight(plan = {}) {
     }
   }));
 
-  const all = [...system, ...steps];
+  const all = [...system, ...steps].map((row) => decorateIssue(row, { serviceId: row.id, stepId: row.id }));
   const ready = all.every((c) => c.status === 'ok');
   return { ready, steps: all };
 }
@@ -269,15 +269,45 @@ function settleSync(check) {
   }
 }
 
-export function classifyError(errorText = '') {
-  const text = String(errorText).toLowerCase();
-  if (text.includes('ffmpeg')) return { checkId: 'ffmpeg', fixHint: 'Run diagnostics and fix the ffmpeg install.' };
-  if (text.includes('quota') || text.includes('daily cap')) return { checkId: 'quota', fixHint: 'Check today\'s API usage and the configured daily cap.' };
-  if (text.includes('python') || text.includes('uploader')) return { checkId: 'python', fixHint: 'Check Python and YouTube uploader diagnostics.' };
-  if (text.includes('douyin') || text.includes('sidecar')) return { checkId: 'douyin_sidecar', fixHint: 'Start the Douyin sidecar and test the connection.' };
-  if (text.includes('voice') || text.includes('tts') || text.includes('whisper') || text.includes('elevenlabs') || text.includes('cosyvoice') || text.includes('qwen')) return { checkId: 'voiceover', fixHint: 'Test the AI Voiceover service in Settings.' };
-  if (text.includes('facefusion') || text.includes('face swap')) return { checkId: 'faceFusion', fixHint: 'Test Face Fusion; run scripts/install_facefusion.sh.' };
-  if (text.includes('editor') || text.includes('gradio') || text.includes('hf')) return { checkId: 'hf_editor_lan', fixHint: 'Test the HF editor LAN service.' };
-  if (text.includes('ai metadata') || text.includes('api_key')) return { checkId: 'ai_key', fixHint: 'Check the AI provider key.' };
-  return { checkId: 'unknown', fixHint: 'Run full diagnostics.' };
+export function classifyError(error, { serviceId = '', stepId = '' } = {}) {
+  const detail = String(error?.message || error || '').replace(/\s+/g, ' ').trim().slice(0, 240) || 'The service did not report a detail.';
+  const text = detail.toLowerCase();
+  const match = (pattern, category, nextStep, action, severity = 'error') => pattern.test(text)
+    ? { severity, category, detail, nextStep, action } : null;
+  return (
+    match(/invalid_grant|token has been expired|token.*expired|unauthori[sz]ed|\b401\b/, 'authorization_expired', 'Re-authorize this YouTube channel.', { type: 'goto', view: 'connections', target: 'youtube' })
+    || match(/\b-352\b|\b412\b|risk.?control|sessdata|login required/, 'source_blocked', 'Your Bilibili session expired or was rate-limited — sign in again.', { type: 'goto', view: 'connections', target: 'bilibili' })
+    || match(/enoent.*ff(?:mpeg|probe)|ff(?:mpeg|probe).*enoent/, 'tool_missing', 'Reinstall the media tools, then refresh Health.', { type: 'goto', view: 'diagnostics', target: 'ffmpeg' })
+    || match(/enospc|no space left/, 'disk_full', 'Free space in video-work, then retry this job.', { type: 'goto', view: 'overview', target: 'retention' })
+    || match(/\b429\b|quota|resource_exhausted|daily cap/, 'provider_limit', 'Wait for the limit to reset or switch the provider.', { type: 'goto', view: 'connections', target: serviceId || stepId })
+    || match(/whisper|model load|model.*unavailable/, 'local_model_unavailable', 'Re-run the local Whisper install, then refresh Health.', { type: 'goto', view: 'diagnostics', target: 'local_whisper' })
+    || match(/context revision mismatch|stale artifact/, 'stale_artifact', 'Re-run Timed screenshots before Kimi context.', { type: 'goto', view: 'studio', target: 'context' })
+    || { severity: 'error', category: 'unexpected', detail, nextStep: 'Review this check and retry after resolving the reported issue.', action: { type: 'goto', view: 'diagnostics', target: serviceId || stepId || 'unknown' } }
+  );
+}
+
+function decorateIssue(row, context = {}) {
+  if (row.status === 'ok') return { ...row, severity: 'info', category: 'ready', nextStep: '', action: null };
+  const issue = classifyError(row.detail, context);
+  return { ...row, ...issue, severity: row.status === 'warn' && issue.severity === 'error' ? 'warning' : issue.severity };
+}
+
+function recentFailedSteps() {
+  const rows = db.prepare(`
+    SELECT s.id, s.step, s.progress_note, s.log, j.id AS job_id, j.error, j.updated_at
+    FROM video_job_steps s
+    JOIN video_jobs j ON j.id = s.job_id
+    WHERE s.status = 'failed'
+    ORDER BY j.updated_at DESC, s.id DESC
+    LIMIT 12
+  `).all();
+  return rows.map((row) => decorateIssue({
+    id: `job-step-${row.id}`,
+    jobId: row.job_id,
+    stepId: row.step,
+    label: `Failed run · ${row.step}`,
+    status: 'fail',
+    detail: row.progress_note || row.error || row.log || 'Pipeline step failed.',
+    fixHint: '',
+  }, { stepId: row.step, serviceId: String(row.step || '').split(':')[1] || '' }));
 }

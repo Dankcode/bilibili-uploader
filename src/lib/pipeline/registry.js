@@ -44,9 +44,9 @@ export const SOURCES = [
     label: 'Douyin (抖音)',
     // Backed by vendor/douyin-downloader (FastAPI sidecar) — see sources/douyin.js.
     credentialFields: [
-      { key: 'cookie', label: 'Douyin Cookie', type: 'secret' },
-      { key: 'sidecarUrl', label: 'Sidecar URL', type: 'text', placeholder: 'http://127.0.0.1:8756' },
-      { key: 'downloadDir', label: 'Sidecar Download Folder', type: 'text', required: false },
+      { key: 'cookie', label: 'Douyin Cookie', type: 'secret', required: false, pattern: '^[^\\s=;]+=[^\\s;]+(?:;\\s*[^\\s=;]+=[^\\s;]+)*$', example: 'sessionid=…; msToken=…', hint: 'Paste browser cookie pairs only (for example sessionid=…; msToken=…), not a JSON export.' },
+      { key: 'sidecarUrl', label: 'Sidecar URL', type: 'text', placeholder: 'http://127.0.0.1:8756', pattern: '^https?://[^\\s/]+(?::\\d+)?(?:/.*)?$', example: 'http://127.0.0.1:8756', hint: 'Use a complete HTTP URL, including its protocol and port.' },
+      { key: 'downloadDir', label: 'Sidecar Download Folder', type: 'text', required: false, pattern: '^/[^\\n\\r]*$', example: '/Volumes/media/douyin', hint: 'Use an absolute local folder path without a trailing newline.' },
     ],
     inputKinds: ['video-url', 'user-profile', 'mix-collection', 'music-page'],
     adapterPath: 'src/lib/pipeline/sources/douyin.js',
@@ -129,9 +129,9 @@ export const PROCESSORS = [
     label: 'FaceFusion (automated targeted face swap)',
     // Wraps the FaceFusion headless CLI. Install the isolated runtime once.
     credentialFields: [
-      { key: 'facefusionDir', label: 'FaceFusion Repo Path', type: 'text', placeholder: '/path/to/facefusion' },
-      { key: 'sourcePaths', label: 'Replacement Face Image(s) — ; separated', type: 'text' },
-      { key: 'pythonBin', label: 'Python Binary', type: 'text', required: false, placeholder: '/path/to/facefusion/.venv/bin/python' },
+      { key: 'facefusionDir', label: 'FaceFusion Repo Path', type: 'text', placeholder: '/path/to/facefusion', pattern: '^/[^\\n\\r]*$', example: '/Users/name/facefusion', hint: 'Use an absolute FaceFusion folder path without a trailing newline.' },
+      { key: 'sourcePaths', label: 'Replacement Face Image(s) — ; separated', type: 'text', pattern: '^/[^\\n\\r]*(?:;\\s*/[^\\n\\r]*)*$', example: '/Users/name/faces/host.jpg', hint: 'Use one or more absolute image paths separated by semicolons.' },
+      { key: 'pythonBin', label: 'Python Binary', type: 'text', required: false, placeholder: '/path/to/facefusion/.venv/bin/python', pattern: '^/[^\\n\\r]*$', example: '/Users/name/facefusion/.venv/bin/python', hint: 'Use an absolute Python executable path without a trailing newline.' },
       { key: 'executionProviders', label: 'Execution Provider', type: 'text', required: false, placeholder: 'auto | cpu | coreml | cuda' },
       { key: 'downloadProviders', label: 'Model Download Providers', type: 'text', required: false, placeholder: 'huggingface github' },
       { key: 'faceSwapperModel', label: 'Face Swapper Model', type: 'text', required: false, placeholder: 'inswapper_128_fp16' },
@@ -150,7 +150,7 @@ export const PROCESSORS = [
     credentialFields: [
       { key: 'provider', label: 'Primary Provider', type: 'text', required: false, placeholder: 'kimi | codex | gemini' },
       { key: 'metadataStyle', label: 'Metadata Style', type: 'text', required: false, placeholder: 'professional | educational | asmr' },
-      { key: 'kimiApiKey', label: 'Kimi API Key', type: 'secret', required: false },
+      { key: 'kimiApiKey', label: 'Kimi API Key', type: 'secret', required: false, pattern: '^sk-[A-Za-z0-9_-]{12,}$', example: 'sk-…', hint: 'Kimi keys start with sk-. Check that an OpenAI or Gemini key was not pasted here.' },
       { key: 'kimiModel', label: 'Kimi Model', type: 'text', required: false, placeholder: 'moonshot-v1-32k' },
       { key: 'geminiApiKey', label: 'Gemini API Key', type: 'secret', required: false },
       { key: 'geminiModel', label: 'Gemini Model', type: 'text', required: false, placeholder: 'gemini-2.0-flash' },
@@ -161,7 +161,7 @@ export const PROCESSORS = [
     id: 'aiEditor',
     label: 'AI Video Editor (HuggingFace LAN)',
     credentialFields: [
-      { key: 'endpoint', label: 'HF Editor URL (LAN)', type: 'text', placeholder: 'http://192.168.x.x:7860' },
+      { key: 'endpoint', label: 'HF Editor URL (LAN)', type: 'text', placeholder: 'http://192.168.x.x:7860', pattern: '^https?://[^\\s/]+(?::\\d+)?(?:/.*)?$', example: 'http://192.168.1.20:7860', hint: 'Use a complete HTTP URL, including its protocol and port.' },
       { key: 'defaultModel', label: 'Default Model', type: 'text', placeholder: 'e.g. Lightricks/LTX-Video' },
       { key: 'apiKey', label: 'API Key (optional)', type: 'secret' },
     ],
@@ -247,7 +247,8 @@ export function validateProcessorChain(processorIds = []) {
  * Settings-CRM checklist rows for every adapter + scraper sites (scenes/scraper.js
  * SCRAPER_SITES appended by the caller). Merged with service_connections rows
  * (lib/pipeline/connections.js). View model:
- *   [{ id, role, label, configured, tested, enabled, lastError }]
+ *   [{ id, role, label, configured, tested, enabled, authState, checkedAt,
+ *      lastError }]
  */
 export function listServiceChecklist(connections = []) {
   const all = [
@@ -266,6 +267,8 @@ export function listServiceChecklist(connections = []) {
       configured: Boolean(conn?.configured),
       tested: conn?.status === 'ok',
       enabled: Boolean(conn?.enabled && conn?.status === 'ok'),
+      authState: conn?.authState || 'unknown',
+      checkedAt: conn?.checkedAt || '',
       lastError: conn?.lastError || '',
     };
   });
