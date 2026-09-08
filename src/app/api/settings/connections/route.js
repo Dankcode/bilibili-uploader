@@ -22,6 +22,8 @@ export async function GET() {
       ...row,
       credentialFields: connection?.credentialFields || [],
       status: connection?.status || 'untested',
+      authState: connection?.authState || 'unknown',
+      checkedAt: connection?.checkedAt || '',
       lastTestedAt: connection?.lastTestedAt || '',
       defaults: connection?.preferences || {},
     };
@@ -58,7 +60,7 @@ export async function POST(request) {
       return NextResponse.json({ connection: saveConnection(body.serviceId, body.credentials || {}) });
     }
     if (body.action === 'test') {
-      return NextResponse.json({ connection: await testService(body.serviceId) });
+      return NextResponse.json({ connection: await testService(body.serviceId, body.credentials || {}) });
     }
     if (body.action === 'enable') {
       return NextResponse.json({ connection: setConnectionEnabled(body.serviceId, Boolean(body.enabled)) });

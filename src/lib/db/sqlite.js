@@ -30,7 +30,14 @@ function hasColumn(tableName, columnName) {
 
 function addColumnIfMissing(tableName, columnName, definition) {
   if (!hasColumn(tableName, columnName)) {
-    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    try {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    } catch (error) {
+      // Next can evaluate independent route bundles in parallel during a
+      // production build. A second process may add the same additive column
+      // after the PRAGMA check but before this ALTER reaches SQLite.
+      if (!/duplicate column name/i.test(String(error?.message || error))) throw error;
+    }
   }
 }
 
@@ -167,6 +174,8 @@ export function initDB() {
       credentials_json TEXT NOT NULL DEFAULT '{}',
       enabled INTEGER DEFAULT 0,
       status TEXT DEFAULT 'untested',
+      auth_state TEXT DEFAULT 'unknown',
+      checked_at TEXT DEFAULT '',
       last_tested_at TEXT DEFAULT '',
       last_error TEXT DEFAULT '',
       updated_at TEXT NOT NULL,
@@ -364,8 +373,13 @@ export function initDB() {
       thumbnail_url TEXT NOT NULL DEFAULT '',
       uploader_name TEXT NOT NULL DEFAULT '',
       selected_for_upload INTEGER NOT NULL DEFAULT 1,
+      long_video_enabled INTEGER NOT NULL DEFAULT 1,
       delivery_title TEXT NOT NULL DEFAULT '',
       delivery_description TEXT NOT NULL DEFAULT '',
+      delivery_tags_json TEXT NOT NULL DEFAULT '[]',
+      generation_fields_json TEXT NOT NULL DEFAULT '["title","description","tags"]',
+      ai_preview_json TEXT NOT NULL DEFAULT '{}',
+      ai_previewed_at TEXT NOT NULL DEFAULT '',
       last_scraped_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -453,6 +467,17 @@ export function initDB() {
       updated_at TEXT NOT NULL
     );
 
+    -- Reusable automation configurations are intentionally separate from a
+    -- dispatched batch: editing a saved configuration must never rewrite the
+    -- immutable settings of jobs that are already running or completed.
+    CREATE TABLE IF NOT EXISTS automation_settings (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      settings_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS automation_batch_items (
       batch_id TEXT NOT NULL,
       job_id INTEGER NOT NULL,
@@ -513,6 +538,7 @@ export function initDB() {
     CREATE INDEX IF NOT EXISTS idx_youtube_authorizations_status ON youtube_authorizations(enabled, status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_youtube_upload_bindings_authorization ON youtube_upload_bindings(authorization_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_batch_items_status ON automation_batch_items(batch_id, status);
+    CREATE INDEX IF NOT EXISTS idx_automation_settings_updated ON automation_settings(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_face_swap_proofs_created ON face_swap_proofs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_runtime_workers_heartbeat ON runtime_workers(heartbeat_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_messages_gmail_id ON mail_messages(account_id, gmail_message_id) WHERE gmail_message_id != '';
@@ -534,7 +560,34 @@ export function initDB() {
   addColumnIfMissing('video_jobs', 'worker_id', "TEXT DEFAULT ''");
   addColumnIfMissing('video_jobs', 'max_attempts', 'INTEGER DEFAULT 3');
   addColumnIfMissing('video_job_steps', 'metrics_json', "TEXT DEFAULT '{}'");
+  // Connection outcomes are shared by the Connections screen, overview rail,
+  // and diagnostics. Keep these additive for installations created before the
+  // health model existed.
+  addColumnIfMissing('service_connections', 'auth_state', "TEXT DEFAULT 'unknown'");
+  addColumnIfMissing('service_connections', 'checked_at', "TEXT DEFAULT ''");
   addColumnIfMissing('video_records', 'context_summary_json', "TEXT DEFAULT '{}'");
+  // Per-video delivery planning belongs to the scrape catalog. These are
+  // operator/AI-authored preferences only; source facts remain immutable on
+  // every re-scrape.
+  addColumnIfMissing('bilibili_scraped_videos', 'scheduled_for', "TEXT DEFAULT ''");
+  addColumnIfMissing('bilibili_scraped_videos', 'schedule_days_json', "TEXT DEFAULT '[]'");
+  addColumnIfMissing('bilibili_scraped_videos', 'copy_prompt', "TEXT DEFAULT ''");
+  addColumnIfMissing('bilibili_scraped_videos', 'youtube_options_json', "TEXT DEFAULT '{}'");
+  addColumnIfMissing('bilibili_scraped_videos', 'delivery_tags_json', "TEXT DEFAULT '[]'");
+  addColumnIfMissing('bilibili_scraped_videos', 'generation_fields_json', "TEXT DEFAULT '[\"title\",\"description\",\"tags\"]'");
+  addColumnIfMissing('bilibili_scraped_videos', 'ai_preview_json', "TEXT DEFAULT '{}'");
+  addColumnIfMissing('bilibili_scraped_videos', 'ai_previewed_at', "TEXT DEFAULT ''");
+  // Videos over YouTube's unverified-channel limit must receive an explicit
+  // operator opt-in before the automation can queue them. Existing short rows
+  // remain ready; existing long rows start disabled after this migration.
+  const hadLongVideoEnabled = hasColumn('bilibili_scraped_videos', 'long_video_enabled');
+  addColumnIfMissing('bilibili_scraped_videos', 'long_video_enabled', 'INTEGER NOT NULL DEFAULT 1');
+  if (!hadLongVideoEnabled) {
+    db.prepare('UPDATE bilibili_scraped_videos SET long_video_enabled = 0, selected_for_upload = 0 WHERE duration_seconds > ?').run(15 * 60);
+  }
+  // Keep the stored selection aligned with the opt-in even for databases that
+  // were opened by an earlier development build before the migration landed.
+  db.prepare('UPDATE bilibili_scraped_videos SET selected_for_upload = 0 WHERE duration_seconds > ? AND long_video_enabled = 0').run(15 * 60);
   // An OAuth client belongs to the Google Cloud project, while each selected
   // channel needs its own refresh token. Existing installations used one name
   // for both; retain that working layout until an operator intentionally shares

@@ -13,7 +13,7 @@ import {
   updateVideoRecord,
 } from '../operations/store';
 import { getSource, getProcessor, getUploader, validateProcessorChain } from './registry';
-import { getCredentials } from './connections';
+import { getCredentials, recordOutcome } from './connections';
 import { getPreset } from './presets';
 import {
   attachPublicationToYouTubeBinding,
@@ -644,6 +644,9 @@ async function runStep(job, step, currentFilePath, currentMeta) {
   }
 
   const durationMs = Date.now() - stepStartedAtMs;
+  // One successful step refreshes the shared health record that powers the
+  // overview, Connections, and diagnostics. No screen probes a private state.
+  recordOutcome(id, { error: null });
   setStepStatus(step.id, 'ok', {
     progress: 100,
     progressNote: 'Done',
@@ -729,6 +732,10 @@ export async function runNextQueuedJob() {
     logJob(job.id, `done in ${Date.now() - jobStartedAtMs} ms`);
   } catch (error) {
     const status = cancelSignals.get(job.id)?.canceled ? 'canceled' : 'failed';
+    const failedServiceId = activeStepName.split(':')[1];
+    if (failedServiceId && status === 'failed') {
+      try { recordOutcome(failedServiceId, { error }); } catch (outcomeError) { console.error('[Pipeline] Could not record connection outcome:', outcomeError.message); }
+    }
     const activeStep = db.prepare("SELECT id FROM video_job_steps WHERE job_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1").get(job.id);
     if (activeStep) {
       setStepStatus(activeStep.id, status === 'canceled' ? 'skipped' : 'failed', {

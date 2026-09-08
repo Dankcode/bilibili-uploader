@@ -102,7 +102,18 @@ export async function upload(filePath, meta = {}, onProgress = () => {}) {
   onProgress(10, 'Starting YouTube uploader');
   const authorization = meta.youtubeAuthorization || null;
   const uploadIdentity = authorization || meta.channelId || '';
-  const rawResult = await UploadVideo(filePath, title, description, tags, uploadIdentity);
+  const rawResult = await UploadVideo(filePath, title, description, tags, {
+    ...(typeof uploadIdentity === 'object' ? uploadIdentity : {}),
+    youtubeOptions: {
+      privacyStatus: meta.privacyStatus || 'private',
+      categoryId: meta.categoryId || '',
+      defaultLanguage: meta.defaultLanguage || '',
+      license: meta.license || '',
+      madeForKids: Boolean(meta.madeForKids),
+      embeddable: meta.embeddable !== false,
+      notifySubscribers: Boolean(meta.notifySubscribers),
+    },
+  });
   const normalized = normalizeYouTubeUploadResult(rawResult);
   onProgress(100, 'Uploaded');
   return {

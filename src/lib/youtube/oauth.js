@@ -5,11 +5,20 @@ import path from 'path';
 import { google } from 'googleapis';
 import { normalizeCredentialRef, registerYouTubeAuthorization } from './authorizations.js';
 
-const activeAuthorizations = new Map();
-const completedAuthorizations = new Map();
-const activeWebAuthorizations = new Map();
+// Next may load this module in separate route bundles during development. Keep
+// the short-lived OAuth hand-off state on the Node process so the route that
+// receives Google's callback sees the state created by the route that began
+// sign-in. Tokens themselves remain owner-only local files.
+const OAUTH_STATE_KEY = Symbol.for('video-ops.youtube-oauth-state');
+const oauthState = globalThis[OAUTH_STATE_KEY] || (globalThis[OAUTH_STATE_KEY] = {
+  activeAuthorizations: new Map(),
+  completedAuthorizations: new Map(),
+  activeWebAuthorizations: new Map(),
+});
+const { activeAuthorizations, completedAuthorizations, activeWebAuthorizations } = oauthState;
 const WEB_OAUTH_REDIRECT_URI = String(process.env.YOUTUBE_WEB_OAUTH_REDIRECT_URI || 'http://localhost:4455/').trim();
 const WEB_OAUTH_TTL_MS = 10 * 60 * 1000;
+const OAUTH_HANDOFF_STATE_PATH = path.join(process.cwd(), 'config', 'youtube-oauth-handoff.json');
 const YOUTUBE_SCOPES = [
   'openid',
   'email',
@@ -118,11 +127,75 @@ function pendingYouTubeTokenRef() {
   return `youtube-pending-${randomUUID().replaceAll('-', '').slice(0, 20)}`;
 }
 
+function readOAuthHandoffState() {
+  try {
+    const state = JSON.parse(fs.readFileSync(OAUTH_HANDOFF_STATE_PATH, 'utf8'));
+    return {
+      web: state?.web && typeof state.web === 'object' ? state.web : {},
+      completed: state?.completed && typeof state.completed === 'object' ? state.completed : {},
+    };
+  } catch {
+    return { web: {}, completed: {} };
+  }
+}
+
+function writeOAuthHandoffState(state) {
+  const directory = path.dirname(OAUTH_HANDOFF_STATE_PATH);
+  const temporaryPath = `${OAUTH_HANDOFF_STATE_PATH}.${process.pid}.tmp`;
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(state)}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temporaryPath, OAUTH_HANDOFF_STATE_PATH);
+  try { fs.chmodSync(OAUTH_HANDOFF_STATE_PATH, 0o600); } catch { /* best effort on non-POSIX hosts */ }
+}
+
+function updateOAuthHandoffState(update) {
+  const state = readOAuthHandoffState();
+  update(state);
+  writeOAuthHandoffState(state);
+}
+
+function saveWebAuthorization(stateKey, pending) {
+  updateOAuthHandoffState((state) => {
+    state.web[stateKey] = {
+      credentialRef: pending.credentialRef,
+      clientRef: pending.clientRef,
+      expectedEmail: pending.expectedEmail,
+      autoNameToken: Boolean(pending.autoNameToken),
+      createdAt: pending.createdAt,
+    };
+  });
+}
+
+function getWebAuthorization(stateKey) {
+  const pending = readOAuthHandoffState().web[stateKey];
+  return pending && typeof pending === 'object' ? pending : null;
+}
+
+function removeWebAuthorization(stateKey) {
+  updateOAuthHandoffState((state) => { delete state.web[stateKey]; });
+}
+
+function saveCompletedAuthorization(status) {
+  completedAuthorizations.set(status.credentialRef, status);
+  updateOAuthHandoffState((state) => {
+    state.completed[status.credentialRef] = status;
+  });
+}
+
+function getCompletedAuthorization(credentialRef) {
+  return completedAuthorizations.get(credentialRef) || readOAuthHandoffState().completed[credentialRef] || null;
+}
+
+function removeCompletedAuthorization(credentialRef) {
+  completedAuthorizations.delete(credentialRef);
+  updateOAuthHandoffState((state) => { delete state.completed[credentialRef]; });
+}
+
 function publicStatus(credentialRef) {
   const ref = normalizeCredentialRef(credentialRef);
   const active = activeAuthorizations.get(ref);
   if (active) return { credentialRef: ref, clientRef: active.clientRef, state: 'waiting', message: 'Complete Google sign-in and consent in the browser window, then check sign-in.' };
-  return completedAuthorizations.get(ref) || { credentialRef: ref, state: 'idle', message: 'Ready to open Google sign-in.' };
+  return getCompletedAuthorization(ref) || { credentialRef: ref, state: 'idle', message: 'Ready to open Google sign-in.' };
 }
 
 function parseResult(output) {
@@ -155,7 +228,7 @@ function writeOwnerOnly(pathname, value) {
 
 function finishAsError(credentialRef, clientRef, message) {
   const result = { credentialRef, clientRef, state: 'error', message };
-  completedAuthorizations.set(credentialRef, result);
+  saveCompletedAuthorization(result);
   return result;
 }
 
@@ -178,21 +251,25 @@ function startWebYouTubeAuthorization({ credentialRef, clientRef, expectedEmail,
     autoNameToken,
     createdAt: Date.now(),
   });
+  saveWebAuthorization(state, activeWebAuthorizations.get(state));
   const status = publicWaitingStatus(credentialRef, clientRef, authorizationUrl);
-  completedAuthorizations.set(credentialRef, { ...status, authorizationUrl: undefined });
+  saveCompletedAuthorization({ ...status, authorizationUrl: undefined });
   return status;
 }
 
 /** Completes only a state-bound local web callback; credentials never leave this process. */
 export async function completeWebYouTubeAuthorization({ state, code, error } = {}) {
   const stateKey = String(state || '').trim();
-  const pending = activeWebAuthorizations.get(stateKey);
+  const pending = activeWebAuthorizations.get(stateKey) || getWebAuthorization(stateKey);
   if (!pending || Date.now() - pending.createdAt > WEB_OAUTH_TTL_MS) {
     activeWebAuthorizations.delete(stateKey);
+    removeWebAuthorization(stateKey);
     throw new Error('Google sign-in has expired. Start the connection again from Connections.');
   }
   activeWebAuthorizations.delete(stateKey);
-  const { credentialRef, clientRef, expectedEmail, client, autoNameToken } = pending;
+  removeWebAuthorization(stateKey);
+  const { credentialRef, clientRef, expectedEmail, autoNameToken } = pending;
+  const client = pending.client || readLocalOAuthClient(clientRef);
   if (error) return finishAsError(credentialRef, clientRef, 'Google sign-in was canceled or access was not granted.');
   if (!code) return finishAsError(credentialRef, clientRef, 'Google did not return an authorization code.');
   try {
@@ -224,7 +301,7 @@ export async function completeWebYouTubeAuthorization({ state, code, error } = {
       candidate: { emailAddress, googleSubject: String(identityResponse.data.id || ''), channels },
       autoNameToken,
     };
-    completedAuthorizations.set(credentialRef, result);
+    saveCompletedAuthorization(result);
     return result;
   } catch {
     try { fs.unlinkSync(youtubeTokenPath(credentialRef)); } catch { /* no token to remove */ }
@@ -294,7 +371,7 @@ export function startDefaultYouTubeAuthorization({ expectedEmail = '' } = {}) {
 
 export function confirmYouTubeAuthorization({ credentialRef, channelId } = {}) {
   const ref = normalizeCredentialRef(credentialRef);
-  const status = completedAuthorizations.get(ref);
+  const status = getCompletedAuthorization(ref);
   if (status?.state !== 'confirm' || !status.candidate) throw new Error('Complete Google sign-in before confirming a YouTube channel.');
   const selected = status.candidate.channels.find((channel) => channel.channelId === String(channelId || '').trim());
   if (!selected) throw new Error('Choose one of the channels returned by Google before confirming.');
@@ -311,7 +388,8 @@ export function confirmYouTubeAuthorization({ credentialRef, channelId } = {}) {
   }
   const authorization = registerYouTubeAuthorization({ emailAddress: status.candidate.emailAddress, googleSubject: status.candidate.googleSubject, credentialRef: tokenRef, clientRef: status.clientRef, ...selected });
   const connected = { credentialRef: tokenRef, clientRef: status.clientRef, state: 'connected', message: `Connected ${authorization.emailAddress} to ${authorization.channelTitle || authorization.channelId}. Token saved locally as ${tokenRef}_token.json.`, authorization };
-  completedAuthorizations.set(ref, connected);
+  saveCompletedAuthorization(connected);
+  if (ref !== tokenRef) removeCompletedAuthorization(ref);
   return connected;
 }
 

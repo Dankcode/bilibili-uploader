@@ -93,9 +93,10 @@ export default async function UploadVideo(videoPath, title, description, tags, i
     console.log('Title:', title);
     console.log('OAuth credential reference:', credentialRef || 'guided browser session');
 
+    const uploadSettings = selectedAuthorization?.youtubeOptions || identity?.youtubeOptions || {};
     const args = uploadMethod === 'pygui'
       ? [videoPath, title, description, tags]
-      : [videoPath, title, description, tags, credentialRef, selectedAuthorization?.channelId || '', clientRef];
+      : [videoPath, title, description, tags, credentialRef, selectedAuthorization?.channelId || '', clientRef, JSON.stringify(uploadSettings)];
     const result = await runPythonScript(scriptPath, args);
     const videoIdOrUrl = parseUploadResult(result);
     if (!videoIdOrUrl) throw new Error('Uploader completed without printing a video URL or ID');

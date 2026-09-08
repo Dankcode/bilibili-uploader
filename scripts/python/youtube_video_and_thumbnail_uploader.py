@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import json
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -66,6 +67,34 @@ def normalize_credential_ref(value):
     return credential_ref
 
 
+def load_saved_credentials(token_path, client_secret_path):
+    """Load a refresh token, filling client metadata from its local OAuth client.
+
+    The web OAuth callback intentionally saves only token fields.  The Python
+    Google client, unlike the Node client used for that callback, insists that
+    authorized-user JSON also repeats the OAuth client ID and secret.  Keep
+    those values in the owner-only client file and combine them in memory.
+    """
+    with open(token_path, 'r', encoding='utf-8') as token_file:
+        token_data = json.load(token_file)
+
+    if not token_data.get('client_id') or not token_data.get('client_secret'):
+        if not os.path.exists(client_secret_path):
+            raise FileNotFoundError(f'Missing OAuth client file: {client_secret_path}')
+        with open(client_secret_path, 'r', encoding='utf-8') as client_file:
+            client_document = json.load(client_file)
+        client = client_document.get('web') or client_document.get('installed') or {}
+        if not client.get('client_id') or not client.get('client_secret'):
+            raise ValueError('OAuth client file is missing its client ID or client secret')
+        token_data = {
+            **token_data,
+            'client_id': client['client_id'],
+            'client_secret': client['client_secret'],
+        }
+
+    return Credentials.from_authorized_user_info(token_data, SCOPES)
+
+
 def authenticate(token_ref, client_ref=None):
     token_ref = normalize_credential_ref(token_ref)
     client_ref = normalize_credential_ref(client_ref or token_ref)
@@ -76,7 +105,7 @@ def authenticate(token_ref, client_ref=None):
 
     if os.path.exists(token_path):
         print('Loading OAuth credentials from JSON...')
-        credentials = Credentials.from_authorized_user_file(token_path, SCOPES)
+        credentials = load_saved_credentials(token_path, client_secret_path)
         if not credentials.has_scopes(SCOPES):
             print('Saved token lacks channel-verification scope; requesting OAuth consent again.')
             credentials = None
@@ -128,27 +157,54 @@ def verify_authorized_channel(youtube, expected_channel_id):
     return actual_channel_id
 
 
-def uploads_video_initialisation(token_ref, video_to_upload, title, description, tags, expected_channel_id='', client_ref=None):
+def clean_upload_options(value):
+    raw = value if isinstance(value, dict) else {}
+    privacy = raw.get('privacyStatus', 'private')
+    if privacy not in ('private', 'unlisted', 'public'):
+        privacy = 'private'
+    license_name = raw.get('license', '')
+    if license_name not in ('youtube', 'creativeCommon'):
+        license_name = ''
+    return {
+        'privacyStatus': privacy,
+        'categoryId': str(raw.get('categoryId', '')).strip(),
+        'defaultLanguage': str(raw.get('defaultLanguage', '')).strip(),
+        'license': license_name,
+        'madeForKids': bool(raw.get('madeForKids', False)),
+        'embeddable': raw.get('embeddable', True) is not False,
+        'notifySubscribers': bool(raw.get('notifySubscribers', False)),
+    }
+
+
+def uploads_video_initialisation(token_ref, video_to_upload, title, description, tags, expected_channel_id='', client_ref=None, upload_options=None):
     credentials = authenticate(token_ref, client_ref)
     tag_list = tags if isinstance(tags, list) else [tag for tag in str(tags).split() if tag]
 
     youtube = build('youtube', 'v3', credentials=credentials)
     verify_authorized_channel(youtube, expected_channel_id)
 
+    settings = clean_upload_options(upload_options)
+    snippet = {"description": description, "title": title, "tags": tag_list}
+    if settings['categoryId']:
+        snippet['categoryId'] = settings['categoryId']
+    if settings['defaultLanguage']:
+        snippet['defaultLanguage'] = settings['defaultLanguage']
+        snippet['defaultAudioLanguage'] = settings['defaultLanguage']
+    status = {
+        "privacyStatus": settings['privacyStatus'],
+        "selfDeclaredMadeForKids": settings['madeForKids'],
+        "embeddable": settings['embeddable'],
+    }
+    if settings['license']:
+        status['license'] = settings['license']
     request = youtube.videos().insert(
         part="snippet,status",
         body={
-            "snippet": {
-                "categoryId": "22",  # You can change the category ID if needed
-                "description": description,
-                "title": title,
-                "tags": tag_list
-            },
-            "status": {
-                "privacyStatus": "private"
-            }
+            "snippet": snippet,
+            "status": status,
         },
-        media_body=MediaFileUpload(video_to_upload, chunksize=-1, resumable=True)
+        media_body=MediaFileUpload(video_to_upload, chunksize=-1, resumable=True),
+        notifySubscribers=settings['notifySubscribers'],
     )
     response = resumable_upload(request)
     return response
@@ -161,6 +217,10 @@ if __name__ == '__main__':
     credential_ref = sys.argv[5]
     expected_channel_id = sys.argv[6] if len(sys.argv) > 6 else ''
     client_ref = sys.argv[7] if len(sys.argv) > 7 else credential_ref
+    try:
+        upload_options = json.loads(sys.argv[8]) if len(sys.argv) > 8 else {}
+    except (TypeError, ValueError):
+        raise ValueError('Upload options must be valid JSON')
 
     video_id = uploads_video_initialisation(
         credential_ref,
@@ -170,6 +230,7 @@ if __name__ == '__main__':
         tags,
         expected_channel_id,
         client_ref,
+        upload_options,
     )
     if video_id:
         print(video_id)
