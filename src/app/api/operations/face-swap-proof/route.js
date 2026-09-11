@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { Readable } from 'stream';
@@ -41,7 +42,7 @@ function streamFile(filePath, request) {
   });
 }
 
-export async function GET(request) {
+async function handleGET(request) {
   try {
     const proof = getLatestFaceSwapProof();
     if (!proof) return NextResponse.json({ proof: null });
@@ -62,3 +63,5 @@ export async function GET(request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export const GET = withOperator(handleGET);

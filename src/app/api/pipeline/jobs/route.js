@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 /**
  * /api/pipeline/jobs — pipeline job CRUD.
  * GET  ?status=&limit=  → { jobs: listJobs(filter) }   (dashboard polls 3s)
@@ -7,12 +8,13 @@
  * Unknown action → 400 + valid list. Validate every id against
  * lib/pipeline/registry.js before touching lib/pipeline/pipeline.js.
  */
-import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server.js';
+import { withVersion } from '../../../../lib/agent/concurrency.js';
 import {
   approveCorrections, approveMetadata, bulkJobAction, cancelJob, createJob, createJobBatch, listJobs, retryJob, updateQueuedJob,
 } from '../../../../lib/pipeline/pipeline';
 
-export async function GET(request) {
+async function handleGET(request) {
   const { searchParams } = new URL(request.url);
   return NextResponse.json({
     jobs: listJobs({
@@ -22,7 +24,7 @@ export async function GET(request) {
   });
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     if (body.action === 'create') {
@@ -44,16 +46,19 @@ export async function POST(request) {
       return NextResponse.json({ job: cancelJob(body.jobId) });
     }
     if (body.action === 'update') {
-      return NextResponse.json({ job: updateQueuedJob(body.jobId, body.patch) });
+      return NextResponse.json({ job: withVersion('video_jobs', 'id = ?', [body.jobId], request.headers.get('if-match'), () => updateQueuedJob(body.jobId, body.patch)) });
     }
     if (body.action === 'approveMetadata') {
-      return NextResponse.json({ job: approveMetadata(body.jobId, body.metadata) });
+      return NextResponse.json({ job: withVersion('video_jobs', 'id = ?', [body.jobId], request.headers.get('if-match'), () => approveMetadata(body.jobId, body.metadata, 'operator')) });
     }
     if (body.action === 'approveCorrections') {
       return NextResponse.json({ job: approveCorrections(body.jobId, body.corrections) });
     }
     return NextResponse.json({ error: 'Unknown action. Valid actions: create|createBatch|update|retry|cancel|bulkRetry|bulkCancel|approveMetadata|approveCorrections' }, { status: 400 });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ error: error.message, code: error.code }, { status: error.status || 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

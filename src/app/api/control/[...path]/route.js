@@ -1,9 +1,11 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { proxyBackendRequest } from '../../../../lib/runtime/backendProxy';
+import { bridgeConfig, internalApiBase } from '../../../../lib/agent/auth.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const BLOCKED_PATHS = new Set(['control', 'runtime/settings', 'server']);
+const BLOCKED_PATHS = new Set(['control', 'runtime/settings', 'server', 'agent', 'auth']);
 
 function forwardedHeaders(request) {
   const headers = new Headers();
@@ -13,6 +15,7 @@ function forwardedHeaders(request) {
     }
   }
   headers.set('x-video-ops-local', '1');
+  if (bridgeConfig().operatorToken) headers.set('authorization', `Bearer ${bridgeConfig().operatorToken}`);
   return headers;
 }
 
@@ -26,7 +29,7 @@ async function handle(request, context) {
   if (proxied) return proxied;
 
   const incomingUrl = new URL(request.url);
-  const target = new URL(`/api/${routePath}${incomingUrl.search}`, incomingUrl.origin);
+  const target = new URL(`/api/${routePath}${incomingUrl.search}`, internalApiBase());
   const method = request.method.toUpperCase();
   const options = { method, headers: forwardedHeaders(request), cache: 'no-store' };
   if (!['GET', 'HEAD'].includes(method) && request.body) {
@@ -42,9 +45,16 @@ async function handle(request, context) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-export const GET = handle;
-export const POST = handle;
-export const PUT = handle;
-export const PATCH = handle;
-export const DELETE = handle;
-export const OPTIONS = handle;
+const handleGET = handle;
+const handlePOST = handle;
+const handlePUT = handle;
+const handlePATCH = handle;
+const handleDELETE = handle;
+const handleOPTIONS = handle;
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);
+export const PUT = withOperator(handlePUT);
+export const PATCH = withOperator(handlePATCH);
+export const DELETE = withOperator(handleDELETE);
+export const OPTIONS = withOperator(handleOPTIONS);

@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { NextResponse } from 'next/server';
@@ -10,7 +11,7 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 600;
 
-export async function POST(request) {
+async function handlePOST(request) {
   let projectId = '';
   try {
     const body = await request.json();
@@ -58,3 +59,5 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message || 'Frame extraction failed.', code: error.code }, { status });
   }
 }
+
+export const POST = withOperator(handlePOST);

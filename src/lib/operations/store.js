@@ -116,6 +116,7 @@ export function getVideoProcessGraph(videoId) {
     };
   }
   const jobPublic = job ? {
+    assets: assets.filter((asset) => asset.kind === 'metadata').map((asset) => ({ id: asset.id, kind: asset.kind, meta: parseJson(asset.meta_json, {}) })),
     id: job.id, status: job.status, currentStep: job.current_step, error: job.error || '',
     batchId: job.batch_id || '', priority: job.priority || 0,
     processorIds: parseJson(job.processor_ids_json, []), uploaderId: job.uploader_id || '', options: parseJson(job.options_json, {}),

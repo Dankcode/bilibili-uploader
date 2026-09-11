@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 /**
  * /api/settings/connections — the settings CRM backend.
  * GET → { checklist: [...listServiceChecklist(listConnections()),
@@ -14,7 +15,7 @@ import { listConnections, saveConnection, testService, setConnectionEnabled } fr
 import { refreshBilibiliLoginStatus, startBilibiliLogin } from '../../../../lib/video/bilibili';
 import { confirmYouTubeAuthorization, getYouTubeAuthorizationStatus, startDefaultYouTubeAuthorization, startYouTubeAuthorization } from '../../../../lib/youtube/oauth';
 
-export async function GET() {
+async function handleGET() {
   const connections = listConnections();
   const checklist = listServiceChecklist(connections).map((row) => {
     const connection = connections.find((entry) => entry.serviceId === row.id);
@@ -31,7 +32,7 @@ export async function GET() {
   return NextResponse.json({ checklist });
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     if (body.action === 'bilibili-login-start') {
@@ -70,3 +71,6 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

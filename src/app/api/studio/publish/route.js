@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import {
   getStudioAutoPublish, publishStudioProject, setStudioAutoPublish,
@@ -6,11 +7,11 @@ import { getStudioProject, publicStudioProject } from '@/lib/studio/store';
 
 export const runtime = 'nodejs';
 
-export async function GET() {
+async function handleGET() {
   return NextResponse.json({ autoPublish: getStudioAutoPublish() });
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     const job = publishStudioProject(String(body.projectId || ''), body.options || {});
@@ -23,10 +24,14 @@ export async function POST(request) {
   }
 }
 
-export async function PUT(request) {
+async function handlePUT(request) {
   try {
     return NextResponse.json({ autoPublish: setStudioAutoPublish(await request.json()) });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Could not save automatic publishing.' }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);
+export const PUT = withOperator(handlePUT);

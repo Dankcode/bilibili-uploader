@@ -1,10 +1,11 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { listConnections } from '@/lib/pipeline/connections';
 import { getOperationsOverview } from '@/lib/operations/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+async function handleGET() {
   try {
     const connections = listConnections();
     const overview = getOperationsOverview();
@@ -35,3 +36,5 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export const GET = withOperator(handleGET);

@@ -163,13 +163,19 @@ function assertLongUploadAllowed(authorization, durationSeconds) {
   );
 }
 
-function validateJobInput(input) {
+export function validateJobInput(input) {
   if (!input || typeof input !== 'object') throw new Error('Job input is required');
   const sourceId = String(input.sourceId || '').trim();
   const sourceInput = String(input.sourceInput || '').trim();
   const processorIds = Array.isArray(input.processorIds) ? input.processorIds.map(String) : [];
   const uploaderId = String(input.uploaderId || '').trim();
-  const options = input.options && typeof input.options === 'object' ? input.options : {};
+  const options = input.options && typeof input.options === 'object' ? structuredClone(input.options) : {};
+  const agentPrincipal = String(input.agentPrincipal || '');
+  if (agentPrincipal && uploaderId) {
+    if (!processorIds.includes('metadata')) throw new Error('Agent publishing jobs require the metadata processor and human review');
+    if (processorIds.at(-1) !== 'metadata') throw new Error('Agent publishing jobs require metadata as the final processor');
+    options.metadata = { ...options.metadata, reviewMetadata: true };
+  }
   const youtubeAuthorizationId = String(
     input.youtubeAuthorizationId || options.youtube?.authorizationId || '',
   ).trim();
@@ -208,6 +214,7 @@ function validateJobInput(input) {
   }
 
   return {
+    agentPrincipal,
     sourceId,
     sourceInput,
     processorIds,
@@ -380,6 +387,7 @@ function insertJob(input, { schedule = true } = {}) {
     createdAt
   );
   const jobId = Number(result.lastInsertRowid);
+  if (job.agentPrincipal) db.prepare('UPDATE video_jobs SET agent_principal = ? WHERE id = ?').run(job.agentPrincipal, jobId);
   createSteps(jobId, job.sourceId, job.processorIds, job.uploaderId);
   if (job.youtubeAuthorizationId) {
     bindJobToYouTubeAuthorization(jobId, job.youtubeAuthorizationId);
@@ -476,6 +484,7 @@ export function updateQueuedJob(jobId, patch = {}) {
     priority: patch.priority ?? existing.priority,
     scheduledFor: patch.scheduledFor ?? existing.scheduled_for,
     maxAttempts: existing.max_attempts,
+    agentPrincipal: existing.agent_principal,
   });
   const apply = db.transaction(() => {
     db.prepare(`
@@ -593,6 +602,12 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     currentFilePath = result.outputPath;
     currentMeta = { ...currentMeta, ...processorArtifacts };
   } else if (role === 'uploader') {
+    if (job.agent_principal) {
+      const approval = db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(job.id);
+      const asset = db.prepare("SELECT meta_json FROM video_assets WHERE job_id = ? AND kind = 'metadata' ORDER BY id DESC LIMIT 1").get(job.id);
+      if (!approval?.metadata_approved_by || !asset) throw new Error('Human metadata approval is required before publishing');
+      currentMeta = { ...currentMeta, ...parseJson(asset.meta_json, {}) };
+    }
     const adapter = UPLOADER_ADAPTERS[id];
     if (!adapter) throw new Error(`Uploader adapter unavailable: ${id}`);
     const authorization = id === 'youtube'
@@ -702,7 +717,13 @@ export async function runNextQueuedJob() {
     syncJobCatalog(job, 'running');
     const steps = db.prepare('SELECT * FROM video_job_steps WHERE job_id = ? ORDER BY id ASC').all(job.id);
     for (const step of steps) {
-      if (cancelSignals.get(job.id)?.canceled) throw new Error('Job canceled');
+      if (cancelSignals.get(job.id)?.canceled || db.prepare('SELECT cancel_requested FROM video_jobs WHERE id = ?').get(job.id)?.cancel_requested) throw new Error('Job canceled');
+      // A retry or an edited processor option must never bypass agent review.
+      if (step.step.startsWith('uploader:') && job.agent_principal && !db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(job.id)?.metadata_approved_by) {
+        db.prepare("UPDATE video_jobs SET status = 'review', current_step = 'review:metadata', updated_at = ? WHERE id = ?").run(nowIso(), job.id);
+        syncJobCatalog(job, 'review');
+        return job.id;
+      }
       if (step.status === 'ok') {
         const latestAsset = getLatestLocalAsset(job.id);
         if (latestAsset) {
@@ -731,7 +752,7 @@ export async function runNextQueuedJob() {
     if (job.video_record_id) emitMailEvent({ videoId: job.video_record_id, jobId: job.id, eventKind: 'job.completed', payload: { videoTitle: db.prepare('SELECT title FROM video_records WHERE id=?').get(job.video_record_id)?.title || '' } });
     logJob(job.id, `done in ${Date.now() - jobStartedAtMs} ms`);
   } catch (error) {
-    const status = cancelSignals.get(job.id)?.canceled ? 'canceled' : 'failed';
+    const status = cancelSignals.get(job.id)?.canceled || db.prepare('SELECT cancel_requested FROM video_jobs WHERE id = ?').get(job.id)?.cancel_requested ? 'canceled' : 'failed';
     const failedServiceId = activeStepName.split(':')[1];
     if (failedServiceId && status === 'failed') {
       try { recordOutcome(failedServiceId, { error }); } catch (outcomeError) { console.error('[Pipeline] Could not record connection outcome:', outcomeError.message); }
@@ -851,25 +872,26 @@ export function retryJob(jobId) {
   if (!['failed', 'canceled'].includes(job.status)) throw new Error('Only failed or canceled jobs can be retried');
   const attempts = db.prepare('SELECT MAX(attempt) AS attempts FROM video_job_steps WHERE job_id = ?').get(jobId)?.attempts || 1;
   if (attempts >= (job.max_attempts || 3)) throw new Error(`Maximum retry count reached (${job.max_attempts || 3})`);
-  const failedStep = db.prepare("SELECT id, attempt FROM video_job_steps WHERE job_id = ? AND status = 'failed' ORDER BY id ASC LIMIT 1").get(jobId);
+  const failedStep = db.prepare("SELECT id, attempt FROM video_job_steps WHERE job_id = ? AND status != 'ok' ORDER BY id ASC LIMIT 1").get(jobId);
   if (failedStep) {
     db.prepare(`
       UPDATE video_job_steps
       SET status = 'pending', progress = 0, progress_note = '', attempt = ?, started_at = NULL, finished_at = NULL
       WHERE id = ?
-    `).run((failedStep.attempt || 1) + 1, failedStep.id);
+    `).run(attempts + 1, failedStep.id);
   }
-  db.prepare("UPDATE video_jobs SET status = 'queued', error = '', updated_at = ? WHERE id = ?").run(nowIso(), jobId);
+  db.prepare("UPDATE video_jobs SET status = 'queued', cancel_requested = 0, error = '', updated_at = ? WHERE id = ?").run(nowIso(), jobId);
   syncJobCatalog(job, 'queued');
   if (job.video_row_id) updateVideoStatus(job.video_row_id, 'In progress');
   scheduleWorker();
   return { id: Number(jobId), status: 'queued' };
 }
 
-export function approveMetadata(jobId, patch = {}) {
+export function approveMetadata(jobId, patch = {}, actor = 'operator') {
   const job = db.prepare('SELECT * FROM video_jobs WHERE id = ?').get(jobId);
   if (!job) throw new Error(`Job not found: ${jobId}`);
-  if (job.status !== 'review') throw new Error('Only jobs waiting for metadata review can be approved');
+  if (job.status !== 'review' || job.current_step !== 'review:metadata') throw new Error('Only jobs waiting for metadata review can be approved');
+  if (actor !== 'operator') throw new Error('Only a human operator can approve metadata');
   const asset = db.prepare(`
     SELECT * FROM video_assets
     WHERE job_id = ? AND kind = 'metadata'
@@ -894,6 +916,9 @@ export function approveMetadata(jobId, patch = {}) {
     metadataReviewRequired: false,
     metadataApprovedAt: nowIso(),
   }), asset.id);
+  db.prepare('UPDATE video_jobs SET metadata_approved_by = ? WHERE id = ?').run(actor, jobId);
+  if (job.agent_principal) db.prepare('INSERT INTO agent_actions (principal, tool, arguments_json, result_json, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(actor, 'human_approve_metadata', JSON.stringify({ jobId }), JSON.stringify({ status: 'queued' }), nowIso());
   db.prepare(`
     UPDATE video_jobs
     SET status = 'queued', current_step = '', error = '', updated_at = ?
@@ -949,6 +974,7 @@ export function cancelJob(jobId) {
   if (!job) throw new Error(`Job not found: ${jobId}`);
 
   if (job.status === 'running') {
+    db.prepare('UPDATE video_jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?').run(nowIso(), jobId);
     const signal = cancelSignals.get(Number(jobId));
     if (signal) signal.canceled = true;
     logJob(jobId, 'cancel requested while running');
@@ -969,7 +995,8 @@ export function cancelJob(jobId) {
 }
 
 export function bulkJobAction(action, jobIds = []) {
-  const ids = [...new Set((Array.isArray(jobIds) ? jobIds : []).map(Number).filter(Number.isInteger))].slice(0, 100);
+  if (!Array.isArray(jobIds) || jobIds.length > 100 || jobIds.some((id) => !Number.isInteger(Number(id)) || Number(id) < 1)) throw new Error('Provide at most 100 positive job IDs');
+  const ids = [...new Set(jobIds.map(Number))];
   if (ids.length === 0) throw new Error('Select at least one job');
   if (!['retry', 'cancel'].includes(action)) throw new Error('Bulk action must be retry or cancel');
   const results = [];

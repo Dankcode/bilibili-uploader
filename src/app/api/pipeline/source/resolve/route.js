@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import * as bilibili from '../../../../../lib/pipeline/sources/bilibili.js';
 import * as douyin from '../../../../../lib/pipeline/sources/douyin.js';
@@ -10,7 +11,7 @@ const SOURCES = { bilibili, douyin, localFile };
  * Resolve is deliberately read-only: it normalizes input and fetches public
  * source metadata, but never creates a video, job, asset, or batch record.
  */
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const { sourceId, sourceInput } = await request.json();
     const source = SOURCES[String(sourceId || '').trim()];
@@ -21,3 +22,5 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const POST = withOperator(handlePOST);

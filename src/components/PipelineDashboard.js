@@ -6,7 +6,7 @@ import ProgressTree from './ProgressTree';
 
 const FILTERS = ['all', 'queued', 'running', 'review', 'failed', 'done', 'canceled'];
 
-function MetadataReview({ job, onApprove }) {
+export function MetadataReview({ job, onApprove }) {
   const asset = (job.assets || []).slice().reverse().find((item) => item.kind === 'metadata');
   const metadata = asset?.meta || {};
   const [titleEn, setTitleEn] = useState(metadata.titleEn || '');
@@ -14,6 +14,7 @@ function MetadataReview({ job, onApprove }) {
   const [tags, setTags] = useState((metadata.tags || []).join(', '));
   const [saving, setSaving] = useState(false);
   const [reviewError, setReviewError] = useState('');
+  const [version, setVersion] = useState(job.updatedAt);
 
   const approve = async () => {
     setSaving(true);
@@ -23,7 +24,7 @@ function MetadataReview({ job, onApprove }) {
         titleEn,
         descriptionEn,
         tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-      });
+      }, version);
     } catch (error) {
       setReviewError(error.message);
     } finally {
@@ -34,12 +35,14 @@ function MetadataReview({ job, onApprove }) {
   if (!asset) return <div className={styles.errorText}>Metadata review data is missing.</div>;
   return (
     <div className={styles.metadataReview}>
+      <h3>Human publishing approval</h3>
+      {version !== job.updatedAt && <p role="alert">This draft changed while you were reviewing it. <button type="button" onClick={() => { setTitleEn(metadata.titleEn || ''); setDescriptionEn(metadata.descriptionEn || ''); setTags((metadata.tags || []).join(', ')); setVersion(job.updatedAt); setReviewError(''); }}>Load latest draft</button></p>}
       <label><span>Title</span><input className={styles.input} value={titleEn} onChange={(event) => setTitleEn(event.target.value)} /></label>
       <label><span>Description</span><textarea className={styles.textarea} value={descriptionEn} onChange={(event) => setDescriptionEn(event.target.value)} /></label>
       <label><span>Tags</span><input className={styles.input} value={tags} onChange={(event) => setTags(event.target.value)} /></label>
       {reviewError && <div className={styles.errorText}>{reviewError}</div>}
       <button className={styles.saveBtn} onClick={approve}
-        disabled={saving || !titleEn.trim() || !descriptionEn.trim() || !tags.trim()}>{saving ? 'Approving...' : 'Approve and resume'}</button>
+        disabled={saving || version !== job.updatedAt || !titleEn.trim() || !descriptionEn.trim() || !tags.trim()}>{saving ? 'Approving...' : 'Approve and resume'}</button>
     </div>
   );
 }
@@ -95,10 +98,10 @@ export default function PipelineDashboard() {
     loadJobs();
   };
 
-  const approveMetadata = async (jobId, metadata) => {
+  const approveMetadata = async (jobId, metadata, version) => {
     const response = await fetch('/api/control/pipeline/jobs', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(version ? { 'If-Match': version } : {}) },
       body: JSON.stringify({ action: 'approveMetadata', jobId, metadata }),
     });
     const data = await response.json().catch(() => ({}));
@@ -149,7 +152,7 @@ export default function PipelineDashboard() {
               </div>
               <div className={styles.jobSource}>{job.sourceInput}</div>
               <ProgressTree job={job} />
-              {job.status === 'review' && <MetadataReview job={job} onApprove={approveMetadata} />}
+              {job.status === 'review' && job.currentStep === 'review:metadata' && <MetadataReview job={job} onApprove={approveMetadata} />}
               {!!job.assets?.length && (
                 <div className={styles.assetList}>
                   {job.assets.map((asset) => (

@@ -1,7 +1,8 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { getVideoAnalytics, recordMetricSnapshot } from '@/lib/operations/store';
 
-export async function GET() {
+async function handleGET() {
   try {
     return NextResponse.json(getVideoAnalytics());
   } catch (error) {
@@ -9,7 +10,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     if (!body.publicationId) throw new Error('publicationId is required');
@@ -19,3 +20,6 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

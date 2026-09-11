@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import { promises as fsPromises } from 'fs';
@@ -25,12 +26,12 @@ async function copyReadable(readable, destination) {
   await streamPipeline(readable, fs.createWriteStream(destination, { flags: 'wx' }));
 }
 
-export async function GET(request) {
+async function handleGET(request) {
   const quality = new URL(request.url).searchParams.get('quality') || 'fast';
   return NextResponse.json(getLocalWhisperStatus(quality));
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   let id = randomUUID();
   let directory = '';
   let hasProject = false;
@@ -144,3 +145,6 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message || 'Transcription failed.', projectId: hasProject ? id : null }, { status: 500 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

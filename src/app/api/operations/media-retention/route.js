@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import {
   deleteLocalMediaRetentionCandidates,
@@ -8,11 +9,11 @@ import {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET() {
+async function handleGET() {
   return NextResponse.json(getLocalMediaRetentionSettings());
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     if (body.action === 'settings') return NextResponse.json(updateLocalMediaRetentionSettings(body));
@@ -22,3 +23,6 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message || 'Could not manage local media retention' }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
@@ -8,7 +9,7 @@ import { probeVideo } from '@/lib/media/validation';
 
 export const runtime = 'nodejs';
 
-export async function POST(request) {
+async function handlePOST(request) {
   let destination = '';
   try {
     const form = await request.formData();
@@ -28,3 +29,5 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const POST = withOperator(handlePOST);

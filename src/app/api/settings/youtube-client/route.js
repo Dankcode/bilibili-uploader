@@ -1,14 +1,15 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { getYouTubeClientStatus, saveYouTubeClientSecret } from '@/lib/youtube/oauth';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET() {
+async function handleGET() {
   return NextResponse.json({ client: getYouTubeClientStatus() });
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const form = await request.formData();
     const file = form.get('file');
@@ -21,3 +22,6 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message || 'Could not save Google OAuth client configuration' }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

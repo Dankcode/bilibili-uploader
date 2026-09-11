@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -33,11 +34,11 @@ function overlappingSegments(segments, frame) {
   return segments.filter((segment) => segment.start < end && segment.end > start);
 }
 
-export async function GET() {
+async function handleGET() {
   return NextResponse.json(getVisionStatus());
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   let projectId = '';
   let handoffPath = '';
   let handoff = null;
@@ -215,3 +216,6 @@ export async function POST(request) {
     }, { status });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

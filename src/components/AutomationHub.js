@@ -292,7 +292,7 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
     setReviewSaving(key);
     try {
       const response = await fetch('/api/control/operations/bilibili-scrapes', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(video.updatedAt ? { 'If-Match': video.updatedAt } : {}) },
         body: JSON.stringify({
           creatorId: video.creatorId, bvid: video.bvid, selected: video.selected, title: video.title, description: video.description,
           scheduledFor: video.scheduledFor, scheduleDays: video.scheduleDays, copyPrompt: video.copyPrompt,

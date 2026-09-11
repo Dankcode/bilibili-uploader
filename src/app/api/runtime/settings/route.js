@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
@@ -17,7 +18,7 @@ export const dynamic = 'force-dynamic';
 
 function assertSameOrigin(request) {
   const origin = request.headers.get('origin');
-  if (!origin) return;
+  if (!origin) throw new Error('An Origin header is required for settings changes');
   const originUrl = new URL(origin);
   const requestUrl = new URL(request.url);
   const forwardedHost = String(request.headers.get('x-forwarded-host') || request.headers.get('host') || '').trim();
@@ -60,7 +61,7 @@ async function inspectRuntime(settings) {
   return { connection: 'online', database: getDatabaseStatus() };
 }
 
-export async function GET() {
+async function handleGET() {
   const settings = readRuntimeSettings();
   return Response.json({
     settings: publicRuntimeSettings(settings),
@@ -68,7 +69,7 @@ export async function GET() {
   });
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     assertSameOrigin(request);
     const body = await request.json();
@@ -100,3 +101,6 @@ export async function POST(request) {
     return Response.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

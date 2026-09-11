@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -18,7 +19,7 @@ function sha256(value) {
   return createHash('sha256').update(String(value || '')).digest('hex');
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   let projectId = '';
   try {
     const body = await request.json();
@@ -152,3 +153,5 @@ export async function POST(request) {
     }, { status });
   }
 }
+
+export const POST = withOperator(handlePOST);

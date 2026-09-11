@@ -1,3 +1,4 @@
+import { withOperator } from '../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import {
   approveSceneScript,
@@ -12,7 +13,7 @@ import {
 } from '../../../lib/scenes/store';
 import { createJob } from '../../../lib/pipeline/pipeline';
 
-export async function GET(request) {
+async function handleGET(request) {
   const { searchParams } = new URL(request.url);
   const showId = Number(searchParams.get('showId') || 0);
   return NextResponse.json({
@@ -22,7 +23,7 @@ export async function GET(request) {
   });
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     if (body.action === 'add-show') {
@@ -89,3 +90,6 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);
