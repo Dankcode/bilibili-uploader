@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../../lib/agent/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { Readable } from 'stream';
@@ -34,7 +35,7 @@ function streamFile(filePath, request, allowRange) {
   });
 }
 
-export async function GET(request, { params }) {
+async function handleGET(request, { params }) {
   try {
     const project = getStudioProject(params.id);
     if (!project) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });
@@ -48,3 +49,5 @@ export async function GET(request, { params }) {
     return NextResponse.json({ error: error.message || 'Could not stream media.' }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);

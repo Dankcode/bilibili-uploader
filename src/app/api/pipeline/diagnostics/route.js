@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 /**
  * /api/pipeline/diagnostics — troubleshooter feed + run preflight.
  * GET  → { checks: runDiagnostics() }                    (stored health + system checks)
@@ -9,7 +10,7 @@
 import { NextResponse } from 'next/server';
 import { refreshDiagnostics, runDiagnostics, runPreflight } from '../../../../lib/pipeline/diagnostics';
 
-export async function GET() {
+async function handleGET() {
   try {
     return NextResponse.json({ checks: await runDiagnostics() });
   } catch (error) {
@@ -17,7 +18,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     if (body.action === 'refresh') {
@@ -28,3 +29,6 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

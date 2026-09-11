@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import {
   listYouTubeAuthorizations,
@@ -8,11 +9,11 @@ import {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET() {
+async function handleGET() {
   return NextResponse.json({ authorizations: listYouTubeAuthorizations() });
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const authorization = registerYouTubeAuthorization(await request.json());
     return NextResponse.json({ authorization }, { status: 201 });
@@ -21,7 +22,7 @@ export async function POST(request) {
   }
 }
 
-export async function PATCH(request) {
+async function handlePATCH(request) {
   try {
     const body = await request.json();
     if (!body.id) throw new Error('Authorization id is required');
@@ -31,3 +32,7 @@ export async function PATCH(request) {
     return NextResponse.json({ error: error.message || 'Could not update YouTube authorization' }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);
+export const PATCH = withOperator(handlePATCH);

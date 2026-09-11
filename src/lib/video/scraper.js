@@ -73,6 +73,7 @@ async function browserJson(page, resource) {
   return page.evaluate(async (url) => {
     const response = await fetch(url, {
       credentials: 'include',
+      signal: AbortSignal.timeout(30000),
       headers: { Accept: 'application/json, text/plain, */*' },
     });
     const text = await response.text();
@@ -102,6 +103,25 @@ async function requestSpaceVideos(page, accountId, pageNumber, keys) {
   const url = new URL(SPACE_VIDEO_API_URL);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
   return parseBilibiliSpaceVideos(await browserJson(page, url.toString()));
+}
+
+/** Agent scanning is explicitly paged; never silently report a capped scan as complete. */
+export async function scanBilibiliCreatorPage(creatorUrl, pageNumber = 1) {
+  const target = bilibiliSpacePageUrl(creatorUrl, pageNumber);
+  const accountId = accountIdFromSpaceUrl(target);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const storagePath = bilibiliStoragePath();
+    const context = await browser.newContext({ userAgent: BILIBILI_USER_AGENT,
+      ...(fs.existsSync(storagePath) ? { storageState: storagePath } : {}) });
+    const page = await context.newPage();
+    await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    // No DOM fallback here: an ambiguous page must be an error, not "complete".
+    const result = await requestSpaceVideos(page, accountId, pageNumber, await wbiKeys(page));
+    if (!result.videos.length && (pageNumber - 1) * PAGE_SIZE < result.total) throw new Error('Bilibili returned an incomplete page; retry later');
+    return { creatorId: accountId, videos: result.videos, total: result.total,
+      nextPage: pageNumber * PAGE_SIZE < result.total ? pageNumber + 1 : null };
+  } finally { await browser.close(); }
 }
 
 async function scrapeVideoCards(page) {

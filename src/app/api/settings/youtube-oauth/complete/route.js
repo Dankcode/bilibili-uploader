@@ -1,10 +1,11 @@
+import { withOperator } from '../../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { completeWebYouTubeAuthorization } from '@/lib/youtube/oauth';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     const youtubeAuthorization = await completeWebYouTubeAuthorization({
@@ -17,3 +18,5 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message || 'Could not complete Google sign-in' }, { status: 400 });
   }
 }
+
+export const POST = withOperator(handlePOST);

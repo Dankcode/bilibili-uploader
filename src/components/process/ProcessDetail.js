@@ -6,6 +6,7 @@ import ProcessCanvas from './ProcessCanvas';
 import ProcessHeader from './ProcessHeader';
 import NodeInspector from './NodeInspector';
 import ProcessEditor from './ProcessEditor';
+import { MetadataReview } from '../PipelineDashboard';
 import styles from '../../app/page.module.css';
 
 export default function ProcessDetail({ videoId, embedded = false, onClose = null, onChanged = null }) {
@@ -46,6 +47,12 @@ export default function ProcessDetail({ videoId, embedded = false, onClose = nul
     window.addEventListener('keydown', onEscape); return () => window.removeEventListener('keydown', onEscape);
   }, [router, selectedId, embedded, onClose]);
   function select(id) { setSelectedId(id); window.history.replaceState(null, '', `#node=${encodeURIComponent(id)}`); }
+  async function approveMetadata(jobId, metadata, version) {
+    const response = await fetch('/api/control/pipeline/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': version }, body: JSON.stringify({ action: 'approveMetadata', jobId, metadata }) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Could not approve metadata');
+    await load();
+  }
   async function action(action) {
     const response = await fetch('/api/control/pipeline/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, jobId: data.job.id }) });
     const payload = await response.json();
@@ -55,5 +62,5 @@ export default function ProcessDetail({ videoId, embedded = false, onClose = nul
   if (error && !data) return <div className={styles.processError}><p>{error}</p><button className={styles.buttonPrimary} type="button" onClick={load}>Retry</button></div>;
   if (!data) return <div className={styles.processLoading}><span /><span /><span /><span /></div>;
   const selected = data.graph?.nodes?.find((node) => node.id === selectedId) || null;
-  return <section className={styles.processDetail}><ProcessHeader data={data} live={live} onLive={setLive} onAction={action} onBack={back} onEdit={() => setEditing(true)} /><div className={styles.processContent}><div className={styles.processCanvasPanel}>{data.planned ? <p className={styles.processEmpty}>This video has not run yet — its planned chain is shown below.</p> : null}<ProcessCanvas graph={data.graph} selectedId={selectedId} onSelect={select} /><small className={styles.processUpdated}>{live ? 'Live updates enabled' : 'Updates paused'} · {updatedAt ? `updated ${updatedAt.toLocaleTimeString()}` : ''}</small>{mailEvents.length > 0 && <div className={styles.preflightList}><strong>Mail timeline</strong>{mailEvents.map((event) => <div className={styles.checkItem} key={event.id}><div className={styles.jobTopLine}><strong>{event.subject || event.eventKind}</strong><span>{event.severity || event.direction}</span></div><div className={styles.jobSource}>{event.detail || event.snippet}</div><small>{event.receivedAt || event.sentAt}</small></div>)}</div>}</div>{selected ? <NodeInspector node={selected} videoId={videoId} jobId={data.job?.id} canApproveCorrections={data.capabilities.canApproveCorrections} onClose={() => setSelectedId('')} onRefresh={load} /> : null}</div>{editing ? <ProcessEditor job={data.job} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); onChanged?.(); }} /> : null}{error ? <div className={styles.inlineError}>{error}</div> : null}</section>;
+  return <section className={styles.processDetail}><ProcessHeader data={data} live={live} onLive={setLive} onAction={action} onBack={back} onEdit={() => setEditing(true)} />{data.capabilities.canApproveMetadata && <MetadataReview key={data.job.id} job={data.job} onApprove={approveMetadata} />}<div className={styles.processContent}><div className={styles.processCanvasPanel}>{data.planned ? <p className={styles.processEmpty}>This video has not run yet — its planned chain is shown below.</p> : null}<ProcessCanvas graph={data.graph} selectedId={selectedId} onSelect={select} /><small className={styles.processUpdated}>{live ? 'Live updates enabled' : 'Updates paused'} · {updatedAt ? `updated ${updatedAt.toLocaleTimeString()}` : ''}</small>{mailEvents.length > 0 && <div className={styles.preflightList}><strong>Mail timeline</strong>{mailEvents.map((event) => <div className={styles.checkItem} key={event.id}><div className={styles.jobTopLine}><strong>{event.subject || event.eventKind}</strong><span>{event.severity || event.direction}</span></div><div className={styles.jobSource}>{event.detail || event.snippet}</div><small>{event.receivedAt || event.sentAt}</small></div>)}</div>}</div>{selected ? <NodeInspector node={selected} videoId={videoId} jobId={data.job?.id} canApproveCorrections={data.capabilities.canApproveCorrections} onClose={() => setSelectedId('')} onRefresh={load} /> : null}</div>{editing ? <ProcessEditor job={data.job} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); onChanged?.(); }} /> : null}{error ? <div className={styles.inlineError}>{error}</div> : null}</section>;
 }

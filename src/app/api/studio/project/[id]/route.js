@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../../lib/agent/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { Readable } from 'stream';
@@ -18,7 +19,7 @@ function downloadResponse(body, filename, contentType = 'text/plain; charset=utf
   });
 }
 
-export async function GET(request, { params }) {
+async function handleGET(request, { params }) {
   const project = getStudioProject(params.id);
   if (!project) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });
   const download = new URL(request.url).searchParams.get('download');
@@ -37,7 +38,7 @@ export async function GET(request, { params }) {
   return NextResponse.json({ error: 'Unsupported download format.' }, { status: 400 });
 }
 
-export async function PUT(request, { params }) {
+async function handlePUT(request, { params }) {
   try {
     const current = getStudioProject(params.id);
     if (!current) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });
@@ -124,8 +125,12 @@ export async function PUT(request, { params }) {
   }
 }
 
-export async function DELETE(_request, { params }) {
+async function handleDELETE(_request, { params }) {
   if (!getStudioProject(params.id)) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });
   deleteStudioProject(params.id);
   return NextResponse.json({ deleted: true });
 }
+
+export const GET = withOperator(handleGET);
+export const PUT = withOperator(handlePUT);
+export const DELETE = withOperator(handleDELETE);

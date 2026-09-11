@@ -1,10 +1,12 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
+import { withVersion } from '../../../../lib/agent/concurrency.js';
 import { listScrapedBilibiliVideos, updateScrapedBilibiliVideo } from '@/lib/video/scrapedCatalog';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export async function GET(request) {
+async function handleGET(request) {
   try {
     const params = new URL(request.url).searchParams;
     return NextResponse.json(listScrapedBilibiliVideos({
@@ -16,10 +18,15 @@ export async function GET(request) {
   }
 }
 
-export async function PATCH(request) {
+async function handlePATCH(request) {
   try {
-    return NextResponse.json({ video: updateScrapedBilibiliVideo(await request.json()) });
+    const body = await request.json();
+    const video = withVersion('bilibili_scraped_videos', 'creator_id = ? AND bvid = ?', [body.creatorId, body.bvid], request.headers.get('if-match'), () => updateScrapedBilibiliVideo(body));
+    return NextResponse.json({ video });
   } catch (error) {
-    return NextResponse.json({ error: error.message || 'Could not update scraped Bilibili video' }, { status: 400 });
+    return NextResponse.json({ error: error.message || 'Could not update scraped Bilibili video', code: error.code }, { status: error.status || 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const PATCH = withOperator(handlePATCH);

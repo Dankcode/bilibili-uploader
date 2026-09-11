@@ -41,7 +41,7 @@ export default function ProcessEditor({ job, onClose, onSaved }) {
     setSaving(true);
     try {
       const response = await fetch('/api/control/pipeline/jobs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(job.updatedAt ? { 'If-Match': job.updatedAt } : {}) },
         body: JSON.stringify({
           action: 'update', jobId: job.id,
           patch: {

@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { NextResponse } from 'next/server';
@@ -11,7 +12,7 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 600;
 
-export async function POST(request) {
+async function handlePOST(request) {
   let projectId = '';
   try {
     const body = await request.json();
@@ -68,7 +69,7 @@ export async function POST(request) {
   }
 }
 
-export async function DELETE(request) {
+async function handleDELETE(request) {
   try {
     const body = await request.json();
     const project = getStudioProject(body.projectId);
@@ -79,3 +80,6 @@ export async function DELETE(request) {
     return NextResponse.json({ error: error.message || 'Could not reset refine history.' }, { status: 500 });
   }
 }
+
+export const POST = withOperator(handlePOST);
+export const DELETE = withOperator(handleDELETE);

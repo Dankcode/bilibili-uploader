@@ -559,6 +559,22 @@ export function initDB() {
   addColumnIfMissing('video_jobs', 'heartbeat_at', "TEXT DEFAULT ''");
   addColumnIfMissing('video_jobs', 'worker_id', "TEXT DEFAULT ''");
   addColumnIfMissing('video_jobs', 'max_attempts', 'INTEGER DEFAULT 3');
+  addColumnIfMissing('video_jobs', 'agent_principal', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('video_jobs', 'metadata_approved_by', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('video_jobs', 'cancel_requested', 'INTEGER NOT NULL DEFAULT 0');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_idempotency (
+      principal TEXT NOT NULL, key TEXT NOT NULL, tool TEXT NOT NULL,
+      request_hash TEXT NOT NULL, response_json TEXT, created_at TEXT NOT NULL,
+      PRIMARY KEY (principal, key)
+    );
+    CREATE TABLE IF NOT EXISTS agent_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, principal TEXT NOT NULL,
+      tool TEXT NOT NULL, arguments_json TEXT NOT NULL, result_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS agent_actions_created ON agent_actions(created_at);
+  `);
   addColumnIfMissing('video_job_steps', 'metrics_json', "TEXT DEFAULT '{}'");
   // Connection outcomes are shared by the Connections screen, overview rail,
   // and diagnostics. Keep these additive for installations created before the

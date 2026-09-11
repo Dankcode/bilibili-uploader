@@ -1,5 +1,12 @@
 'use server'
 
+import { headers } from 'next/headers';
+import { operatorGuard } from '../lib/agent/auth.js';
+function assertOperatorAction() {
+ const request = { headers: headers(), method: 'GET' };
+ if (operatorGuard(request)) throw new Error('Operator authentication required');
+}
+
 import { WorkflowService } from '@/lib/services/WorkflowService';
 import { 
   getVideos, manualEdit, updateVideoStatus, getVideoById,
@@ -11,6 +18,7 @@ import { revalidatePath } from 'next/cache';
 // --- Video Actions ---
 
 export async function fetchVideos(spaceId = null) {
+  assertOperatorAction();
   try {
     return getVideos(spaceId);
   } catch (error) {
@@ -20,6 +28,7 @@ export async function fetchVideos(spaceId = null) {
 }
 
 export async function updateVideo(id, data) {
+  assertOperatorAction();
   try {
     manualEdit(id, data);
     revalidatePath('/');
@@ -33,6 +42,7 @@ export async function updateVideo(id, data) {
 // --- YouTube Channel Actions (Top-Level Tabs) ---
 
 export async function fetchYouTubeChannels() {
+  assertOperatorAction();
   try {
     return getYouTubeChannels();
   } catch (error) {
@@ -42,6 +52,7 @@ export async function fetchYouTubeChannels() {
 }
 
 export async function createYouTubeChannel(channelId, name) {
+  assertOperatorAction();
   try {
     addYouTubeChannel(channelId, name);
     revalidatePath('/');
@@ -52,6 +63,7 @@ export async function createYouTubeChannel(channelId, name) {
 }
 
 export async function removeYouTubeChannel(id) {
+  assertOperatorAction();
   try {
     deleteYouTubeChannel(id);
     revalidatePath('/');
@@ -64,6 +76,7 @@ export async function removeYouTubeChannel(id) {
 // --- Bilibili Space Actions (Sub-Tabs) ---
 
 export async function fetchSpaces(youtubeChannelId = null) {
+  assertOperatorAction();
   try {
     return getSpaces(youtubeChannelId);
   } catch (error) {
@@ -73,6 +86,7 @@ export async function fetchSpaces(youtubeChannelId = null) {
 }
 
 export async function createSpace(youtubeChannelId, spaceId, name) {
+  assertOperatorAction();
   try {
     addSpace(youtubeChannelId, spaceId, name);
     revalidatePath('/');
@@ -84,6 +98,7 @@ export async function createSpace(youtubeChannelId, spaceId, name) {
 }
 
 export async function removeSpace(id) {
+  assertOperatorAction();
   try {
     deleteSpace(id);
     revalidatePath('/');
@@ -96,6 +111,7 @@ export async function removeSpace(id) {
 // --- Workflow Actions ---
 
 export async function triggerWorkflow(spaceId) {
+  assertOperatorAction();
   const service = new WorkflowService(spaceId);
   try {
     await service.execute();
@@ -107,6 +123,7 @@ export async function triggerWorkflow(spaceId) {
 }
 
 export async function triggerSpecificVideo(videoId) {
+  assertOperatorAction();
   try {
     const video = await getVideoById(videoId);
     if (!video) throw new Error('Video not found');
@@ -126,6 +143,7 @@ export async function triggerSpecificVideo(videoId) {
 }
 
 export async function triggerContinuousWorkflow(spaceId) {
+  assertOperatorAction();
   const service = new WorkflowService(spaceId);
   try {
     const job = await service.execute();
@@ -136,6 +154,7 @@ export async function triggerContinuousWorkflow(spaceId) {
 }
 
 export async function startupCheck() {
+  assertOperatorAction();
   try {
     await WorkflowService.checkAllDueUploads();
     return { success: true };

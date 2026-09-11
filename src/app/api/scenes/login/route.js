@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { NextResponse } from 'next/server';
@@ -8,7 +9,7 @@ function loginPath(siteId) {
   return path.join(loginDir, `${String(siteId || '').replace(/[^\w:-]+/g, '_')}.json`);
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     const body = await request.json();
     const siteId = String(body.siteId || '').trim();
@@ -40,3 +41,5 @@ export async function POST(request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const POST = withOperator(handlePOST);

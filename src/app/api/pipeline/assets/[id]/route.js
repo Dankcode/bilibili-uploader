@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../../lib/agent/auth.js';
 import fs from 'fs';
 import path from 'path';
 import { Readable } from 'stream';
@@ -19,7 +20,7 @@ function isInside(parent, child) {
   return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-export async function GET(_request, { params }) {
+async function handleGET(_request, { params }) {
   const id = Number(params.id);
   if (!Number.isFinite(id)) {
     return NextResponse.json({ error: 'Invalid asset id' }, { status: 400 });
@@ -51,3 +52,5 @@ export async function GET(_request, { params }) {
     },
   });
 }
+
+export const GET = withOperator(handleGET);

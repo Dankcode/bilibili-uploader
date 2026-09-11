@@ -1,8 +1,9 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { createJobBatch } from '@/lib/pipeline/pipeline';
 import { listAutomationBatches } from '@/lib/operations/store';
 
-export async function GET(request) {
+async function handleGET(request) {
   try {
     const limit = new URL(request.url).searchParams.get('limit') || 20;
     return NextResponse.json({ batches: listAutomationBatches({ limit }) });
@@ -11,10 +12,13 @@ export async function GET(request) {
   }
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     return NextResponse.json({ batch: createJobBatch(await request.json()) });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);

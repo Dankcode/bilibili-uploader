@@ -1,9 +1,10 @@
+import { withOperator } from '../../../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { getVideoProcessGraph } from '@/lib/operations/store';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(_request, { params }) {
+async function handleGET(_request, { params }) {
   try {
     const payload = getVideoProcessGraph(params.id);
     if (!payload) return NextResponse.json({ error: 'Video not found' }, { status: 404 });
@@ -12,3 +13,5 @@ export async function GET(_request, { params }) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+export const GET = withOperator(handleGET);

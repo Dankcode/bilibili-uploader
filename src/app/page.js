@@ -14,6 +14,7 @@ import VideoAnalytics from '@/components/VideoAnalytics';
 import VideoLibrary from '@/components/VideoLibrary';
 import ProcessDetail from '@/components/process/ProcessDetail';
 import MailCenter from '@/components/MailCenter';
+import AgentActivity from '@/components/AgentActivity';
 import styles from './page.module.css';
 
 const NAV_GROUPS = [
@@ -34,6 +35,7 @@ const NAV_GROUPS = [
       ['connections', 'Connections', PlugZap, 'Authorize providers and YouTube channels.'],
       ['runtime', 'Runtime', Server, 'Configure database location, backend API, and worker.'],
       ['diagnostics', 'Diagnostics', Stethoscope, 'Run system checks and inspect configuration.'],
+      ['agent', 'MCP activity', Workflow, 'Inspect agent changes and human publishing approvals.'],
     ],
   },
 ];
@@ -48,6 +50,7 @@ const VIEW_META = {
   connections: ['Connections', 'Accounts and provider credentials'],
   runtime: ['Runtime', 'Database, API, and worker topology'],
   diagnostics: ['Diagnostics', 'System checks'],
+  agent: ['MCP activity', 'Agent bridge and saved action history'],
 };
 
 export default function Dashboard() {
@@ -164,6 +167,7 @@ export default function Dashboard() {
           {activeView === 'connections' && <ServiceConnections section="accounts" />}
           {activeView === 'runtime' && <ServiceConnections section="runtime" />}
           {activeView === 'diagnostics' && <Troubleshooter onNavigate={navigate} />}
+          {activeView === 'agent' && <AgentActivity />}
         </main>
         {processVideoId && <div className={styles.modalOverlay} onMouseDown={(event) => event.target === event.currentTarget && setProcessVideoId('')}><div className={styles.dashboardProcessDrawer}><ProcessDetail videoId={processVideoId} embedded onClose={() => setProcessVideoId('')} onChanged={refreshWorkspace} /></div></div>}
       </div>

@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { previewScrapedBilibiliMetadata } from '@/lib/video/scrapedCatalog';
 
@@ -11,10 +12,12 @@ export const runtime = 'nodejs';
  * The same authenticated control route is available to Codex at
  * /api/control/operations/bilibili-scrapes/preview.
  */
-export async function POST(request) {
+async function handlePOST(request) {
   try {
     return NextResponse.json({ video: await previewScrapedBilibiliMetadata(await request.json()) });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Could not generate AI metadata preview' }, { status: 400 });
   }
 }
+
+export const POST = withOperator(handlePOST);

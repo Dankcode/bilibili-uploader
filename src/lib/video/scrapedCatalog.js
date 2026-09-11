@@ -159,6 +159,7 @@ function rowToScrapedVideo(row, delivery = {}) {
   const isLongVideo = durationSeconds > YOUTUBE_UNVERIFIED_DURATION_SECONDS;
   return {
     id: Number(row.id), creatorId: row.creator_id, bvid: row.bvid, url: row.source_url,
+    updatedAt: row.updated_at,
     title: row.delivery_title || row.source_title,
     description: row.delivery_description || row.source_description,
     sourceTitle: row.source_title, sourceDescription: row.source_description,
@@ -205,7 +206,8 @@ export function saveScrapedBilibiliVideos(rawCreatorId, videos = []) {
       updated_at = excluded.updated_at
   `);
   const save = db.transaction(() => {
-    for (const video of videos.slice(0, 100)) {
+    if (!Array.isArray(videos) || videos.length > 100) throw new Error('Save at most 100 scraped videos per page');
+    for (const video of videos) {
       const bvid = bvidFromVideo(video);
       const title = clean(video?.name || video?.title, 240) || bvid;
       const description = clean(video?.description, 4000);
@@ -246,6 +248,33 @@ export function listScrapedBilibiliVideos({ creatorId: rawCreatorId = '', query 
     hiddenUploaded: includeUploaded ? 0 : hiddenUploaded,
     stateCounts,
   };
+}
+
+export function getSavedCreatorVideo(creator, bvid) {
+  const row = db.prepare('SELECT * FROM bilibili_scraped_videos WHERE creator_id = ? AND bvid = ?').get(creator, bvid);
+  return row ? rowToScrapedVideo(row, deliveryMatchesFor([row]).get(bvidKey(row.bvid))) : null;
+}
+
+export function pageSavedCreatorVideos({ creatorId: creator, cursor = '0', limit = 25, includeUploaded = false }) {
+  // Advance over omitted uploaded rows too, so a page of uploads cannot trap a client.
+  let after = Number(cursor); const items = [];
+  const next = db.prepare('SELECT * FROM bilibili_scraped_videos WHERE creator_id = ? AND id > ? ORDER BY id LIMIT 100');
+  let exhausted = false;
+  while (items.length <= limit && !exhausted) {
+    const rows = next.all(creator, after);
+    if (!rows.length) break;
+    const matches = deliveryMatchesFor(rows);
+    for (const row of rows) {
+      const video = rowToScrapedVideo(row, matches.get(bvidKey(row.bvid)));
+      if (includeUploaded || !video.isUploaded) {
+        if (items.length === limit) return { items, nextCursor: String(after) };
+        items.push(video);
+      }
+      after = row.id;
+    }
+    exhausted = rows.length < 100;
+  }
+  return { items, nextCursor: null };
 }
 
 export function updateScrapedBilibiliVideo({

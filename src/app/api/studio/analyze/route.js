@@ -1,3 +1,4 @@
+import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { analyzeTranscript, getTranscriptAnalysisStatus } from '@/lib/studio/analysis';
 import {
@@ -7,12 +8,12 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 600;
 
-export async function GET(request) {
+async function handleGET(request) {
   const provider = new URL(request.url).searchParams.get('provider') || undefined;
   return NextResponse.json(getTranscriptAnalysisStatus(provider));
 }
 
-export async function POST(request) {
+async function handlePOST(request) {
   let projectId = '';
   try {
     const body = await request.json();
@@ -49,7 +50,7 @@ export async function POST(request) {
   }
 }
 
-export async function PUT(request) {
+async function handlePUT(request) {
   try {
     const body = await request.json();
     const project = getStudioProject(body.projectId);
@@ -69,3 +70,7 @@ export async function PUT(request) {
     return NextResponse.json({ error: error.message || 'Could not save transcript analysis.' }, { status: 500 });
   }
 }
+
+export const GET = withOperator(handleGET);
+export const POST = withOperator(handlePOST);
+export const PUT = withOperator(handlePUT);
