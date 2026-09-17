@@ -41,7 +41,7 @@ function deliveryStateClass(state) {
 
 const DEFAULT_YOUTUBE_OPTIONS = {
   privacyStatus: 'private', categoryId: '', defaultLanguage: 'en', license: 'youtube',
-  madeForKids: false, embeddable: true, notifySubscribers: false,
+  madeForKids: false, embeddable: true, notifySubscribers: false, uploadMethod: 'api',
 };
 
 const DEFAULT_STEPS = {
@@ -447,7 +447,8 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
     setError('');
     if (!sourceItems.length) return setError('Add at least one video source.');
     if (steps.faceFusion && !faceSource.trim()) return setError('A face source image path is required for face swap.');
-    if (steps.publish && !youtubeAuthorizationId) return setError('Choose an authorized YouTube channel before queueing this upload.');
+    const studioUpload = youtubeOptions.uploadMethod === 'studio';
+    if (steps.publish && !studioUpload && !youtubeAuthorizationId) return setError('Choose an authorized YouTube channel before queueing this upload.');
     setSubmitting(true);
     const processorIds = STEP_ORDER.filter((step) => step.id !== 'publish' && steps[step.id]).map((step) => step.id);
     try {
@@ -464,7 +465,7 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
             sourceDurationSeconds: item.durationSeconds || 0,
             processorIds,
             uploaderId: steps.publish ? 'youtube' : '',
-            youtubeAuthorizationId: steps.publish ? youtubeAuthorizationId : '',
+            youtubeAuthorizationId: steps.publish && !studioUpload ? youtubeAuthorizationId : '',
             campaign,
             language,
             priority: 0,
@@ -482,7 +483,7 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
                 sourceUrl: item.url || item.ref, creatorId: item.creatorId || '', bvid: item.bvid || '', uploadedAt: item.uploadedAt || '',
                 copyPrompt: item.copyPrompt || '',
               },
-              youtube: { ...youtubeOptions, ...(item.youtubeOptions || {}) },
+              youtube: { ...youtubeOptions, ...(item.youtubeOptions || {}), uploadMethod: youtubeOptions.uploadMethod || 'api' },
             },
           })),
         }),
@@ -618,7 +619,13 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
             </div>
             <label className={styles.formField}><span>Batch name</span><input value={batchName} onChange={(event) => setBatchName(event.target.value)} placeholder="August launch" /></label>
             <label className={styles.formField}><span>Campaign</span><input value={campaign} onChange={(event) => setCampaign(event.target.value)} placeholder="Campaign or series" /></label>
-            {steps.publish && <PublishTarget authorizations={localAuthorizations} value={youtubeAuthorizationId} onChange={setYoutubeAuthorizationId} durationSeconds={Math.max(0, ...sourceItems.map((item) => Number(item.durationSeconds) || 0))} />}
+            {steps.publish && <label className={styles.formField}><span>Upload method</span><select value={youtubeOptions.uploadMethod || 'api'} onChange={(event) => setYoutubeOptions((current) => ({ ...current, uploadMethod: event.target.value }))}>
+              <option value="api">YouTube API — authorized channel, uses daily quota</option>
+              <option value="studio">YouTube Studio screen automation — no API, no quota</option>
+            </select>
+              {youtubeOptions.uploadMethod === 'studio' && <small className={styles.fieldHint}>Uploads go to whichever channel the browser on the upload machine is signed in to. Capture the screen templates there first (Publish ▸ Studio screen uploader). Sign-in and verification prompts pause the upload until you finish them.</small>}
+            </label>}
+            {steps.publish && youtubeOptions.uploadMethod !== 'studio' && <PublishTarget authorizations={localAuthorizations} value={youtubeAuthorizationId} onChange={setYoutubeAuthorizationId} durationSeconds={Math.max(0, ...sourceItems.map((item) => Number(item.durationSeconds) || 0))} />}
             {steps.publish && <div className={styles.youtubeOptions}>
               <div><span className={styles.eyebrow}>YouTube delivery</span><p>Tags are intentionally blank: the AI metadata step creates them from each row’s copy brief.</p></div>
               <div className={styles.formGridTwo}>

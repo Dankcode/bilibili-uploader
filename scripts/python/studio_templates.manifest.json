@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "description": "Screen templates for the image-driven YouTube Studio uploader (YOUTUBE_UPLOAD_METHOD=studio). Capture each one on the machine that uploads with: python3 scripts/python/youtube_studio_vision_uploader.py --calibrate. Images are screen-, theme-, zoom- and language-specific, so they live in config/studio_templates/<profile>/ and are never committed.",
+  "templates": {
+    "dashboard_ready": {
+      "required": true,
+      "role": "marker",
+      "hint": "Something only visible when YouTube Studio is loaded and signed in, e.g. the 'Channel dashboard' heading or the Studio logo."
+    },
+    "channel_badge": {
+      "required": false,
+      "role": "marker",
+      "hint": "Your channel's avatar or name as Studio shows it. When captured, every upload first checks the browser is signed into THIS channel."
+    },
+    "create_button": {
+      "required": true,
+      "role": "click",
+      "hint": "The CREATE button (camera icon) in the Studio top bar."
+    },
+    "upload_videos_item": {
+      "required": true,
+      "role": "click",
+      "hint": "'Upload videos' in the menu that opens under CREATE."
+    },
+    "select_files_button": {
+      "required": true,
+      "role": "click",
+      "hint": "The SELECT FILES button in the upload dialog."
+    },
+    "details_title_field": {
+      "required": true,
+      "role": "click",
+      "hint": "The 'Title (required)' box on the Details step. Put the click point inside the text area."
+    },
+    "details_description_field": {
+      "required": true,
+      "role": "click",
+      "hint": "The 'Description' box on the Details step. Put the click point inside the text area."
+    },
+    "not_made_for_kids_radio": {
+      "required": true,
+      "role": "click",
+      "hint": "The 'No, it's not made for kids' radio (scroll the Details step so it is visible while capturing)."
+    },
+    "made_for_kids_radio": {
+      "required": false,
+      "role": "click",
+      "hint": "The 'Yes, it's made for kids' radio. Only needed for jobs that set madeForKids."
+    },
+    "show_more_button": {
+      "required": false,
+      "role": "click",
+      "hint": "SHOW MORE at the bottom of the Details step. Needed only to fill tags."
+    },
+    "tags_field": {
+      "required": false,
+      "role": "click",
+      "hint": "The 'Add tag' box revealed by SHOW MORE."
+    },
+    "next_button": {
+      "required": true,
+      "role": "click",
+      "hint": "The NEXT button at the bottom right of the upload dialog."
+    },
+    "visibility_step_marker": {
+      "required": true,
+      "role": "marker",
+      "hint": "The 'Visibility' step heading, or the 'Save or publish' panel title."
+    },
+    "private_radio": {
+      "required": true,
+      "role": "click",
+      "hint": "The 'Private' radio on the Visibility step."
+    },
+    "unlisted_radio": {
+      "required": false,
+      "role": "click",
+      "hint": "The 'Unlisted' radio. Needed for jobs set to unlisted."
+    },
+    "public_radio": {
+      "required": false,
+      "role": "click",
+      "hint": "The 'Public' radio. Needed for jobs set to public."
+    },
+    "copy_link_button": {
+      "required": true,
+      "role": "click",
+      "hint": "The copy icon next to 'Video link' in the right-hand panel. The uploader reads the link from the clipboard."
+    },
+    "upload_complete_marker": {
+      "required": true,
+      "role": "marker",
+      "hint": "The bottom-bar status once the file has finished uploading, e.g. 'Checks complete' or 'Upload complete'. The tab is not closed before this appears."
+    },
+    "save_button": {
+      "required": true,
+      "role": "click",
+      "hint": "The SAVE button (shown for Private). Capture a Public upload's PUBLISH button as publish_button."
+    },
+    "publish_button": {
+      "required": false,
+      "role": "click",
+      "hint": "The PUBLISH button shown for Unlisted/Public."
+    },
+    "finished_dialog_marker": {
+      "required": true,
+      "role": "marker",
+      "hint": "The confirmation shown after SAVE/PUBLISH, e.g. 'Video saved as private' or 'Video published'."
+    },
+    "close_dialog_button": {
+      "required": false,
+      "role": "click",
+      "hint": "CLOSE on the confirmation dialog."
+    },
+    "signed_out_marker": {
+      "required": false,
+      "role": "gate",
+      "hint": "The Google 'Sign in' page or button. When seen, the uploader pauses and waits for a person to sign in."
+    },
+    "challenge_marker": {
+      "required": false,
+      "role": "gate",
+      "hint": "A Google verification or CAPTCHA prompt. When seen, the uploader pauses and waits for a person."
+    },
+    "upload_limit_marker": {
+      "required": false,
+      "role": "stop",
+      "hint": "The 'Daily upload limit reached' notice. When seen before a file is selected, the job defers to tomorrow."
+    }
+  }
+}

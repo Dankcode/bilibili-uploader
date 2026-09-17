@@ -697,6 +697,8 @@ export function getOperationsOverview() {
     SUM(CASE WHEN acknowledged_at='' THEN 1 ELSE 0 END) AS unacknowledged,
     SUM(CASE WHEN acknowledged_at='' AND severity='critical' THEN 1 ELSE 0 END) AS critical
     FROM mail_ingest_events`).get();
+  // Release layer: upload attempts that left the machine but never confirmed.
+  const unconfirmedUploads = db.prepare("SELECT COUNT(*) AS n FROM upload_receipts WHERE state = 'sent'").get()?.n || 0;
   return {
     counts: {
       total: counts.total || 0,
@@ -707,6 +709,7 @@ export function getOperationsOverview() {
       successRate,
       unacknowledgedMailEvents: mailCounts.unacknowledged || 0,
       criticalMailEvents: mailCounts.critical || 0,
+      unconfirmedUploads,
     },
     throughput,
     recentVideos,
