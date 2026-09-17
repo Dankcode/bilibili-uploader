@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3, Clapperboard, Library, Menu, PanelLeftClose, PanelLeftOpen, PlugZap,
-  Stethoscope, Workflow, X, LayoutDashboard, Inbox, Server,
+  Stethoscope, Workflow, X, LayoutDashboard, Inbox, Server, Send,
 } from 'lucide-react';
 import AutomationHub from '@/components/AutomationHub';
 import EditorWorkspace from '@/components/EditorWorkspace';
@@ -15,6 +15,7 @@ import VideoLibrary from '@/components/VideoLibrary';
 import ProcessDetail from '@/components/process/ProcessDetail';
 import MailCenter from '@/components/MailCenter';
 import AgentActivity from '@/components/AgentActivity';
+import PublishCenter from '@/components/PublishCenter';
 import styles from './page.module.css';
 
 const NAV_GROUPS = [
@@ -24,6 +25,7 @@ const NAV_GROUPS = [
       ['overview', 'Overview', LayoutDashboard, 'Monitor automation health, active work, and upcoming publishing.'],
       ['library', 'Manage Automated Tasks', Library, 'Review, edit, and track every saved automation task.'],
       ['automation', 'Create New Automations', Workflow, 'Choose sources, set the cadence, and create a new automated run.'],
+      ['publish', 'Publish', Send, 'Upload budgets, held uploads, and upload receipts.'],
       ['editor', 'Editor', Clapperboard, 'Edit video timelines, subtitles, and final publishing metadata.'],
       ['analytics', 'Analytics', BarChart3, 'Review performance for videos that have been published.'],
       ['mail', 'Mail', Inbox, 'Review platform notices and Gmail tracking events.'],
@@ -44,6 +46,7 @@ const VIEW_META = {
   overview: ['Operations', 'Live workspace'],
   library: ['Manage Automated Tasks', 'Saved tasks and their run history'],
   automation: ['Create New Automations', 'Sources, cadence, and AI publishing setup'],
+  publish: ['Publish', 'Budgets, release queue, and upload receipts'],
   editor: ['Video editor', 'Timeline and subtitles'],
   analytics: ['Analytics', 'Platform performance'],
   mail: ['Mail', 'Tracking inbox'],
@@ -138,7 +141,7 @@ export default function Dashboard() {
         <nav className={styles.opsNav} aria-label="Primary navigation">
           {NAV_GROUPS.map((group) => <div className={styles.opsNavGroup} key={group.label}>
             {!sidebarCollapsed && <span>{group.label}</span>}
-            {group.items.map(([id, label, Icon, hint]) => <button type="button" key={id} className={activeView === id ? styles.opsNavActive : ''} onClick={() => navigate(id)} aria-label={`${label}: ${hint}`}><Icon size={17} /><span>{label}</span><small className={styles.navHint} role="tooltip">{hint}</small>{id === 'library' && counts.needsReview > 0 && <i>{counts.needsReview}</i>}</button>)}
+            {group.items.map(([id, label, Icon, hint]) => <button type="button" key={id} className={activeView === id ? styles.opsNavActive : ''} onClick={() => navigate(id)} aria-label={`${label}: ${hint}`}><Icon size={17} /><span>{label}</span><small className={styles.navHint} role="tooltip">{hint}</small>{id === 'library' && counts.needsReview > 0 && <i>{counts.needsReview}</i>}{id === 'publish' && counts.unconfirmedUploads > 0 && <i>{counts.unconfirmedUploads}</i>}</button>)}
           </div>)}
         </nav>
 
@@ -168,6 +171,7 @@ export default function Dashboard() {
           {activeView === 'runtime' && <ServiceConnections section="runtime" />}
           {activeView === 'diagnostics' && <Troubleshooter onNavigate={navigate} />}
           {activeView === 'agent' && <AgentActivity />}
+          {activeView === 'publish' && <PublishCenter />}
         </main>
         {processVideoId && <div className={styles.modalOverlay} onMouseDown={(event) => event.target === event.currentTarget && setProcessVideoId('')}><div className={styles.dashboardProcessDrawer}><ProcessDetail videoId={processVideoId} embedded onClose={() => setProcessVideoId('')} onChanged={refreshWorkspace} /></div></div>}
       </div>

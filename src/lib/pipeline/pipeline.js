@@ -36,6 +36,9 @@ import * as ocrContextProcessor from './processors/ocrContext';
 import * as youtubeUploader from './uploaders/youtube';
 import { isAllowedBilibiliHost, normalizeBilibiliVideoInput } from '../video/bilibiliUrl.js';
 import { emitMailEvent } from '../mail/events.js';
+import { DEFERRED_CODE } from '../release/governor.js';
+import { releaseUpload } from '../release/publish.js';
+import { UPLOAD_METHODS, methodNeedsAuthorization, normalizeUploadMethod } from '../youtube/uploadMethod.js';
 
 const SOURCE_ADAPTERS = {
   localFile: localFileSource,
@@ -97,10 +100,18 @@ function parseJson(value, fallback) {
  * This prevents a single newly-authorized account from silently receiving a
  * batch that an operator meant for a different channel.
  */
-function resolveYouTubeAuthorizationId(requestedId) {
+function resolveYouTubeAuthorizationId(requestedId, uploadMethod = 'api') {
+  if (!methodNeedsAuthorization(uploadMethod)) {
+    if (requestedId) {
+      throw new Error(
+        `The ${UPLOAD_METHODS[uploadMethod].label} method publishes to whichever channel the browser on the upload machine is signed in to, `
+        + 'so it cannot be bound to an OAuth channel. Clear the channel selection or choose the YouTube API method.',
+      );
+    }
+    return '';
+  }
   if (requestedId) return requestedId;
   const env = globalThis.process?.env || {};
-  if ((env.YOUTUBE_UPLOAD_METHOD || 'api').toLowerCase() === 'pygui') return '';
   if (env.YOUTUBE_CHANNEL_ID) return '';
   throw new Error(
     'Choose an authorized YouTube channel for this video before it is queued. '
@@ -179,6 +190,12 @@ export function validateJobInput(input) {
   const youtubeAuthorizationId = String(
     input.youtubeAuthorizationId || options.youtube?.authorizationId || '',
   ).trim();
+  // Pin the upload method onto the job so a later change to
+  // YOUTUBE_UPLOAD_METHOD never re-routes work already in the queue.
+  const uploadMethod = uploaderId === 'youtube'
+    ? normalizeUploadMethod(input.uploadMethod || options.youtube?.uploadMethod || '')
+    : '';
+  if (uploadMethod) options.youtube = { ...(options.youtube || {}), uploadMethod };
 
   if (!sourceInput) throw new Error('sourceInput is required');
   if (!getSource(sourceId)) throw new Error(`Unknown sourceId "${sourceId}"`);
@@ -188,7 +205,7 @@ export function validateJobInput(input) {
   if (youtubeAuthorizationId && uploaderId !== 'youtube') {
     throw new Error('A YouTube authorization can only be used with the YouTube uploader');
   }
-  const selectedAuthorization = youtubeAuthorizationId
+  const selectedAuthorization = youtubeAuthorizationId && methodNeedsAuthorization(uploadMethod || 'api')
     ? getYouTubeAuthorization(youtubeAuthorizationId, { requireUsable: true })
     : null;
 
@@ -196,7 +213,7 @@ export function validateJobInput(input) {
   // every processor and only then failing on the last step for want of a
   // credential. The operator must choose the channel for every API upload.
   const resolvedAuthorizationId = uploaderId === 'youtube'
-    ? resolveYouTubeAuthorizationId(youtubeAuthorizationId)
+    ? resolveYouTubeAuthorizationId(youtubeAuthorizationId, uploadMethod)
     : youtubeAuthorizationId;
   if (uploaderId === 'youtube' && selectedAuthorization) {
     assertLongUploadAllowed(selectedAuthorization, input.sourceDurationSeconds || input.durationSeconds);
@@ -519,6 +536,10 @@ async function runStep(job, step, currentFilePath, currentMeta) {
   fs.mkdirSync(workDir, { recursive: true });
 
   const stepStartedAtMs = Date.now();
+  if (step.next_eligible_at || step.defer_reason) {
+    db.prepare("UPDATE video_job_steps SET next_eligible_at = '', defer_reason = '' WHERE id = ?").run(step.id);
+    appendStepLog(step.id, `Resuming after deferral: ${step.defer_reason}`);
+  }
   setStepStatus(step.id, 'running', { startedAt: nowIso(), progressNote: 'Starting' });
   db.prepare('UPDATE video_jobs SET current_step = ?, updated_at = ? WHERE id = ?').run(step.step, nowIso(), job.id);
   appendStepLog(step.id, 'Step started');
@@ -627,9 +648,34 @@ async function runStep(job, step, currentFilePath, currentMeta) {
         },
       } : {}),
     };
-    result = await adapter.upload(currentFilePath, uploadMeta, onProgress);
+    // RELEASE LAYER: budget reservation + upload receipt handshake. A spent
+    // budget throws a DeferredError (handled in runNextQueuedJob); an earlier
+    // unconfirmed attempt is reconciled instead of uploaded twice.
+    const release = await releaseUpload({
+      job,
+      step,
+      destinationId: id,
+      adapter,
+      filePath: currentFilePath,
+      uploadMeta,
+      accountRef: typeof adapter.budgetAccountRef === 'function' ? adapter.budgetAccountRef(uploadMeta) : 'default',
+      budgeted: typeof adapter.isBudgeted === 'function' ? adapter.isBudgeted(uploadMeta) : true,
+      channelId: authorization?.channelId || uploadMeta.channelId || '',
+      title: typeof adapter.resolveUploadTitle === 'function' ? adapter.resolveUploadTitle(currentFilePath, uploadMeta) : '',
+      onProgress,
+      log: (message) => appendStepLog(step.id, message),
+    });
+    result = release.result;
     let publicationId = null;
+    const existingPublication = result?.remoteId
+      ? db.prepare('SELECT id FROM video_publications WHERE job_id = ? AND platform_id = ? AND remote_id = ? LIMIT 1').get(job.id, id, result.remoteId)
+      : null;
     db.transaction(() => {
+      if (existingPublication) {
+        // Step 6 already ran before the worker stopped.
+        publicationId = null;
+        return;
+      }
       saveAsset(job.id, 'remote', result?.url || result?.remoteId || '', result || {});
       publicationId = recordPublication({
         videoId: job.video_record_id,
@@ -752,6 +798,10 @@ export async function runNextQueuedJob() {
     if (job.video_record_id) emitMailEvent({ videoId: job.video_record_id, jobId: job.id, eventKind: 'job.completed', payload: { videoTitle: db.prepare('SELECT title FROM video_records WHERE id=?').get(job.video_record_id)?.title || '' } });
     logJob(job.id, `done in ${Date.now() - jobStartedAtMs} ms`);
   } catch (error) {
+    if (error?.code === DEFERRED_CODE && !(cancelSignals.get(job.id)?.canceled || db.prepare('SELECT cancel_requested FROM video_jobs WHERE id = ?').get(job.id)?.cancel_requested)) {
+      deferJob(job, error);
+      return job.id;
+    }
     const status = cancelSignals.get(job.id)?.canceled || db.prepare('SELECT cancel_requested FROM video_jobs WHERE id = ?').get(job.id)?.cancel_requested ? 'canceled' : 'failed';
     const failedServiceId = activeStepName.split(':')[1];
     if (failedServiceId && status === 'failed') {
@@ -783,6 +833,39 @@ export async function runNextQueuedJob() {
     scheduleWorker();
   }
   return job.id;
+}
+
+/**
+ * Hold a job back until its destination budget resets. The running step goes
+ * back to 'pending' with the SAME attempt number — waiting for quota is not a
+ * failure and must not spend one of the job's retries. The dispatcher already
+ * honours scheduled_for, so the worker wakes at next_eligible_at on its own.
+ */
+function deferJob(job, error) {
+  const eligibleAt = error.nextEligibleAt && !Number.isNaN(new Date(error.nextEligibleAt).getTime())
+    ? new Date(error.nextEligibleAt).toISOString()
+    : new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const reason = String(error.reason || error.message || 'Waiting for destination budget');
+  const at = nowIso();
+  db.transaction(() => {
+    const activeStep = db.prepare("SELECT id FROM video_job_steps WHERE job_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1").get(job.id);
+    if (activeStep) {
+      db.prepare(`
+        UPDATE video_job_steps
+        SET status = 'pending', progress = 0, progress_note = ?, started_at = NULL, finished_at = NULL,
+            next_eligible_at = ?, defer_reason = ?
+        WHERE id = ?
+      `).run(`Deferred: ${reason}`, eligibleAt, reason, activeStep.id);
+      appendStepLog(activeStep.id, `Deferred until ${eligibleAt}: ${reason}`);
+    }
+    db.prepare(`
+      UPDATE video_jobs
+      SET status = 'queued', current_step = '', error = '', scheduled_for = ?, claimed_at = '', worker_id = '', updated_at = ?
+      WHERE id = ?
+    `).run(eligibleAt, at, job.id);
+  })();
+  syncJobCatalog(job, 'queued');
+  logJob(job.id, `deferred until ${eligibleAt}: ${reason}`);
 }
 
 export function recoverStaleJobs(maxAgeMs = 15 * 60 * 1000) {
@@ -853,6 +936,8 @@ export function listJobs(filter = {}) {
       progress: step.progress,
       progressNote: step.progress_note,
       metrics: parseJson(step.metrics_json, {}),
+      nextEligibleAt: step.next_eligible_at || '',
+      deferReason: step.defer_reason || '',
       log: step.log,
       startedAt: step.started_at,
       finishedAt: step.finished_at,

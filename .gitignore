@@ -47,6 +47,8 @@ config/keys.json
 config/client_secret.json
 config/token.json
 config/storage.json
+# Studio screen templates are captured per machine/display/theme.
+config/studio_templates/
 videos/
 # App Router uses "videos" for the tracked Library/process route; keep media
 # downloads out of Git while allowing that source directory.

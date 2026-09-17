@@ -615,6 +615,57 @@ export function initDB() {
     SET client_ref = credential_ref
     WHERE client_ref IS NULL OR client_ref = '';
   `);
+  // RELEASE LAYER (phase 0). Nothing used to sit between "job queued" and
+  // "upload attempted". These tables are that layer:
+  //   destination_budgets — per destination/account/day unit ledger. For
+  //     YouTube the account is the OAuth client (the Google Cloud project),
+  //     because API quota is charged per project, not per channel.
+  //   upload_receipts — written BEFORE anything leaves the machine, so a crash
+  //     mid-upload leaves a detectable 'sent' row that a retry reconciles
+  //     instead of uploading twice.
+  // A deferred step waits on next_eligible_at and does not consume an attempt.
+  addColumnIfMissing('video_job_steps', 'next_eligible_at', "TEXT DEFAULT ''");
+  addColumnIfMissing('video_job_steps', 'defer_reason', "TEXT DEFAULT ''");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS destination_budgets (
+      destination_id TEXT NOT NULL,
+      account_ref TEXT NOT NULL,
+      day TEXT NOT NULL,
+      unit_cost INTEGER NOT NULL DEFAULT 0,
+      daily_units INTEGER NOT NULL DEFAULT 0,
+      used_units INTEGER NOT NULL DEFAULT 0,
+      reset_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (destination_id, account_ref, day)
+    );
+    CREATE TABLE IF NOT EXISTS upload_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      job_id INTEGER NOT NULL,
+      step_id INTEGER NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 1,
+      destination_id TEXT NOT NULL,
+      account_ref TEXT NOT NULL DEFAULT '',
+      channel_id TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      file_path TEXT NOT NULL DEFAULT '',
+      content_hash TEXT NOT NULL DEFAULT '',
+      units INTEGER NOT NULL DEFAULT 0,
+      state TEXT NOT NULL DEFAULT 'claimed',
+      remote_id TEXT NOT NULL DEFAULT '',
+      url TEXT NOT NULL DEFAULT '',
+      last_error TEXT NOT NULL DEFAULT '',
+      resolved_by TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      sent_at TEXT NOT NULL DEFAULT '',
+      confirmed_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_upload_receipts_job_step
+      ON upload_receipts(job_id, step_id, state);
+    CREATE INDEX IF NOT EXISTS idx_upload_receipts_state
+      ON upload_receipts(state, updated_at DESC);
+  `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_video_jobs_dispatch
       ON video_jobs(status, scheduled_for, priority DESC, created_at ASC);
