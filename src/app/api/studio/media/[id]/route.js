@@ -35,7 +35,7 @@ function streamFile(filePath, request, allowRange) {
   });
 }
 
-async function handleGET(request, { params }) {
+async function handleGET(request, { params: paramsPromise }) { const params = await paramsPromise;
   try {
     const project = getStudioProject(params.id);
     if (!project) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });

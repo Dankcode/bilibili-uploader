@@ -12,7 +12,7 @@ async function handle(request, context) {
   if (!isAgent(request)) return Response.json({ error: { code: 'UNAUTHORIZED', message: 'Agent bearer token required' } }, { status: 401 });
   if (readRuntimeSettings().connectionMode === 'remote') return Response.json({ error: { code: 'PRECONDITION_FAILED', message: 'Point the MCP bridge at the backend server, not a remote-mode frontend' } }, { status: 409 });
   try {
-    const path = `/${context.params.path.join('/')}`;
+    const path = `/${(await context.params).path.join('/')}`;
     if (path === '/openapi.json' && request.method === 'GET') return Response.json(openApiDocument());
     if (path === '/resource' && request.method === 'GET') return Response.json(readAgentResource(new URL(request.url).searchParams.get('uri') || ''));
     const op = operations.find((item) => item.path === path && item.method === request.method);

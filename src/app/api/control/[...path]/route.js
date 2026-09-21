@@ -20,7 +20,7 @@ function forwardedHeaders(request) {
 }
 
 async function handle(request, context) {
-  const routePath = (context.params.path || []).join('/').replace(/^\/+|\/+$/g, '');
+  const routePath = ((await context.params).path || []).join('/').replace(/^\/+|\/+$/g, '');
   if (!routePath || [...BLOCKED_PATHS].some((blocked) => routePath === blocked || routePath.startsWith(`${blocked}/`))) {
     return Response.json({ error: 'This control route is not available' }, { status: 403 });
   }

@@ -19,7 +19,7 @@ function downloadResponse(body, filename, contentType = 'text/plain; charset=utf
   });
 }
 
-async function handleGET(request, { params }) {
+async function handleGET(request, { params: paramsPromise }) { const params = await paramsPromise;
   const project = getStudioProject(params.id);
   if (!project) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });
   const download = new URL(request.url).searchParams.get('download');
@@ -38,7 +38,7 @@ async function handleGET(request, { params }) {
   return NextResponse.json({ error: 'Unsupported download format.' }, { status: 400 });
 }
 
-async function handlePUT(request, { params }) {
+async function handlePUT(request, { params: paramsPromise }) { const params = await paramsPromise;
   try {
     const current = getStudioProject(params.id);
     if (!current) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });
@@ -125,7 +125,7 @@ async function handlePUT(request, { params }) {
   }
 }
 
-async function handleDELETE(_request, { params }) {
+async function handleDELETE(_request, { params: paramsPromise }) { const params = await paramsPromise;
   if (!getStudioProject(params.id)) return NextResponse.json({ error: 'Studio project not found.' }, { status: 404 });
   deleteStudioProject(params.id);
   return NextResponse.json({ deleted: true });

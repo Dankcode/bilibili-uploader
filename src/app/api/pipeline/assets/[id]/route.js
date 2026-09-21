@@ -20,7 +20,7 @@ function isInside(parent, child) {
   return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-async function handleGET(_request, { params }) {
+async function handleGET(_request, { params: paramsPromise }) { const params = await paramsPromise;
   const id = Number(params.id);
   if (!Number.isFinite(id)) {
     return NextResponse.json({ error: 'Invalid asset id' }, { status: 400 });
