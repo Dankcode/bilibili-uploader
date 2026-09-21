@@ -222,6 +222,30 @@ class Session:
                 self.fail(f'"{name}" was not found on screen within {int(timeout)} s (screenshot: {shot})')
             time.sleep(POLL)
 
+    def wait_for_any(self, names, timeout=STEP_TIMEOUT):
+        """First of several templates to appear. Studio words the same moment
+        differently depending on the path taken (SAVE vs PUBLISH), and a run
+        must not fail because it was watching for the other wording."""
+        candidates = [name for name in names if self.matcher.has(name)]
+        if not candidates:
+            self.fail(f'None of these templates are calibrated: {", ".join(names)}')
+        deadline = time.time() + timeout
+        while True:
+            gray, scale = self.grab()
+            gate = self.check_gates(gray, scale)
+            if gate:
+                self.wait_for_human(gate, None)
+                deadline = time.time() + timeout
+                continue
+            for name in candidates:
+                match = self.matcher.find(name, gray, scale)
+                if match:
+                    return match
+            if time.time() >= deadline:
+                shot = self.save_screenshot(f'missing-{candidates[0]}')
+                self.fail(f'None of {", ".join(candidates)} appeared within {int(timeout)} s (screenshot: {shot})')
+            time.sleep(POLL)
+
     def click(self, name, timeout=STEP_TIMEOUT):
         match = self.wait_for(name, timeout)
         # Image analogue of an elementFromPoint check: the control must still
@@ -363,7 +387,8 @@ def upload(payload, session):
             break
         if time.time() - started > UPLOAD_WAIT:
             shot = session.save_screenshot('upload-not-complete')
-            session.fail(f'Upload did not complete within {int(UPLOAD_WAIT / 60)} min (screenshot: {shot})')
+            waited = f'{UPLOAD_WAIT / 60:.0f} min' if UPLOAD_WAIT >= 60 else f'{UPLOAD_WAIT:.0f} s'
+            session.fail(f'Upload did not complete within {waited} (screenshot: {shot})')
         elapsed = time.time() - started
         event('progress', stage=session.stage, percent=min(85, 55 + int(elapsed / max(1, UPLOAD_WAIT) * 30)),
               note=f'Uploading… {int(elapsed)} s')
@@ -373,7 +398,10 @@ def upload(payload, session):
     event('progress', stage=session.stage, percent=90, note='Saving')
     wants_publish = payload['privacyStatus'] != 'private' and matcher.has('publish_button')
     session.click('publish_button' if wants_publish else 'save_button')
-    session.wait_for('finished_dialog_marker', timeout=max(STEP_TIMEOUT, 60))
+    session.wait_for_any(
+        ['published_dialog_marker', 'finished_dialog_marker'] if wants_publish else ['finished_dialog_marker', 'published_dialog_marker'],
+        timeout=max(STEP_TIMEOUT, 60),
+    )
     if matcher.has('close_dialog_button'):
         session.click('close_dialog_button', timeout=10)
 

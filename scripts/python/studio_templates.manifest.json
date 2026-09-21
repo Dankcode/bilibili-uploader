@@ -105,7 +105,12 @@
     "finished_dialog_marker": {
       "required": true,
       "role": "marker",
-      "hint": "The confirmation shown after SAVE/PUBLISH, e.g. 'Video saved as private' or 'Video published'."
+      "hint": "The confirmation shown after SAVE, e.g. 'Video saved as private'."
+    },
+    "published_dialog_marker": {
+      "required": false,
+      "role": "marker",
+      "hint": "The confirmation shown after PUBLISH, e.g. 'Video published'. Studio words this differently from the SAVE one, so capture it before publishing Unlisted/Public videos."
     },
     "close_dialog_button": {
       "required": false,

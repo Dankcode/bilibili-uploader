@@ -343,6 +343,9 @@ def plan_requirements(payload, matcher):
         needed.append('publish_button')
     missing = [name for name in needed if not matcher.has(name)]
     warnings = []
+    if payload['privacyStatus'] != 'private' and not matcher.has('published_dialog_marker'):
+        warnings.append("published_dialog_marker is not calibrated: if Studio's confirmation after PUBLISH is worded "
+                        'differently from the SAVE one, this run will be reported as unconfirmed')
     if payload['tags'] and not (matcher.has('show_more_button') and matcher.has('tags_field')):
         warnings.append('Tags will be skipped: show_more_button and tags_field are not calibrated')
     return missing, warnings

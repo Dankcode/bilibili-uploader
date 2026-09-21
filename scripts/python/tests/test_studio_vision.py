@@ -72,6 +72,7 @@ CONTROLS = {
     'save_button': (560, 540, 90, 34),
     'publish_button': (460, 540, 90, 34),
     'finished_dialog_marker': (260, 240, 280, 40),
+    'published_dialog_marker': (260, 240, 280, 40),
     'close_dialog_button': (460, 300, 90, 30),
     'signed_out_marker': (320, 260, 160, 40),
     'challenge_marker': (320, 320, 160, 40),
@@ -90,7 +91,8 @@ def patch_for(name, width, height):
 class FakeStudio:
     """A tiny state machine standing in for the Studio web page."""
 
-    def __init__(self, scale=2.0, start='dashboard', upload_polls=3, link='https://youtu.be/AbCdEfGhIjK'):
+    def __init__(self, scale=2.0, start='dashboard', upload_polls=3, link='https://youtu.be/AbCdEfGhIjK', publish_wording=True):
+        self.publish_wording = publish_wording
         self.scale = scale
         self.state = start
         self.scrolled = False
@@ -138,6 +140,9 @@ class FakeStudio:
             return names
         if state == 'finished':
             return ['finished_dialog_marker', 'close_dialog_button']
+        if state == 'published':
+            # Studio words the confirmation differently after PUBLISH.
+            return ['published_dialog_marker', 'close_dialog_button']
         return []
 
     # -- Desktop interface
@@ -177,6 +182,7 @@ class FakeStudio:
             ('dashboard', 'create_button'): 'menu',
             ('menu', 'upload_videos_item'): 'dialog',
             ('finished', 'close_dialog_button'): 'done',
+            ('published', 'close_dialog_button'): 'done',
         }
         if (self.state, name) in transitions:
             self.state = transitions[(self.state, name)]
@@ -190,8 +196,10 @@ class FakeStudio:
                 self.state = 'visibility'
         elif name == 'copy_link_button':
             self.clipboard_text = self.link
-        elif name in ('save_button', 'publish_button') and self.state == 'visibility':
+        elif name == 'save_button' and self.state == 'visibility':
             self.state = 'finished'
+        elif name == 'publish_button' and self.state == 'visibility':
+            self.state = 'published' if self.publish_wording else 'finished'
 
     def paste(self, text, replace=True):
         if self.file_dialog_open:
@@ -364,6 +372,29 @@ class FlowTests(unittest.TestCase):
         self.assertIn('public_radio', fake.clicked)
         self.assertIn('publish_button', fake.clicked)
         self.assertNotIn('tags_field', fake.typed)
+        # PUBLISH ends on Studio's own wording, not the SAVE dialog's.
+        self.assertEqual(fake.state, 'done')
+
+    def test_publish_accepts_either_confirmation_wording(self):
+        # Only the SAVE wording is calibrated, and Studio shows it after PUBLISH.
+        partial = Path(TMP) / 'save-wording-only'
+        calibration = calibrate_from(lambda: FakeStudio(), partial, skip=('published_dialog_marker',))
+        matcher = sv.TemplateMatcher(partial, calibration)
+        fake = FakeStudio(publish_wording=False)
+        session = uploader.Session(fake, matcher, Path(TMP) / 'runs' / self._testMethodName)
+        uploader.upload(payload(privacyStatus='public', tags=[]), session)
+        self.assertEqual(fake.state, 'done')
+
+    def test_publish_fails_by_name_when_no_confirmation_wording_is_calibrated(self):
+        bare = Path(TMP) / 'no-confirmation'
+        calibration = calibrate_from(lambda: FakeStudio(), bare, skip=('published_dialog_marker', 'finished_dialog_marker'))
+        matcher = sv.TemplateMatcher(bare, calibration)
+        fake = FakeStudio()
+        session = uploader.Session(fake, matcher, Path(TMP) / 'runs' / self._testMethodName)
+        with self.assertRaises(uploader.StudioError) as caught:
+            uploader.upload(payload(privacyStatus='public', tags=[]), session)
+        self.assertIn('published_dialog_marker', str(caught.exception))
+        self.assertTrue(caught.exception.sent)
 
     def test_signed_out_browser_waits_for_a_person_then_continues(self):
         fake = FakeStudio(start='signed_out')

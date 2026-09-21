@@ -40,7 +40,7 @@ OAuth client and no quota.
 | 7 | visibility | `private_radio` / `unlisted_radio` / `public_radio` | |
 | 8 | read_link | `copy_link_button` | Reads the watch URL from the clipboard |
 | 9 | wait_upload | `upload_complete_marker` | Never saves or closes before the file has finished uploading |
-| 10 | save | `save_button` or `publish_button` → `finished_dialog_marker` → `close_dialog_button` | |
+| 10 | save | `save_button` or `publish_button` → `finished_dialog_marker` / `published_dialog_marker` → `close_dialog_button` | Studio words the confirmation differently after SAVE and after PUBLISH; either is accepted |
 
 Title and description are cleaned the way Studio requires: no `<` or `>`,
 title at most 100 characters, description at most 5,000, and tags at most
@@ -91,6 +91,36 @@ displays are handled, because the capture scale is recorded. A different
 language, dark/light theme or browser zoom needs its own template set: point
 `YOUTUBE_STUDIO_TEMPLATE_DIR` at another folder.
 
+## Tested on 2026-09-21 against a mock Studio
+
+The uploader was run unmodified against a stand-in Studio page in Chromium on
+a Linux X display, driving the real `pyautogui` — real cursor moves, real
+clicks, real clipboard, real screenshots — with templates captured from that
+screen. This exercises the machinery (matching, scaling, click offsets, the
+file-path typing, clipboard read, gates, failure states); it does **not**
+prove anything about YouTube's real layout.
+
+| Scenario | Result |
+|---|---|
+| Private upload, tags, not-made-for-kids | Passed in ~23 s. Title, description, tags, audience, visibility and file path all landed correctly; link read from the clipboard |
+| Public + made for kids | Passed; used PUBLISH and the made-for-kids radio |
+| Signed out for 12 s at the start | Paused, reported `needs_human`, saved a screenshot, resumed by itself and finished |
+| Upload never completes | Failed at `wait_upload` with `sent: true` and a screenshot — the state an operator resolves in Publish ▸ Receipts |
+| Title/description with `<>` | Stripped before typing, as Studio requires |
+
+Two problems the run exposed, both now fixed:
+
+1. **One confirmation template was not enough.** A Public upload ends on
+   "Video published", not "Video saved as private", so the run failed after
+   the video was already published. There is now an optional
+   `published_dialog_marker`, either wording is accepted, and calibration
+   warns when publishing without it.
+2. **A timeout under a minute printed "within 0 min".** It now reports seconds.
+
+Match cost measured on a 1280×900 screen: ~26 ms per template, ~0.6 s for all
+24. A Retina screenshot is ~4× the pixels, so budget ~0.1 s per template
+there; each poll matches the gates plus the control it is waiting for.
+
 ## Operating rules
 
 - **Don't touch the mouse or keyboard during a run.** Move the pointer into a
@@ -106,6 +136,6 @@ language, dark/light theme or browser zoom needs its own template set: point
 - `scripts/python/youtube_studio_vision_uploader.py`: runtime, `--calibrate`, `--check`
 - `scripts/python/studio_vision.py`: matching, scaling, text cleaning, payload
 - `scripts/python/studio_templates.manifest.json`: template list, roles, hints
-- `scripts/python/tests/test_studio_vision.py`: simulated-Studio tests (run by `npm test` when OpenCV is installed)
+- `scripts/python/tests/test_studio_vision.py`: 21 simulated-Studio tests (run by `npm test` when OpenCV is installed)
 - `src/lib/youtube/uploadMethod.js`: method registry and calibration status
 - `src/lib/video/uploader.js`: `uploadWithStudio` and the result protocol
