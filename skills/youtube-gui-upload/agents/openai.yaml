@@ -1,0 +1,4 @@
+interface:
+  display_name: "YouTube GUI Upload"
+  short_description: "Train visual controls and verify GUI uploads"
+  default_prompt: "Use $youtube-gui-upload to calibrate Studio controls and upload my videos privately with screenshot confirmation."

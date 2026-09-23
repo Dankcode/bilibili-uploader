@@ -374,7 +374,7 @@ async function runStep(job, step, currentFilePath, currentMeta) {
       videoId: job.video_record_id,
       jobId: job.id,
       platformId: id,
-      channelId: currentMeta.channelId || '',
+      channelId: result?.channelId || options[id]?.channelId || currentMeta.channelId || '',
       remoteId: result?.remoteId || '',
       url: result?.url || '',
       status: 'published',

@@ -268,3 +268,4 @@ and subtitles so they can be rebuilt deliberately.
 - [Design philosophy](./docs/design-philosophy.md)
 - [Interface design system](./docs/DESIGN_SYSTEM.md)
 - [Automated video-generation pipeline](./docs/VIDEO_GENERATION.md)
+- [Visual GUI upload calibration and verification](./docs/GUI_UPLOAD.md)
