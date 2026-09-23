@@ -60,6 +60,9 @@ compilation_vids/
 video-work/
 __pycache__/
 *.py[cod]
+.venv-gui/
+config/gui-references/
+*_token.json
 
 # vercel
 .vercel
@@ -67,3 +70,10 @@ __pycache__/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Private planning notes (home-lab hostnames, IPs, personal paths) — keep local
+docs/PLAN-*.md
+docs/SERVER-PREP-*.md
+
+# Local secrets bundle — never commit
+*-secrets-*.zip
