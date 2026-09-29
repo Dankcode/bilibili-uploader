@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { uploadBlocker } from '../operations/uploadCatalog.js';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import db, { finalizeUpload, logError, updateVideoStatus } from '../db/sqlite';
@@ -26,6 +27,7 @@ import {
 import * as bilibiliSource from './sources/bilibili';
 import * as douyinSource from './sources/douyin';
 import * as localFileSource from './sources/localFile';
+import * as librarySource from './sources/library';
 import * as voiceoverProcessor from './processors/voiceover';
 import * as aiEditorProcessor from './processors/aiEditor';
 import * as sceneCutProcessor from './processors/sceneCut';
@@ -41,6 +43,7 @@ import { releaseUpload } from '../release/publish.js';
 import { UPLOAD_METHODS, methodNeedsAuthorization, normalizeUploadMethod } from '../youtube/uploadMethod.js';
 
 const SOURCE_ADAPTERS = {
+  library: librarySource,
   localFile: localFileSource,
   bilibili: bilibiliSource,
   douyin: douyinSource,
@@ -223,6 +226,10 @@ export function validateJobInput(input) {
   // Discovering a bad path or a non-Bilibili URL at run time turns a batch of
   // fifty bad inputs into fifty failures that arrive one at a time.
   if (sourceId === 'localFile') assertReadableLocalSource(sourceInput);
+  if (sourceId === 'library') {
+    librarySource.resolveSavedFile(sourceInput);
+    if (input.videoRecordId !== sourceInput) throw new Error('Library source must remain linked to its saved video record');
+  }
   if (sourceId === 'bilibili') assertBilibiliSourceInput(sourceInput);
 
   const scheduledFor = String(input.scheduledFor || input.scheduled_for || '').trim();
@@ -334,7 +341,9 @@ function getLatestLocalAsset(jobId) {
 
 function syncJobCatalog(job, status) {
   if (job.video_record_id) {
-    const recordStatus = ({ running: 'processing', done: job.uploader_id ? 'published' : 'completed' })[status] || status;
+    const delivery = status === 'done' && job.uploader_id
+      ? db.prepare('SELECT status FROM video_publications WHERE job_id=? ORDER BY id DESC LIMIT 1').get(job.id) : null;
+    const recordStatus = ({ running: 'processing', done: job.uploader_id ? (delivery?.status || 'published') : 'completed' })[status] || status;
     updateVideoRecord(job.video_record_id, { status: recordStatus });
   }
   if (job.batch_id) syncAutomationBatch(job.batch_id);
@@ -557,6 +566,7 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     const validation = await validateVideoOutput(result.filePath);
     const sourceMeta = { ...(result.meta || {}), validation };
     saveAsset(job.id, 'original', result.filePath, sourceMeta);
+    if (job.video_record_id) updateVideoRecord(job.video_record_id, { metadata: sourceMeta });
     recordVideoVersion({
       videoId: job.video_record_id,
       jobId: job.id,
@@ -588,6 +598,10 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     // Their metadata and artifact files are durable outputs even though no
     // video version is created.
     saveAsset(job.id, id, result.outputPath, processorArtifacts);
+    if (id === 'metadata' && job.video_record_id) updateVideoRecord(job.video_record_id, { metadata: {
+      uploadMetadata: { titleEn: processorArtifacts.titleEn, descriptionEn: processorArtifacts.descriptionEn, tags: processorArtifacts.tags },
+      uploadGeneration: { personality: options.metadata?.style || 'natural', context: options.metadata?.copyPrompt || '' },
+    } });
     for (const artifact of Array.isArray(result.artifactFiles) ? result.artifactFiles : []) {
       if (artifact?.kind && artifact?.path) saveAsset(job.id, artifact.kind, artifact.path, artifact.meta || {});
     }
@@ -623,6 +637,10 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     currentFilePath = result.outputPath;
     currentMeta = { ...currentMeta, ...processorArtifacts };
   } else if (role === 'uploader') {
+    if (id === 'youtube' && job.video_record_id) {
+      const blocker = uploadBlocker(job.video_record_id, { excludeJobId: job.id, includeActive: false });
+      if (blocker) throw new Error(`Source already uploaded or submitted: ${blocker.url || blocker.remoteId || blocker.reason}`);
+    }
     if (job.agent_principal) {
       const approval = db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(job.id);
       const asset = db.prepare("SELECT meta_json FROM video_assets WHERE job_id = ? AND kind = 'metadata' ORDER BY id DESC LIMIT 1").get(job.id);
@@ -637,6 +655,8 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     const uploadMeta = {
       ...currentMeta,
       ...(options[id] || {}),
+      titleEn: options[id]?.title || currentMeta.titleEn || currentMeta.title || '',
+      descriptionEn: options[id]?.description || currentMeta.descriptionEn || currentMeta.description || '',
       ...(authorization ? {
         youtubeAuthorization: {
           id: authorization.id,
@@ -684,7 +704,7 @@ async function runStep(job, step, currentFilePath, currentMeta) {
         channelId: result?.channelId || authorization?.channelId || uploadMeta.channelId || '',
         remoteId: result?.remoteId || '',
         url: result?.url || '',
-        status: 'published',
+        status: result?.deliveryStatus || 'published',
         metadata: result || {},
       });
       if (authorization && publicationId) {
@@ -1001,6 +1021,7 @@ export function approveMetadata(jobId, patch = {}, actor = 'operator') {
     metadataReviewRequired: false,
     metadataApprovedAt: nowIso(),
   }), asset.id);
+  if (job.video_record_id) updateVideoRecord(job.video_record_id, { metadata: { uploadMetadata: { titleEn, descriptionEn, tags } } });
   db.prepare('UPDATE video_jobs SET metadata_approved_by = ? WHERE id = ?').run(actor, jobId);
   if (job.agent_principal) db.prepare('INSERT INTO agent_actions (principal, tool, arguments_json, result_json, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(actor, 'human_approve_metadata', JSON.stringify({ jobId }), JSON.stringify({ status: 'queued' }), nowIso());

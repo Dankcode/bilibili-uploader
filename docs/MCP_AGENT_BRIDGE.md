@@ -124,3 +124,28 @@ Tests use temporary SQLite databases, never the operator database. `npm run buil
 checks Next route and frontend compatibility. Live platform scraping, AI generation
 and YouTube publishing require separately configured accounts; tests do not perform
 those external actions.
+
+
+## SQL-driven GUI uploads
+
+Use `search_catalog` to select SQL video IDs, then `get_saved_upload` for each
+record's metadata, generation directions, version and duplicate-source blocker.
+`save_upload_metadata` writes title, description, tags, personality and context
+using `ifMatch` and an idempotency key. `queue_saved_uploads` accepts those IDs,
+`metadataMode` (`saved` or `generate`), optional personality/context and scheduling.
+It uses Studio GUI, never requires an agent-supplied local path, and always pauses
+agent jobs for operator metadata approval. All tools use the existing authenticated
+MCP bridge; no extra server or unrestricted SQL tool is needed.
+
+Library > Upload selected exposes the same generation choices and directions.
+The media itself remains in backend storage, referenced by `video_versions` in
+SQL. SQL stores generated and approved metadata in `video_records.metadata_json`
+and the job's durable metadata asset. A new API download stores the canonical
+Bilibili URL and source description for subsequent generation and deduplication.
+
+Queue and upload execution both check source identities across catalog rows,
+publication links, legacy YouTube links and unresolved upload receipts. Bilibili
+tracking parameters and hostname aliases do not create a new identity; separate
+parts remain separate. Short links are matched to canonical identities once the
+downloader resolves and saves them. Unresolved aliases cannot be compared before
+resolution. A failed or uncertain GUI save must be reconciled before retrying.

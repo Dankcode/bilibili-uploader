@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { readSavedUpload, saveUploadMetadata } from '../operations/uploadCatalog.js';
+import { queueLibraryUploads } from '../operations/libraryUpload.js';
 import { createHash, createHmac } from 'node:crypto';
 import Ajv from 'ajv';
 import db from '../db/sqlite.js';
@@ -11,6 +13,8 @@ import { getUsageSummary } from '../pipeline/usage.js';
 import { listYouTubeAuthorizations, getJobYouTubeAuthorization, publicYouTubeAuthorization } from '../youtube/authorizations.js';
 import { getSavedCreatorVideo, pageSavedCreatorVideos, saveScrapedBilibiliVideos, updateScrapedBilibiliVideo } from '../video/scrapedCatalog.js';
 import { normalizeBilibiliSpaceUrl, scanBilibiliCreatorPage } from '../video/scraper.js';
+import { listYouTubePosts, getYouTubePost, claimYouTubePost, recordYouTubePost } from '../youtube/posts.js';
+import { naturalText } from '../ai/editorial.js';
 
 export class AgentError extends Error {
   constructor(code, message, status = 400, details) { super(message); Object.assign(this, { code, status, details }); }
@@ -80,7 +84,7 @@ function context(id) {
     ...Object.fromEntries(fields.filter((field) => meta[field] !== undefined).map((field) => [field, meta[field]])) }; });
   const previousTitles = source ? db.prepare(`SELECT DISTINCT v.title FROM video_records v JOIN video_publications p ON p.video_id = v.id
     JOIN bilibili_scraped_videos s ON v.source_url = s.source_url OR v.source_ref = s.source_url
-    WHERE s.creator_id = ? AND p.status = 'published' ORDER BY p.published_at DESC LIMIT 25`).all(source.creator_id).map((row) => row.title) : [];
+    WHERE s.creator_id = ? AND p.status IN ('published','submitted','scheduled') ORDER BY p.published_at DESC LIMIT 25`).all(source.creator_id).map((row) => row.title) : [];
   // Metadata context is bounded and flagged when truncated, never interpreted as instructions.
   const text = JSON.stringify(sanitize(evidence));
   return { jobId: id, sourceTitle: source?.source_title || record?.title || '', sourceDescription: source?.source_description || '',
@@ -149,6 +153,10 @@ function planBatch(input, principal) {
 }
 
 function mutate(name, input, principal) {
+  if (name === 'save_upload_metadata') return saveUploadMetadata(input);
+  if (name === 'queue_saved_uploads') return { batch: queueLibraryUploads({ ...input, uploadMethod: 'studio' }, { principal }), nextAction: 'wait_for_human_review' };
+  if (name === 'claim_youtube_post') return claimYouTubePost(input.postId, input.ifMatch, principal);
+  if (name === 'record_youtube_post') return recordYouTubePost(input.postId, input.ifMatch, input, principal);
   if (name === 'queue_batch') {
     const plan = readPlan(input.planToken, principal);
     for (const version of plan.versions) {
@@ -176,6 +184,7 @@ function mutate(name, input, principal) {
   }
   const job = requireJob(input.jobId, input.ifMatch);
   if (name === 'propose_metadata') {
+    input = { ...input, title: naturalText(input.title), description: naturalText(input.description), tags: input.tags.map(naturalText) };
     if (job.status !== 'review' || job.current_step !== 'review:metadata') throw new AgentError('PRECONDITION_FAILED', 'Job is not waiting for metadata review', 409);
     const asset = db.prepare("SELECT * FROM video_assets WHERE job_id = ? AND kind = 'metadata' ORDER BY id DESC LIMIT 1").get(job.id);
     if (!asset) throw new AgentError('PRECONDITION_FAILED', 'Metadata asset is not ready', 409);
@@ -206,6 +215,9 @@ export async function executeOperation(name, input, principal, { scanner = scanB
   const validate = validators.get(name);
   if (!validate(input)) throw new AgentError('INVALID_INPUT', 'Invalid operation arguments', 400, validate.errors);
   if (op.annotations.readOnlyHint) {
+    if (name === 'get_saved_upload') return readSavedUpload(input.videoId);
+    if (name === 'list_youtube_posts') return { posts: listYouTubePosts(input.status || '') };
+    if (name === 'get_youtube_post') return getYouTubePost(input.postId);
     if (name === 'get_job') return sanitize(getJob(input.jobId));
     if (name === 'get_video_context') return context(input.jobId);
     if (name === 'check_preconditions') return sanitize(preconditions());
@@ -219,9 +231,9 @@ export async function executeOperation(name, input, principal, { scanner = scanB
     }
     const query = `%${(input.query || '').replace(/[\\%_]/g, '\\$&')}%`;
     const rows = db.prepare(`SELECT v.id, v.title, v.source_type AS sourceId, v.source_ref AS sourceRef, v.status, v.updated_at AS updatedAt,
-      EXISTS(SELECT 1 FROM video_publications p WHERE p.video_id = v.id AND p.status = 'published') AS isUploaded
+      EXISTS(SELECT 1 FROM video_publications p WHERE p.video_id = v.id AND p.status IN ('published','submitted','scheduled')) AS isUploaded
       FROM video_records v WHERE v.title LIKE ? ESCAPE '\\' OR v.source_ref LIKE ? ESCAPE '\\' ORDER BY v.id LIMIT ? OFFSET ?`).all(query, query, limit + 1, cursor);
-    return { items: rows.slice(0, limit).map((row) => ({ ...row, isUploaded: Boolean(row.isUploaded || row.status === 'published') })), nextCursor: rows.length > limit ? String(cursor + limit) : null };
+    return { items: rows.slice(0, limit).map((row) => ({ ...row, isUploaded: Boolean(row.isUploaded || ['published', 'submitted', 'scheduled'].includes(row.status)) })), nextCursor: rows.length > limit ? String(cursor + limit) : null };
   }
   let effectiveInput = input;
   const key = `request:${input.idempotencyKey}`;

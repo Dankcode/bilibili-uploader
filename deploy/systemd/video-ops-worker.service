@@ -1,0 +1,20 @@
+[Unit]
+Description=Video Operations SQL queue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vops
+WorkingDirectory=/srv/bilibili-uploader
+EnvironmentFile=/srv/bilibili-uploader/config/server.env
+Environment=VIDEO_PROCESS_ROLE=worker
+ExecStart=/usr/bin/node --import /srv/bilibili-uploader/scripts/register_loader.mjs /srv/bilibili-uploader/scripts/server_worker.mjs
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=60
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -84,8 +84,11 @@ export async function releaseUpload({
   // Respect what earlier attempts left behind.
   for (const receipt of findOpenReceipts(job.id, step.id)) {
     if (receipt.state === 'confirmed') {
+      const publication = db.prepare('SELECT metadata_json FROM video_publications WHERE job_id=? AND remote_id=? ORDER BY id DESC LIMIT 1').get(job.id, receipt.remoteId);
+      let savedResult = {};
+      try { savedResult = JSON.parse(publication?.metadata_json || '{}'); } catch { /* legacy receipt */ }
       log(`Receipt #${receipt.id} already confirmed as ${receipt.remoteId}; not uploading again`);
-      return { result: { remoteId: receipt.remoteId, url: receipt.url, channelId: receipt.channelId || channelId, receiptId: receipt.id }, receipt, reused: true };
+      return { result: { ...savedResult, remoteId: receipt.remoteId, url: receipt.url, channelId: receipt.channelId || channelId, receiptId: receipt.id }, receipt, reused: true };
     }
     const confirmed = await reconcileOpenReceipt({ receipt, adapter, destinationId, accountRef, uploadMeta, log, budgeted });
     if (confirmed) {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import LibraryUpload from './LibraryUpload';
 import {
   ChevronLeft, ChevronRight, Edit3, ExternalLink,
   RefreshCw, RotateCcw, Search, StopCircle, X,
@@ -19,6 +20,7 @@ function tone(status) {
 }
 
 function deliveryLabel(video) {
+  if (video.publication?.status === 'submitted' || video.status === 'submitted') return 'Submitted to YouTube';
   if (video.publication?.platformId === 'youtube' || video.status === 'published') return 'Uploaded to YouTube';
   if (['completed', 'done'].includes(video.job?.status || video.status)) return 'Completed · not uploaded';
   if (['queued', 'processing', 'running', 'scheduled', 'review'].includes(video.job?.status || video.status)) return 'Not uploaded · in automation';
@@ -36,6 +38,7 @@ export default function VideoLibrary({ refreshKey = 0 }) {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,6 +112,7 @@ export default function VideoLibrary({ refreshKey = 0 }) {
               sourceValid: editing.sourceValid,
               deliveryTitle: editing.deliveryTitle,
               deliveryDescription: editing.deliveryDescription,
+              uploadMetadata: { titleEn: editing.deliveryTitle || editing.title, descriptionEn: editing.deliveryDescription, tags: String(editing.deliveryTags || '').split(',').map((tag) => tag.trim()).filter(Boolean) },
             },
           },
         }),
@@ -134,11 +138,12 @@ export default function VideoLibrary({ refreshKey = 0 }) {
         </label>}
         <select className={styles.compactSelect} value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }} aria-label="Filter by status">
           <option value="">All stages</option>
-          {['draft', 'queued', 'processing', 'review', 'scheduled', 'published', 'completed', 'failed', 'canceled'].map((value) => <option key={value} value={value}>{value}</option>)}
+          {['draft', 'queued', 'processing', 'review', 'scheduled', 'submitted', 'published', 'completed', 'failed', 'canceled'].map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
         <button type="button" className={styles.iconButton} onClick={load} title="Refresh library" aria-label="Refresh library"><RefreshCw size={16} /></button>
         <div className={styles.toolbarDivider} />
         <span className={styles.selectionCount}>{selected.size} selected</span>
+        <button type="button" className={styles.toolbarButton} disabled={!selected.size} onClick={() => setUploadOpen(true)}>Upload selected</button>
         <button type="button" className={styles.toolbarButton} disabled={!selectedJobs.length} onClick={() => bulkAction('bulkRetry')}><RotateCcw size={14} /> Retry</button>
         <button type="button" className={styles.toolbarButton} disabled={!selectedJobs.length} onClick={() => bulkAction('bulkCancel')}><StopCircle size={14} /> Cancel</button>
       </div>
@@ -171,7 +176,7 @@ export default function VideoLibrary({ refreshKey = 0 }) {
                     <Link className={styles.detailsButton} href={`/videos/${video.id}`} onClick={(event) => event.stopPropagation()}>Details <ChevronRight size={14} /></Link>
                     {video.content?.sourceUrl ? <a className={styles.iconButton} href={video.content.sourceUrl} target="_blank" rel="noreferrer" title="Open Bilibili source" aria-label="Open Bilibili source" onClick={(event) => event.stopPropagation()}><ExternalLink size={15} /></a> : null}
                     {video.content?.deliveryUrl ? <a className={styles.iconButton} href={video.content.deliveryUrl} target="_blank" rel="noreferrer" title="Open YouTube delivery" aria-label="Open YouTube delivery" onClick={(event) => event.stopPropagation()}><ExternalLink size={15} /></a> : null}
-                    <button type="button" className={styles.iconButton} onClick={(event) => { event.stopPropagation(); setEditing({ ...video, scheduledAt: video.scheduledAt ? video.scheduledAt.slice(0, 16) : '', sourceTitle: video.content?.sourceTitle || video.title, sourceDescription: video.content?.sourceDescription || '', sourceUrl: video.content?.sourceUrl || video.sourceUrl || '', sourceValid: video.content?.sourceValid || '', deliveryTitle: video.content?.deliveryTitle || video.title, deliveryDescription: video.content?.deliveryDescription || '' }); }} title="Edit video record" aria-label={`Edit ${video.title}`}><Edit3 size={15} /></button>
+                    <button type="button" className={styles.iconButton} onClick={(event) => { event.stopPropagation(); setEditing({ ...video, scheduledAt: video.scheduledAt ? video.scheduledAt.slice(0, 16) : '', sourceTitle: video.content?.sourceTitle || video.title, sourceDescription: video.content?.sourceDescription || '', sourceUrl: video.content?.sourceUrl || video.sourceUrl || '', sourceValid: video.content?.sourceValid || '', deliveryTitle: video.content?.deliveryTitle || video.title, deliveryDescription: video.content?.deliveryDescription || '', deliveryTags: (video.metadata?.uploadMetadata?.tags || video.metadata?.tags || []).join(', ') }); }} title="Edit video record" aria-label={`Edit ${video.title}`}><Edit3 size={15} /></button>
                   </td>
                 </tr>
               ))}
@@ -198,16 +203,18 @@ export default function VideoLibrary({ refreshKey = 0 }) {
             <label className={styles.formField}><span>Original / source description</span><textarea rows="3" value={editing.sourceDescription || ''} onChange={(event) => setEditing({ ...editing, sourceDescription: event.target.value })} /></label>
             <label className={styles.formField}><span>English delivery description</span><textarea rows="3" value={editing.deliveryDescription || ''} onChange={(event) => setEditing({ ...editing, deliveryDescription: event.target.value })} /></label>
           </div>
+          <label className={styles.formField}><span>Upload tags (comma separated)</span><input value={editing.deliveryTags || ''} maxLength={500} onChange={(event) => setEditing({ ...editing, deliveryTags: event.target.value })} /></label>
           <label className={styles.formField}><span>Source ready for delivery</span><select value={editing.sourceValid || ''} onChange={(event) => setEditing({ ...editing, sourceValid: event.target.value })}><option value="">Not recorded</option><option value="Valid">Valid</option><option value="Needs review">Needs review</option></select></label>
           <label className={styles.formField}><span>Campaign</span><input value={editing.campaign || ''} onChange={(event) => setEditing({ ...editing, campaign: event.target.value })} /></label>
           <div className={styles.formGridTwo}>
-            <label className={styles.formField}><span>Stage</span><select value={editing.status} onChange={(event) => setEditing({ ...editing, status: event.target.value })}>{['draft', 'queued', 'processing', 'review', 'scheduled', 'published', 'completed', 'failed', 'canceled'].map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className={styles.formField}><span>Stage</span><select value={editing.status} onChange={(event) => setEditing({ ...editing, status: event.target.value })}>{['draft', 'queued', 'processing', 'review', 'scheduled', 'submitted', 'published', 'completed', 'failed', 'canceled'].map((value) => <option key={value}>{value}</option>)}</select></label>
             <label className={styles.formField}><span>Priority</span><input type="number" min="-100" max="100" value={editing.priority} onChange={(event) => setEditing({ ...editing, priority: event.target.value })} /></label>
           </div>
           <label className={styles.formField}><span>Scheduled start</span><input type="datetime-local" value={editing.scheduledAt || ''} onChange={(event) => setEditing({ ...editing, scheduledAt: event.target.value })} /></label>
           <div className={styles.modalActions}><button type="button" className={styles.buttonSecondary} onClick={() => setEditing(null)}>Cancel</button><button type="submit" className={styles.buttonPrimary}>Save record</button></div>
         </form>
       </div>}
+      {uploadOpen && <LibraryUpload videoIds={[...selected]} onClose={() => setUploadOpen(false)} onQueued={(batch) => { setUploadOpen(false); setNotice(`${batch.jobs.length} uploads queued.`); load(); }} />}
     </section>
   );
 }

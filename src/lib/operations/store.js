@@ -4,7 +4,7 @@ import db from '../db/sqlite.js';
 import { graphFromJob, graphFromPreset } from '../pipeline/graph.js';
 
 const VIDEO_STATUSES = new Set([
-  'draft', 'queued', 'processing', 'review', 'scheduled', 'published', 'completed', 'failed', 'canceled',
+  'draft', 'queued', 'processing', 'review', 'scheduled', 'submitted', 'published', 'completed', 'failed', 'canceled',
 ]);
 
 function nowIso() {
@@ -277,7 +277,7 @@ export function recordPublication({ videoId, jobId = null, platformId, channelId
     cleanText(remoteId, 500), cleanText(url, 4000), normalizeStatus(status, 'scheduled'),
     cleanText(scheduledAt, 80), publishedAt, JSON.stringify(metadata || {}), currentTime, currentTime,
   );
-  updateVideoRecord(videoId, { status: status === 'published' ? 'published' : 'scheduled', publishedAt });
+  updateVideoRecord(videoId, { status: status === 'submitted' ? 'submitted' : status === 'published' ? 'published' : 'scheduled', publishedAt });
   return Number(result.lastInsertRowid);
 }
 
@@ -574,7 +574,7 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
       legacy.release_date AS legacy_release_date,
       lj.id AS job_id, lj.status AS job_status, lj.current_step, lj.error AS job_error,
       lj.processor_ids_json, lj.uploader_id, lj.batch_id,
-      vp.id AS publication_id, vp.platform_id, vp.url AS publication_url,
+      vp.id AS publication_id, vp.platform_id, vp.url AS publication_url, vp.status AS publication_status,
       ya.id AS youtube_authorization_id, ya.email_address AS youtube_account_email,
       ya.channel_id AS youtube_channel_id, ya.channel_title AS youtube_channel_title,
       vm.views, vm.impressions, vm.watch_time_seconds, vm.likes, vm.comments, vm.shares,
@@ -603,8 +603,8 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
         sourceDescription: cleanText(metadata.sourceDescription || row.legacy_source_description, 4000),
         sourceUrl: cleanText(metadata.sourceUrl || row.legacy_source_url || video.sourceUrl, 4000),
         sourceValid: cleanText(metadata.sourceValid || row.legacy_source_valid, 80),
-        deliveryTitle: cleanText(metadata.deliveryTitle || metadata.titleEn || row.legacy_delivery_title || video.title, 240),
-        deliveryDescription: cleanText(metadata.deliveryDescription || metadata.descriptionEn || row.legacy_delivery_description, 4000),
+        deliveryTitle: cleanText(metadata.uploadMetadata?.titleEn || metadata.deliveryTitle || metadata.titleEn || row.legacy_delivery_title || video.title, 240),
+        deliveryDescription: cleanText(metadata.uploadMetadata?.descriptionEn || metadata.deliveryDescription || metadata.descriptionEn || row.legacy_delivery_description, 4000),
         deliveryUrl: cleanText(row.publication_url || metadata.deliveryUrl || row.legacy_delivery_url, 4000),
         releaseDate: cleanText(row.legacy_release_date || video.publishedAt, 80),
       };
@@ -623,6 +623,7 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
       publication: row.publication_id ? {
         id: row.publication_id,
         platformId: row.platform_id,
+        status: row.publication_status,
         url: row.publication_url,
         youtubeAuthorization: row.youtube_authorization_id ? {
           id: row.youtube_authorization_id,

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { completeJsonWithMeta, hasProvider } from '../../ai/getEnglish';
+import { EDITORIAL_RULES, cleanGeneratedMetadata } from '../../ai/editorial.js';
 
 export const id = 'metadata';
 
@@ -35,6 +36,7 @@ Return strict JSON only:
 {"titleEn":"concise English title","descriptionEn":"complete English description","tags":["tag one"]}
 
 Rules:
+${EDITORIAL_RULES}
 - Preserve proper nouns and technical terminology.
 - Do not invent facts, results, links, or affiliations.
 - ${requested.has('title') ? 'Generate a title under 100 characters.' : 'Do not replace the operator-provided title.'}
@@ -97,7 +99,7 @@ export async function generateMetadataDraft({
     provider,
     credentials,
   });
-  const generated = normalizeMetadata(completion.data);
+  const generated = normalizeMetadata(cleanGeneratedMetadata(completion.data));
   const metadata = validateMetadata({
     titleEn: fields.includes('title') ? generated.titleEn : existing.titleEn,
     descriptionEn: fields.includes('description') ? generated.descriptionEn : existing.descriptionEn,
@@ -123,10 +125,11 @@ export async function testConnection(credentials = {}) {
 
 export async function process(inputPath, options = {}, onProgress = () => {}, credentials = {}, currentMeta = {}) {
   if (!inputPath || !fs.existsSync(inputPath)) throw new Error(`Metadata input not found: ${inputPath}`);
-  const transcript = options.transcript || currentMeta.scriptEn || currentMeta.transcriptEn || currentMeta.transcriptSource;
+  const transcript = options.transcript || currentMeta.scriptEn || currentMeta.transcriptEn || currentMeta.transcriptSource
+    || options.sourceDescription || currentMeta.sourceDescription || currentMeta.description || currentMeta.desc;
   const generateFields = normalizeGenerationFields(options.generationFields);
-  if (generateFields.length && !String(transcript || '').trim()) throw new Error('Metadata generation requires a transcript.');
-  onProgress(15, generateFields.length ? 'Analyzing transcript for metadata' : 'Using operator-provided metadata');
+  if (generateFields.length && !String(transcript || '').trim()) throw new Error('Metadata generation needs a saved transcript or source description.');
+  onProgress(15, generateFields.length ? 'Writing metadata from saved source material' : 'Using operator-provided metadata');
   const completion = await generateMetadataDraft({
     sourceTitle: options.sourceTitle || currentMeta.title || path.basename(inputPath, path.extname(inputPath)),
     referenceMaterial: transcript,

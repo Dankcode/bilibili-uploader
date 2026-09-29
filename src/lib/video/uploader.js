@@ -128,7 +128,8 @@ export function lastStudioResult(output) {
  * receipt 'sent' for an operator to confirm in Publish ▸ Receipts.
  */
 export function studioOutcome(result, fallbackError = null) {
-  if (result?.ok && result.url) return result.url;
+  if (result?.ok && result.url) return result.deliveryStatus === 'submitted'
+    ? { url: result.url, deliveryStatus: 'submitted', screenshot: result.screenshot || '' } : result.url;
   const message = result?.error
     || `stopped without reporting a result${fallbackError?.message ? ` — ${fallbackError.message.slice(0, 1500)}` : ''}`;
   const error = new Error(`YouTube Studio (${result?.stage || 'unknown step'}): ${message}`);
@@ -151,6 +152,7 @@ export async function uploadWithStudio({ videoPath, title, description, tags, yo
     tags: Array.isArray(tags) ? tags : String(tags || '').split(/\s+/).filter(Boolean),
     privacyStatus: youtubeOptions.privacyStatus || 'private',
     madeForKids: Boolean(youtubeOptions.madeForKids),
+    verifyCompletion: youtubeOptions.verifyCompletion === true,
   };
   const timeoutMs = Math.max(5, Number(process.env.YOUTUBE_STUDIO_TIMEOUT_MINUTES) || 120) * 60 * 1000;
   let output = '';
@@ -219,7 +221,7 @@ export default async function UploadVideo(videoPath, title, description, tags, i
     const uploadSettings = selectedAuthorization?.youtubeOptions || identity?.youtubeOptions || {};
     const args = uploadMethod === 'pygui'
       ? [videoPath, title, description, tags]
-      : [videoPath, title, description, tags, credentialRef, selectedAuthorization?.channelId || '', clientRef, JSON.stringify(uploadSettings)];
+      : [videoPath, title, description, Array.isArray(tags) ? JSON.stringify(tags) : tags, credentialRef, selectedAuthorization?.channelId || '', clientRef, JSON.stringify(uploadSettings)];
     const result = await runPythonScript(scriptPath, args);
     const videoIdOrUrl = parseUploadResult(result);
     if (!videoIdOrUrl) throw new Error('Uploader completed without printing a video URL or ID');

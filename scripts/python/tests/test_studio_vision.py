@@ -63,6 +63,7 @@ CONTROLS = {
     'show_more_button': (60, 360, 120, 28),
     'tags_field': (60, 400, 300, 30),
     'next_button': (660, 540, 90, 34),
+    'visibility_tab_button': (600, 70, 130, 26),
     'visibility_step_marker': (60, 90, 160, 30),
     'private_radio': (60, 150, 140, 26),
     'unlisted_radio': (60, 190, 140, 26),
@@ -127,7 +128,7 @@ class FakeStudio:
         if state == 'dialog':
             return ['select_files_button']
         if state == 'details':
-            names = ['details_title_field', 'details_description_field', 'next_button']
+            names = ['details_title_field', 'details_description_field', 'next_button', 'visibility_tab_button']
             if self.scrolled:
                 names += ['not_made_for_kids_radio', 'made_for_kids_radio', 'show_more_button']
                 if self.tags_open:
@@ -190,6 +191,8 @@ class FakeStudio:
             self.file_dialog_open = True
         elif name == 'show_more_button':
             self.tags_open = True
+        elif name == 'visibility_tab_button' and self.state == 'details':
+            self.state = 'visibility'
         elif name == 'next_button' and self.state == 'details':
             self.nexts += 1
             if self.nexts >= 3:
@@ -252,7 +255,7 @@ def payload(**overrides):
     video = Path(TMP) / 'clip.mp4'
     video.write_bytes(b'not a real video')
     base = {'videoPath': str(video), 'title': 'Cats <3 compilation', 'description': 'Line one\nLine <two>',
-            'tags': ['cats', 'funny cats', '#shorts'], 'privacyStatus': 'private', 'madeForKids': False}
+            'tags': ['cats', 'funny cats', '#shorts'], 'privacyStatus': 'private', 'madeForKids': False, 'verifyCompletion': True}
     base.update(overrides)
     return sv.parse_payload(json.dumps(base))
 
@@ -285,7 +288,7 @@ class TextTests(unittest.TestCase):
         required = {name for name, spec in manifest['templates'].items() if spec.get('required')}
         self.assertTrue({'create_button', 'select_files_button', 'next_button', 'save_button', 'copy_link_button'} <= required)
         status = sv.calibration_status(manifest, {'templates': {}}, Path(TMP) / 'empty')
-        self.assertEqual(set(status['missingRequired']), required)
+        self.assertEqual(set(status['missingRequired']), required | {' or '.join(group) for group in manifest.get('requiredAny', [])})
 
 
 class MatchingTests(unittest.TestCase):
@@ -352,7 +355,11 @@ class FlowTests(unittest.TestCase):
         fake = FakeStudio()
         session = self.session(fake)
         link = uploader.upload(payload(), session)
-        self.assertEqual(link, {'videoId': 'AbCdEfGhIjK', 'url': 'https://www.youtube.com/watch?v=AbCdEfGhIjK'})
+        self.assertEqual(link['videoId'], 'AbCdEfGhIjK')
+        self.assertEqual(link['url'], 'https://www.youtube.com/watch?v=AbCdEfGhIjK')
+        confirmation = cv2.imread(link['screenshot'])
+        self.assertIsNotNone(confirmation)
+        self.assertIsNotNone(session.matcher.find('finished_dialog_marker', sv.to_gray(confirmation), fake.scale))
         self.assertEqual(fake.typed['details_title_field'], 'Cats 3 compilation')
         self.assertEqual(fake.typed['details_description_field'], 'Line one\nLine two')
         self.assertEqual(fake.typed['tags_field'], 'cats,funny cats,shorts,')
@@ -364,6 +371,25 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(session.sent)
         # Studio must finish receiving the file before SAVE is clicked.
         self.assertGreaterEqual(fake.polls_on_visibility, fake.upload_polls)
+
+    def test_direct_visibility_shortcut_and_uncalibrated_fallback(self):
+        fake = FakeStudio()
+        uploader.upload(payload(verifyCompletion=False), self.session(fake))
+        self.assertIn('visibility_tab_button', fake.clicked)
+        self.assertEqual(fake.nexts, 0)
+        self.calibration['templates'].pop('visibility_tab_button')
+        fallback = FakeStudio()
+        uploader.upload(payload(verifyCompletion=False), self.session(fallback))
+        self.assertEqual(fallback.nexts, 3)
+        self.assertIn('save_button', fallback.clicked)
+
+    def test_default_submission_does_not_wait_for_upload_checks(self):
+        fake = FakeStudio(upload_polls=100000)
+        result = uploader.upload(payload(verifyCompletion=False), self.session(fake))
+        self.assertEqual(result['deliveryStatus'], 'submitted')
+        self.assertLess(fake.polls_on_visibility, fake.upload_polls)
+        self.assertIn('save_button', fake.clicked)
+        self.assertTrue(Path(result['screenshot']).is_file())
 
     def test_public_made_for_kids_upload_uses_the_matching_controls(self):
         fake = FakeStudio()
