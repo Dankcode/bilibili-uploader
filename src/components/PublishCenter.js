@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import styles from '../app/page.module.css';
+import YouTubePosts from './YouTubePosts';
 
 function formatWhen(value) {
   if (!value) return '';
@@ -30,7 +31,7 @@ function relative(value) {
 }
 
 const RECEIPT_CHIP = {
-  confirmed: [styles.releaseChipFilled, 'Published'],
+  confirmed: [styles.releaseChipFilled, 'Accepted'],
   sent: [styles.releaseChipAttention, 'Unconfirmed'],
   claimed: [styles.releaseChipAttention, 'Claimed'],
   failed: [styles.releaseChipFailed, 'Refused'],
@@ -128,6 +129,7 @@ export default function PublishCenter() {
       <button type="button" className={styles.buttonSecondary} onClick={load}>Refresh</button>
     </div>
     {error && <p role="alert" className={styles.releaseError}>{error}</p>}
+    <YouTubePosts />
     {!data && !error && <p>Loading release state…</p>}
 
     {data && <>

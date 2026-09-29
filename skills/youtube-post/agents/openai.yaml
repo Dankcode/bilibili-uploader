@@ -1,0 +1,4 @@
+interface:
+  display_name: "YouTube Post"
+  short_description: "Deliver approved YouTube posts through GUI and MCP"
+  default_prompt: "Use $youtube-post to deliver an approved post from the app."

@@ -1,6 +1,12 @@
 {
   "version": 1,
   "description": "Screen templates for the image-driven YouTube Studio uploader (YOUTUBE_UPLOAD_METHOD=studio). Capture each one on the machine that uploads with: python3 scripts/python/youtube_studio_vision_uploader.py --calibrate. Images are screen-, theme-, zoom- and language-specific, so they live in config/studio_templates/<profile>/ and are never committed.",
+  "requiredAny": [
+    [
+      "finished_dialog_marker",
+      "finished_content_marker"
+    ]
+  ],
   "templates": {
     "dashboard_ready": {
       "required": true,
@@ -88,7 +94,7 @@
       "hint": "The copy icon next to 'Video link' in the right-hand panel. The uploader reads the link from the clipboard."
     },
     "upload_complete_marker": {
-      "required": true,
+      "required": false,
       "role": "marker",
       "hint": "The bottom-bar status once the file has finished uploading, e.g. 'Checks complete' or 'Upload complete'. The tab is not closed before this appears."
     },
@@ -103,9 +109,14 @@
       "hint": "The PUBLISH button shown for Unlisted/Public."
     },
     "finished_dialog_marker": {
-      "required": true,
+      "required": false,
       "role": "marker",
       "hint": "The confirmation shown after SAVE, e.g. 'Video saved as private'."
+    },
+    "finished_content_marker": {
+      "required": false,
+      "role": "marker",
+      "hint": "The Channel content heading after Save returns directly to the video list. Requires macOS Swift/Vision OCR to verify the exact title, visibility and Uploaded cells in the same row; the heading alone never proves success."
     },
     "published_dialog_marker": {
       "required": false,
@@ -131,6 +142,11 @@
       "required": false,
       "role": "stop",
       "hint": "The 'Daily upload limit reached' notice. When seen before a file is selected, the job defers to tomorrow."
+    },
+    "visibility_tab_button": {
+      "required": false,
+      "role": "click",
+      "hint": "Unselected Visibility step tab in the upload wizard. Optional shortcut after metadata and audience are set."
     }
   }
 }

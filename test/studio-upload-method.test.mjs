@@ -58,7 +58,7 @@ function calibrateAllRequired() {
   fs.mkdirSync(templateDir, { recursive: true });
   const templates = {};
   for (const [name, spec] of Object.entries(manifest.templates)) {
-    if (!spec.required) continue;
+    if (!spec.required && name !== 'finished_dialog_marker') continue;
     fs.writeFileSync(path.join(templateDir, `${name}.png`), 'png');
     templates[name] = { file: `${name}.png` };
   }

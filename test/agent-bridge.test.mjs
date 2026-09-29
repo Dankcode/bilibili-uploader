@@ -28,8 +28,8 @@ function fixtureJob(status = 'review', uploaderId = '') {
   return job.id;
 }
 
-test('one shared contract has thirteen tools, matching REST/OpenAPI, and no approval/SQL/delete capability', () => {
-  assert.equal(operations.length, 13);
+test('one shared contract has twenty tools, matching REST/OpenAPI, and no approval/SQL/delete capability', () => {
+  assert.equal(operations.length, 20);
   const spec = openApiDocument();
   for (const op of operations) assert.equal(spec.paths[op.path][op.method.toLowerCase()].operationId, op.name);
   assert.ok(!operations.some((op) => /approve|sql|delete|runtime/.test(op.name)));

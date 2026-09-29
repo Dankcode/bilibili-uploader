@@ -23,6 +23,7 @@
  */
 
 export const SOURCES = [
+  { id: 'library', label: 'Saved library video', credentialFields: [], inputKinds: ['video-record-id'], adapterPath: 'src/lib/pipeline/sources/library.js' },
   {
     id: 'localFile',
     label: 'Local File',

@@ -124,7 +124,7 @@ export function normalizeYouTubeUploadResult(value) {
 
 /** The exact title upload() sends — receipts record it so reconcile can match. */
 export function resolveUploadTitle(filePath, meta = {}) {
-  return meta.title || meta.titleEn || path.basename(String(filePath || ''), path.extname(String(filePath || '')));
+  return meta.titleEn || meta.title || path.basename(String(filePath || ''), path.extname(String(filePath || '')));
 }
 
 /** Only Data API uploads spend quota; Studio and guided uploads do not. */
@@ -143,13 +143,13 @@ export async function upload(filePath, meta = {}, onProgress = () => {}) {
     throw Object.assign(new Error(`Upload file not found: ${filePath}`), { notSent: true });
   }
   const title = resolveUploadTitle(filePath, meta);
-  const description = meta.description || meta.descriptionEn || '';
+  const description = meta.descriptionEn || meta.description || '';
   const tags = Array.isArray(meta.tags) ? meta.tags.join(' ') : (meta.tags || '');
   const uploadMethod = resolveUploadMethod(meta);
   onProgress(10, uploadMethod === 'studio' ? 'Starting YouTube Studio screen uploader' : 'Starting YouTube uploader');
   const authorization = meta.youtubeAuthorization || null;
   // Studio takes tags as a list (multi-word tags survive); the API script takes a string.
-  const uploadTags = uploadMethod === 'studio' && Array.isArray(meta.tags) ? meta.tags : tags;
+  const uploadTags = uploadMethod !== 'pygui' && Array.isArray(meta.tags) ? meta.tags : tags;
   const rawResult = await UploadVideo(filePath, title, description, uploadTags, {
     ...(authorization || {}),
     ...(!authorization && meta.channelId ? { channelRef: meta.channelId } : {}),
@@ -169,16 +169,20 @@ export async function upload(filePath, meta = {}, onProgress = () => {}) {
       madeForKids: Boolean(meta.madeForKids),
       embeddable: meta.embeddable !== false,
       notifySubscribers: Boolean(meta.notifySubscribers),
+      verifyCompletion: meta.verifyCompletion === true,
     },
   });
-  const normalized = normalizeYouTubeUploadResult(rawResult);
-  onProgress(100, 'Uploaded');
+  const normalized = normalizeYouTubeUploadResult(typeof rawResult === 'object' ? rawResult.url : rawResult);
+  const deliveryStatus = rawResult?.deliveryStatus || 'published';
+  onProgress(100, deliveryStatus === 'submitted' ? 'Saved in Studio; processing continues there' : 'Uploaded');
   return {
     ...normalized,
     authorizationId: authorization?.id || '',
     channelId: authorization?.channelId || meta.channelId || '',
     privacyStatus: meta.privacyStatus || 'private',
     uploadMethod,
+    deliveryStatus,
+    screenshot: rawResult?.screenshot || '',
   };
 }
 

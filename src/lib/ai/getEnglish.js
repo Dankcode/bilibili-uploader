@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
+import { EDITORIAL_RULES, cleanGeneratedMetadata } from './editorial.js';
 
 const PROVIDERS = {
   codex: {
@@ -125,8 +126,9 @@ Return only valid JSON with this exact shape:
 }
 
 Rules:
+${EDITORIAL_RULES}
 - Keep the title concise and natural for YouTube.
-- Write the description as one independent ASMR creator.
+- Write a warm description grounded in the source, without inventing who recorded it.
 - Keep the tone calm, casual, and sleep-focused.
 - Do not include hashtags in the title.
 - Return exactly 10 English tags.
@@ -143,7 +145,7 @@ async function getEnglishData(chineseName, chineseDesc) {
     system: 'You generate concise, safe YouTube metadata and return valid JSON only.',
     temperature: 0.3,
   });
-  return JSON.stringify(result.data);
+  return JSON.stringify(cleanGeneratedMetadata(result.data));
 }
 
 /**

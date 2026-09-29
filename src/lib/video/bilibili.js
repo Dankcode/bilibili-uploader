@@ -262,6 +262,7 @@ export async function parseBilibiliVideoInfo(bilibiliUrl, sessData) {
     if (!videoUrl || !audioUrl) throw new Error('Bilibili did not provide DASH audio/video streams');
     return {
       title: page?.part || videoData.title || 'bilibili-video',
+      description: String(videoData.desc || ''),
       durationSeconds: Number(page?.duration || videoData.duration || 0),
       uploader: String(videoData.owner?.name || ''),
       thumbnailUrl: String(videoData.pic || ''),
@@ -305,7 +306,7 @@ export async function processBilibiliUrl(videoName, bilibiliUrl, options = {}) {
     const info = await parseBilibiliVideoInfo(bilibiliUrl, sessData);
     console.log(`Starting Bilibili download: ${info.title} (as ${videoName})`);
     const filePath = await Downloader(videoName, info.canonicalUrl || bilibiliUrl, info.videoUrl, info.audioUrl, options);
-    return { filePath, title: info.title, canonicalUrl: info.canonicalUrl || bilibiliUrl };
+    return { filePath, title: info.title, description: info.description, canonicalUrl: info.canonicalUrl || bilibiliUrl };
   } catch (error) {
     console.error('Bilibili Process Error:', error.message);
     throw error;

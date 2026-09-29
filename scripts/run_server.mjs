@@ -3,6 +3,7 @@ import path from 'path';
 
 const mode = process.argv[2] === 'start' ? 'start' : 'dev';
 const port = String(process.env.PORT || '4455');
+const host = String(process.env.VIDEO_BIND_HOST || '0.0.0.0');
 const nextBin = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');
 const children = [];
 let stopping = false;
@@ -39,7 +40,7 @@ function stop(signal = 'SIGTERM', exitCode = 0) {
 process.on('SIGINT', () => stop('SIGINT'));
 process.on('SIGTERM', () => stop('SIGTERM'));
 
-launch('web control plane', process.execPath, [nextBin, mode, '-H', '0.0.0.0', '-p', port], {
+launch('web control plane', process.execPath, [nextBin, mode, '-H', host, '-p', port], {
   VIDEO_PROCESS_ROLE: 'frontend',
 });
 launch('pipeline worker', process.execPath, [
@@ -50,4 +51,4 @@ launch('pipeline worker', process.execPath, [
   VIDEO_PROCESS_ROLE: 'worker',
 });
 
-console.log(`[Server] Web control plane and worker starting on port ${port}`);
+console.log(`[Server] Web control plane and worker starting on ${host}:${port}`);

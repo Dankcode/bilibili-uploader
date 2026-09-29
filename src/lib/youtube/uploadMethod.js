@@ -92,6 +92,9 @@ export function studioCalibrationStatus() {
     else if (spec.required) missingRequired.push(name);
     else missingOptional.push(name);
   }
+  for (const alternatives of manifest.requiredAny || []) {
+    if (!alternatives.some((name) => ready.includes(name))) missingRequired.push(alternatives.join(' or '));
+  }
   return {
     ok: missingRequired.length === 0,
     templateDir: directory,

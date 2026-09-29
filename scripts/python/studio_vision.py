@@ -79,6 +79,9 @@ def calibration_status(manifest, calibration, template_dir):
             missing_required.append(name)
         else:
             missing_optional.append(name)
+    for alternatives in manifest.get('requiredAny', []):
+        if not any(name in ready for name in alternatives):
+            missing_required.append(' or '.join(alternatives))
     return {'ready': ready, 'missingRequired': missing_required, 'missingOptional': missing_optional}
 
 
@@ -94,6 +97,49 @@ def make_record(name, crop_shape, capture_scale, click_offset, screen_logical_si
         'screenLogical': [int(screen_logical_size[0]), int(screen_logical_size[1])],
         'capturedAt': datetime.now(timezone.utc).isoformat(),
     }
+
+
+def capture_from_image(template_dir, manifest, name, image, box, logical_size, click=None, confidence=.94):
+    """Train from an MCP screenshot without touching the desktop.
+
+    box and click are physical pixels relative to this screenshot. Window
+    screenshots have their own origin; callers must map clicks to their MCP's
+    coordinate space separately. Only the small control crop is persisted.
+    """
+    if name not in manifest['templates']:
+        raise ValueError(f'Unknown template: {name}')
+    if image is None or min(logical_size) <= 0 or not .85 <= confidence <= 1:
+        raise ValueError('Invalid screenshot, logical size or confidence')
+    scale = screen_scale(image, logical_size)
+    if abs(image.shape[0] / logical_size[1] - scale) > .05:
+        raise ValueError('Screenshot and logical dimensions have different aspect ratios')
+    x, y, width, height = map(int, box)
+    if min(width, height) < 12 or min(x, y) < 0 or x+width > image.shape[1] or y+height > image.shape[0]:
+        raise ValueError('Crop must be at least 12px and inside the screenshot')
+    crop = image[y:y+height, x:x+width]
+    if to_gray(crop).std() < 5:
+        raise ValueError('Blank or low-contrast control crop')
+    center = (x+width/2, y+height/2)
+    click = click or center
+    if not (0 <= click[0] < image.shape[1] and 0 <= click[1] < image.shape[0]):
+        raise ValueError('Click point is outside screenshot')
+    # Check uniqueness before changing an existing reference.
+    result = cv2.matchTemplate(to_gray(image), to_gray(crop), cv2.TM_CCOEFF_NORMED)
+    result[max(0,y-height//2):y+height//2+1, max(0,x-width//2):x+width//2+1] = -1
+    rival = float(result.max())
+    if rival >= confidence - .03:
+        raise ValueError(f'Ambiguous crop (second match {rival:.3f}); include more context')
+    directory = Path(template_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(directory / f'{name}.png'), crop):
+        raise ValueError('Could not save template image')
+    calibration = load_calibration(directory)
+    record = make_record(name, crop.shape, scale,
+                         ((click[0]-center[0])/scale, (click[1]-center[1])/scale),
+                         logical_size, confidence)
+    calibration['templates'][name] = record
+    save_calibration(directory, calibration)
+    return record
 
 
 # --------------------------------------------------------------------------- matching
@@ -299,6 +345,31 @@ def parse_video_link(text):
     return None
 
 
+def verified_content_row(observations, title, privacy):
+    """Verify one saved row from offline OCR, never mix adjacent videos' cells.
+
+    Coordinates are normalized, top-left origin. Truncated/ambiguous titles
+    deliberately fail closed; the operator can reconcile the saved receipt.
+    """
+    normalize = lambda text: ''.join(c for c in text.casefold() if c.isalnum())
+    rows = [r for r in observations if r.get('confidence', 0) >= .9]
+    titles = [r for r in rows if normalize(r['text']) == normalize(title)]
+    if len(titles) != 1 or not any(normalize(r['text']) == 'channelcontent' for r in rows):
+        return False
+    target = titles[0]
+    cy = target['y'] + target['height'] / 2
+    for cell in rows:
+        # Vision occasionally interprets the lock icon as an A or a bullet.
+        if not re.fullmatch(r'(?:[A•🔒]\s*)?' + re.escape(privacy), cell['text'].strip(), re.I):
+            continue
+        if cell['x'] <= target['x'] + target['width'] or abs(cell['y'] + cell['height'] / 2 - cy) > .018:
+            continue
+        if any(normalize(r['text']) == 'uploaded' and r['x'] > cell['x'] + cell['width']
+               and .005 <= r['y'] - target['y'] <= .045 for r in rows):
+            return True
+    return False
+
+
 # --------------------------------------------------------------------------- payload + plan
 
 PRIVACY_TEMPLATES = {'private': 'private_radio', 'unlisted': 'unlisted_radio', 'public': 'public_radio'}
@@ -327,6 +398,7 @@ def parse_payload(raw):
         'tags': clean_tags(payload.get('tags')),
         'privacyStatus': privacy,
         'madeForKids': bool(payload.get('madeForKids')),
+        'verifyCompletion': payload.get('verifyCompletion') is True,
     }
 
 
@@ -335,6 +407,8 @@ def plan_requirements(payload, matcher):
     checked BEFORE the browser is touched so a job fails with a named missing
     template instead of halfway through Studio."""
     needed = []
+    if payload.get('verifyCompletion'):
+        needed.append('upload_complete_marker')
     if payload['madeForKids']:
         needed.append('made_for_kids_radio')
     privacy_template = PRIVACY_TEMPLATES[payload['privacyStatus']]

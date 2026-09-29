@@ -30,7 +30,10 @@ The final stdout line of a successful run is the watch URL.
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 import webbrowser
 from collections import namedtuple
@@ -238,6 +241,8 @@ class Session:
                 deadline = time.time() + timeout
                 continue
             for name in candidates:
+                if name == 'finished_content_marker' and self.matcher.find('visibility_step_marker', gray, scale):
+                    continue  # The list can also be visible behind the upload modal.
                 match = self.matcher.find(name, gray, scale)
                 if match:
                     return match
@@ -293,6 +298,22 @@ def choose_file(desktop, video_path):
         desktop.press('enter')
 
 
+def verify_saved_content(session, payload):
+    screenshot = session.save_screenshot('saved-content')
+    try:
+        result = subprocess.run(
+            ['swift', '-module-cache-path', str(Path(tempfile.gettempdir()) / 'bilibili-studio-swift-cache'),
+             str(HERE / 'studio_ocr.swift'), screenshot],
+            capture_output=True, text=True, check=True, timeout=60,
+        )
+        verified = sv.verified_content_row(json.loads(result.stdout), payload['title'], payload['privacyStatus'])
+    except (OSError, subprocess.SubprocessError, ValueError):
+        verified = False
+    if not verified:
+        session.fail(f'Studio returned to the content list, but the exact saved row could not be verified. '
+                     f'Reconcile this upload before retrying (screenshot: {screenshot})')
+
+
 def upload(payload, session):
     desktop, matcher = session.desktop, session.matcher
     video_path = str(Path(payload['videoPath']).expanduser().resolve())
@@ -302,6 +323,10 @@ def upload(payload, session):
     missing, warnings = sv.plan_requirements(payload, matcher)
     if missing:
         raise StudioError('input', f'Calibrate these templates first: {", ".join(missing)}', code=EXIT_BAD_INPUT)
+    if payload.get('verifyCompletion') and matcher.has('finished_content_marker') and not matcher.has('finished_dialog_marker'):
+        if sys.platform != 'darwin' or not shutil.which('swift'):
+            raise StudioError('input', 'Content-list confirmation requires macOS Swift/Vision. '
+                              'Otherwise calibrate finished_dialog_marker.', code=EXIT_BAD_INPUT)
     for warning in warnings:
         event('warning', message=warning)
 
@@ -360,6 +385,10 @@ def upload(payload, session):
 
     session.stage = 'advance'
     event('progress', stage=session.stage, percent=40, note='Moving to Visibility')
+    # The direct step tab skips optional elements/checks without waiting for processing.
+    if matcher.has('visibility_tab_button') and session.find('visibility_tab_button'):
+        session.click('visibility_tab_button')
+        session.wait_for('visibility_step_marker', timeout=3, required=False)
     for _ in range(5):
         if session.find('visibility_step_marker'):
             break
@@ -378,39 +407,48 @@ def upload(payload, session):
     if not link:
         event('warning', message='Could not read the video link from the clipboard; continuing to save')
 
-    session.stage = 'wait_upload'
-    event('progress', stage=session.stage, percent=55, note='Waiting for Studio to finish receiving the file')
-    started = time.time()
-    while True:
-        gray, scale = session.grab()
-        if matcher.find('upload_complete_marker', gray, scale):
-            break
-        if time.time() - started > UPLOAD_WAIT:
-            shot = session.save_screenshot('upload-not-complete')
-            waited = f'{UPLOAD_WAIT / 60:.0f} min' if UPLOAD_WAIT >= 60 else f'{UPLOAD_WAIT:.0f} s'
-            session.fail(f'Upload did not complete within {waited} (screenshot: {shot})')
-        elapsed = time.time() - started
-        event('progress', stage=session.stage, percent=min(85, 55 + int(elapsed / max(1, UPLOAD_WAIT) * 30)),
-              note=f'Uploading… {int(elapsed)} s')
-        time.sleep(5)
+    if payload.get('verifyCompletion'):
+        session.stage = 'wait_upload'
+        event('progress', stage=session.stage, percent=55, note='Waiting for Studio to finish receiving the file')
+        started = time.time()
+        while True:
+            gray, scale = session.grab()
+            if matcher.find('upload_complete_marker', gray, scale):
+                break
+            if time.time() - started > UPLOAD_WAIT:
+                shot = session.save_screenshot('upload-not-complete')
+                waited = f'{UPLOAD_WAIT / 60:.0f} min' if UPLOAD_WAIT >= 60 else f'{UPLOAD_WAIT:.0f} s'
+                session.fail(f'Upload did not complete within {waited} (screenshot: {shot})')
+            elapsed = time.time() - started
+            event('progress', stage=session.stage, percent=min(85, 55 + int(elapsed / max(1, UPLOAD_WAIT) * 30)),
+                  note=f'Uploading… {int(elapsed)} s')
+            time.sleep(5)
 
     session.stage = 'save'
     event('progress', stage=session.stage, percent=90, note='Saving')
     wants_publish = payload['privacyStatus'] != 'private' and matcher.has('publish_button')
     session.click('publish_button' if wants_publish else 'save_button')
-    session.wait_for_any(
-        ['published_dialog_marker', 'finished_dialog_marker'] if wants_publish else ['finished_dialog_marker', 'published_dialog_marker'],
+    completed = session.wait_for_any(
+        (['published_dialog_marker', 'finished_dialog_marker'] if wants_publish else ['finished_dialog_marker', 'published_dialog_marker'])
+        + ['finished_content_marker'],
         timeout=max(STEP_TIMEOUT, 60),
     )
-    if matcher.has('close_dialog_button'):
+    if payload.get('verifyCompletion') and completed.name == 'finished_content_marker':
+        verify_saved_content(session, payload)
+    # Persist the observed confirmation before closing it. Still image only:
+    # there is no screen recorder or continuously retained screenshot stream.
+    confirmation = session.save_screenshot('upload-confirmed')
+    event('progress', stage='confirmation', percent=95, screenshot=confirmation,
+          note='Studio accepted the save; background processing may continue')
+    if completed.name != 'finished_content_marker' and matcher.has('close_dialog_button'):
         session.click('close_dialog_button', timeout=10)
 
     if not link:
         session.stage = 'read_link'
         shot = session.save_screenshot('saved-without-link')
         session.fail(f'The video was saved but its link could not be read. Paste it in Publish ▸ Receipts (screenshot: {shot})')
-    event('progress', stage='done', percent=100, note='Uploaded')
-    return link
+    event('progress', stage='done', percent=100, note='Saved in Studio')
+    return {**link, 'screenshot': confirmation, 'deliveryStatus': 'published' if payload.get('verifyCompletion') else 'submitted'}
 
 
 # --------------------------------------------------------------------------- lock
@@ -531,7 +569,21 @@ def main():
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--screen-image')
     parser.add_argument('--logical-width', type=int)
+    parser.add_argument('--capture-from', help='Train one crop from a saved MCP screenshot, without desktop access')
+    parser.add_argument('--template', help='Manifest template name for --capture-from')
+    parser.add_argument('--box', type=int, nargs=4, metavar=('X', 'Y', 'W', 'H'), help='Physical screenshot pixels')
+    parser.add_argument('--logical-size', type=int, nargs=2, metavar=('W', 'H'))
+    parser.add_argument('--click', type=int, nargs=2, metavar=('X', 'Y'), help='Physical screenshot click point; defaults to crop center')
     args = parser.parse_args()
+
+    if args.capture_from:
+        if not args.template or not args.box or not args.logical_size:
+            parser.error('--capture-from requires --template, --box and --logical-size')
+        record = sv.capture_from_image(TEMPLATE_DIR, sv.load_manifest(MANIFEST_PATH),
+            args.template, cv2.imread(args.capture_from, cv2.IMREAD_COLOR),
+            args.box, args.logical_size, args.click, args.confidence)
+        print(json.dumps({'template': args.template, 'record': record}))
+        return EXIT_OK
 
     if args.calibrate:
         calibrate(args.only, args.confidence)

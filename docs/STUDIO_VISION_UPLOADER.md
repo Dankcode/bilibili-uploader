@@ -39,8 +39,8 @@ OAuth client and no quota.
 | 6 | advance | `next_button` ×N until `visibility_step_marker` | |
 | 7 | visibility | `private_radio` / `unlisted_radio` / `public_radio` | |
 | 8 | read_link | `copy_link_button` | Reads the watch URL from the clipboard |
-| 9 | wait_upload | `upload_complete_marker` | Never saves or closes before the file has finished uploading |
-| 10 | save | `save_button` or `publish_button` → `finished_dialog_marker` / `published_dialog_marker` → `close_dialog_button` | Studio words the confirmation differently after SAVE and after PUBLISH; either is accepted |
+| 9 | optional verification | `upload_complete_marker` | Only with `verifyCompletion: true`; normal runs proceed to Save without waiting for transfer checks or processing |
+| 10 | save | `save_button` or `publish_button` → confirmation dialog or `finished_content_marker` | Record Studio acceptance as submitted; keep the browser running for background transfer |
 
 Title and description are cleaned the way Studio requires: no `<` or `>`,
 title at most 100 characters, description at most 5,000, and tags at most
@@ -61,6 +61,65 @@ title at most 100 characters, description at most 5,000, and tags at most
   queued. Changing `YOUTUBE_UPLOAD_METHOD` later only affects new jobs.
 
 ## Setup on the upload machine
+
+### Agent/MCP calibration from still screenshots
+
+The reusable agent skill is [youtube-gui-upload](../skills/youtube-gui-upload/SKILL.md).
+It complements the [app MCP bridge](MCP_AGENT_BRIDGE.md) and a computer-use MCP.
+Users can copy or symlink the skill folder into their agent's skill directory.
+Neither skill installation nor template capture grants account or OS permissions.
+
+Agents can import a crop from a real MCP screenshot without an interactive
+terminal or mouse-position prompts:
+
+```sh
+YOUTUBE_STUDIO_TEMPLATE_DIR=config/studio_templates/default \
+.venv-gui/bin/python scripts/python/youtube_studio_vision_uploader.py \
+  --capture-from /absolute/path/studio.png --template create_button \
+  --box X Y WIDTH HEIGHT --logical-size LOGICAL_WIDTH LOGICAL_HEIGHT \
+  --confidence 0.94
+```
+
+The box and optional `--click X Y` use physical screenshot pixels; the logical
+size describes that same screenshot. The crop is saved in the runtime's normal
+calibration format. Blank, invalid and non-unique crops are rejected. Window
+captures and desktop captures can have different origins: verify the coordinate
+mapping before using image matches to click through MCP. Do not train from a
+Stage Manager thumbnail or a scaled screenshot preview.
+
+Successful runtime uploads now save `upload-confirmed.png` before the confirmation
+dialog closes, and include the path in `STUDIO_RESULT`. This is a single still
+image; no continuous screen recorder is started. Agents should display this real
+evidence together with the matching video link, not a draft or progress screen.
+
+Calibration completed on 2026-09-28: 19 real references are saved in
+`config/studio_templates/default`, including Tags and the optional direct
+Visibility tab. All required private-workflow reference groups are present.
+Both original clips are confirmed Private: `apc6Uo1mnME` and `YcSLpr6cSQY`.
+Evidence: `video-work/gui-uploads/screens/19-two-private-confirmed.png`.
+
+A fresh Bilibili API download of `BV1hP2qBMEij` was validated (H.264,
+852 x 480, 255.785 seconds, 20,015,395 bytes) and uploaded through Studio as
+https://www.youtube.com/watch?v=sX_2k5Z0aM8. The GUI went directly from Details
+to Visibility, selected Private, and saved while checks continued. The content
+list then showed Private / Uploaded. Evidence and checksummed receipts are in
+`video-work/gui-uploads/bilibili-20260928/` and
+`video-work/gui-uploads/screens/21-bilibili-gui-saved.png`.
+This proves the agent-assisted GUI workflow; it does not claim a live unattended
+PyAutoGUI run. Only still screenshots were used. Templates depend on window
+layout; recheck matches after changing window size or browser zoom.
+
+The optional `visibility_tab_button` skips the three Next actions. If absent or
+not matched, the runtime retains the Next-button path. Both paths verify the
+Visibility screen before setting privacy and saving.
+
+Normal runs return `deliveryStatus: submitted` after Studio accepts Save.
+They do not claim processing has completed. Leave Chrome running. Explicit
+`verifyCompletion: true` additionally checks transfer/check status and, when
+Studio returns to its content list, verifies the exact title and Private/Uploaded
+row using OCR. A draft autosave is not a final submission receipt.
+
+### Interactive calibration
 
 1. `pip install -r requirements.txt` (adds `opencv-python`, `numpy`, `mss`).
 2. **macOS permissions:** System Settings ▸ Privacy & Security ▸

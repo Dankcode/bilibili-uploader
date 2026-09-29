@@ -178,6 +178,10 @@ def clean_upload_options(value):
 
 def uploads_video_initialisation(token_ref, video_to_upload, title, description, tags, expected_channel_id='', client_ref=None, upload_options=None):
     credentials = authenticate(token_ref, client_ref)
+    if isinstance(tags, str) and tags.lstrip().startswith('['):
+        tags = json.loads(tags)
+        if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+            raise ValueError('Tags JSON must be an array of strings')
     tag_list = tags if isinstance(tags, list) else [tag for tag in str(tags).split() if tag]
 
     youtube = build('youtube', 'v3', credentials=credentials)

@@ -113,7 +113,9 @@ export function describeDownload(downloaded, item = {}, baseName = 'bilibili-vid
     meta: {
       title: publishedTitle || item.title || baseName,
       sourceTitle: publishedTitle,
-      sourceUrl: item.url || '',
+      sourceDescription: (isBarePath ? '' : downloaded?.description) || item.description || '',
+      sourceUrl: (isBarePath ? '' : downloaded?.canonicalUrl) || item.url || '',
+      canonicalUrl: (isBarePath ? '' : downloaded?.canonicalUrl) || '',
       platform: 'bilibili',
     },
   };
