@@ -118,6 +118,8 @@ class Desktop:
 
     def paste(self, text, replace=True):
         self.pyperclip.copy(text or '')
+        if self.pyperclip.paste() != (text or ''):
+            raise RuntimeError('Clipboard did not accept the requested text')
         if replace:
             self.pyautogui.hotkey(self.modifier, 'a')
             time.sleep(0.1)
@@ -140,6 +142,13 @@ class Desktop:
 
     def clear_clipboard(self):
         self.pyperclip.copy('')
+
+    def read_field(self):
+        self.clear_clipboard()
+        self.pyautogui.hotkey(self.modifier, 'a')
+        self.pyautogui.hotkey(self.modifier, 'c')
+        time.sleep(0.2)
+        return self.clipboard().replace('\r\n', '\n')
 
 
 class Session:
@@ -298,6 +307,16 @@ def choose_file(desktop, video_path):
         desktop.press('enter')
 
 
+def fill_verified(session, name, text):
+    session.click(name)
+    for _ in range(2):
+        session.desktop.paste(text)
+        if session.desktop.read_field() == text.replace('\r\n', '\n'):
+            return
+    shot = session.save_screenshot(f'unverified-{name}')
+    session.fail(f'The browser field {name} does not match the requested metadata (screenshot: {shot})')
+
+
 def verify_saved_content(session, payload):
     screenshot = session.save_screenshot('saved-content')
     try:
@@ -353,17 +372,16 @@ def upload(payload, session):
     session.sent = True
     choose_file(desktop, video_path)
     if not session.wait_for('details_title_field', timeout=max(STEP_TIMEOUT, 90), required=False):
-        if session.find('select_files_button'):
-            session.sent = False  # the dialog is still waiting for a file
+        # A surviving file-picker control does not prove the transfer never
+        # started. Preserve uncertainty so the release layer blocks duplicates.
         shot = session.save_screenshot('file-not-accepted')
         session.fail(f'Studio did not accept the file (screenshot: {shot})')
 
     session.stage = 'details'
     event('progress', stage=session.stage, percent=25, note='Filling title and description')
-    title_match = session.click('details_title_field')
-    desktop.paste(payload['title'])
-    session.click('details_description_field')
-    desktop.paste(payload['description'])
+    title_match = session.wait_for('details_title_field')
+    fill_verified(session, 'details_title_field', payload['title'])
+    fill_verified(session, 'details_description_field', payload['description'])
 
     anchor = (title_match.click_x, title_match.click_y + 120)
     audience = 'made_for_kids_radio' if payload['madeForKids'] else 'not_made_for_kids_radio'
@@ -379,9 +397,9 @@ def upload(payload, session):
                 session.click('tags_field')
                 desktop.paste(','.join(payload['tags']) + ',', replace=False)
             else:
-                event('warning', message='tags_field not found; tags skipped')
+                session.fail('tags_field not found; refusing to save without requested tags')
         else:
-            event('warning', message='show_more_button not found; tags skipped')
+            session.fail('show_more_button not found; refusing to save without requested tags')
 
     session.stage = 'advance'
     event('progress', stage=session.stage, percent=40, note='Moving to Visibility')
@@ -465,9 +483,13 @@ def acquire_lock():
             try:
                 owner = int(LOCK_PATH.read_text().strip() or '0')
                 os.kill(owner, 0)
-            except (ValueError, ProcessLookupError, PermissionError, OSError):
+            except (ValueError, ProcessLookupError):
                 LOCK_PATH.unlink(missing_ok=True)
                 continue
+            except PermissionError:
+                raise StudioError('lock', 'Another user owns the Studio desktop lock', code=EXIT_BAD_INPUT)
+            except OSError as error:
+                raise StudioError('lock', f'Cannot verify the Studio desktop lock: {error}', code=EXIT_BAD_INPUT)
             raise StudioError('lock', f'Another Studio upload (pid {owner}) is using the screen', code=EXIT_BAD_INPUT)
     raise StudioError('lock', 'Could not acquire the Studio uploader lock', code=EXIT_BAD_INPUT)
 

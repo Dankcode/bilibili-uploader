@@ -110,7 +110,7 @@ test('Studio readiness names the templates still to capture, then reports ready 
   calibrateAllRequired();
   const after = await youtube.testConnection({}, { uploadMethod: 'studio' });
   assert.equal(after.ok, true, after.error);
-  assert.match(after.detail, /no channel check/);
+  assert.match(after.detail, /channel check on/);
   assert.equal(methods.studioCalibrationStatus().ok, true);
 });
 

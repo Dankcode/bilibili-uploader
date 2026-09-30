@@ -14,7 +14,7 @@
       "hint": "Something only visible when YouTube Studio is loaded and signed in, e.g. the 'Channel dashboard' heading or the Studio logo."
     },
     "channel_badge": {
-      "required": false,
+      "required": true,
       "role": "marker",
       "hint": "Your channel's avatar or name as Studio shows it. When captured, every upload first checks the browser is signed into THIS channel."
     },

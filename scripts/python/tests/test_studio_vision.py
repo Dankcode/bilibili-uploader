@@ -210,6 +210,9 @@ class FakeStudio:
             return
         self.typed[self.focused] = text
 
+    def read_field(self):
+        return self.typed.get(self.focused, '')
+
     def press(self, key):
         if key == 'enter' and self.file_dialog_open and self.path_pasted:
             self.file_dialog_open = False
@@ -338,8 +341,8 @@ class MatchingTests(unittest.TestCase):
         calibration = calibrate_from(lambda: FakeStudio(), partial, skip=('public_radio', 'publish_button', 'tags_field'))
         matcher = sv.TemplateMatcher(partial, calibration)
         missing, warnings = sv.plan_requirements(payload(privacyStatus='public'), matcher)
-        self.assertEqual(missing, ['public_radio', 'publish_button'])
-        self.assertTrue(warnings and 'Tags will be skipped' in warnings[0])
+        self.assertEqual(missing, ['public_radio', 'publish_button', 'tags_field'])
+        self.assertEqual(warnings, [])
 
 
 class FlowTests(unittest.TestCase):
@@ -350,6 +353,34 @@ class FlowTests(unittest.TestCase):
     def session(self, fake):
         matcher = sv.TemplateMatcher(self.dir, self.calibration)
         return uploader.Session(fake, matcher, Path(TMP) / 'runs' / self._testMethodName)
+
+    def test_stale_clipboard_stops_before_save_and_preserves_sent_state(self):
+        fake = FakeStudio()
+        fake.read_field = lambda: 'stale clipboard text'
+        with self.assertRaises(uploader.StudioError) as caught:
+            uploader.upload(payload(), self.session(fake))
+        self.assertTrue(caught.exception.sent)
+        self.assertIn('does not match', str(caught.exception))
+        self.assertNotIn('save_button', fake.clicked)
+
+    def test_missing_channel_reference_is_refused_before_upload(self):
+        self.calibration['templates'].pop('channel_badge')
+        fake = FakeStudio()
+        with self.assertRaises(uploader.StudioError) as caught:
+            uploader.upload(payload(), self.session(fake))
+        self.assertFalse(caught.exception.sent)
+        self.assertIn('channel_badge', str(caught.exception))
+        self.assertEqual(fake.clicked, [])
+
+    def test_requested_tags_are_not_silently_skipped(self):
+        fake = FakeStudio()
+        original = fake.visible
+        fake.visible = lambda: [name for name in original() if name != 'tags_field']
+        with self.assertRaises(uploader.StudioError) as caught:
+            uploader.upload(payload(), self.session(fake))
+        self.assertTrue(caught.exception.sent)
+        self.assertIn('tags_field', str(caught.exception))
+        self.assertNotIn('save_button', fake.clicked)
 
     def test_full_private_upload_fills_every_field_and_returns_the_link(self):
         fake = FakeStudio()
