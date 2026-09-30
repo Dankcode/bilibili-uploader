@@ -48,8 +48,9 @@ offline image-processing dependencies verified; do not assume the Mac venv is
 portable. Read the helper's `--help` before invocation if the checkout differs.
 
 Read `scripts/python/studio_templates.manifest.json` as the control-name contract.
-Also train controls required by the chosen workflow even when the manifest marks
-them optional: channel identity, Show more/tags, and the selected privacy option.
+The channel identity reference is required. Also train controls required by the
+chosen workflow even when the manifest marks them optional: Show more/tags and
+the selected privacy option. Requested tags cannot be silently omitted.
 Train the direct Visibility tab if observed, retaining Next as a fallback. Do not
 train Public controls just to exercise states outside the authorized workflow.
 

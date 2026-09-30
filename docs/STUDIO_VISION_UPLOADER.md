@@ -32,10 +32,10 @@ OAuth client and no quota.
 | # | Stage | Templates | Notes |
 |---|---|---|---|
 | 1 | open_studio | `dashboard_ready` (+ gates) | Opens `YOUTUBE_STUDIO_URL` if Studio isn't already on screen |
-| 2 | verify_channel | `channel_badge` (optional) | Refuses the wrong account before any click |
+| 2 | verify_channel | `channel_badge` (required) | Refuses the wrong account before any click |
 | 3 | open_upload_dialog | `create_button` → `upload_videos_item` → `select_files_button` | `upload_limit_marker` here defers the job (+6 h) |
 | 4 | choose_file | — | macOS ⌘⇧G · Linux Ctrl+L · Windows paste into the file box. **`sent` becomes true here** |
-| 5 | details | `details_title_field`, `details_description_field`, `(not_)made_for_kids_radio`, `show_more_button` → `tags_field` | Pastes through the clipboard. Scrolls to find the audience radio. Tags are skipped with a warning if their templates aren't captured |
+| 5 | details | `details_title_field`, `details_description_field`, `(not_)made_for_kids_radio`, `show_more_button` → `tags_field` | Verifies title/description by reading the focused field back; stops if requested tags cannot be entered. Scrolls to find the audience radio. |
 | 6 | advance | `next_button` ×N until `visibility_step_marker` | |
 | 7 | visibility | `private_radio` / `unlisted_radio` / `public_radio` | |
 | 8 | read_link | `copy_link_button` | Reads the watch URL from the clipboard |
