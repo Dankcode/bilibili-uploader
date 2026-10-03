@@ -11,6 +11,11 @@ adds instructions, not a new MCP server, browser session or OS permission.
 
 ## Train on a new host
 
+Use the [sanitized screenshot gallery](assets/studio-examples/README.md) and
+[machine-readable example index](assets/studio-examples/examples.json) to identify
+which controls to capture. These are real generic UI crops, not executable
+calibration. The private channel reference is excluded and must be trained locally.
+
 For requests to set up, self-train, port, or recalibrate the uploader on another
 machine, follow [Host-local training](references/host-training.md) first. The
 agent discovers its own desktop tools, opens its local browser, captures its

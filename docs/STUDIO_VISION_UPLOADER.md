@@ -64,6 +64,11 @@ title at most 100 characters, description at most 5,000, and tags at most
 
 ### Agent/MCP calibration from still screenshots
 
+The repository includes a [sanitized gallery of real training crops](../skills/youtube-gui-upload/assets/studio-examples/README.md)
+and a JSON index alongside it. Linux agents can use these to understand the
+controls and capture their own references. Account identity and runtime click
+coordinates are excluded; these images are examples, not a portable calibration.
+
 The reusable agent skill is [youtube-gui-upload](../skills/youtube-gui-upload/SKILL.md).
 It complements the [app MCP bridge](MCP_AGENT_BRIDGE.md) and a computer-use MCP.
 Users can copy or symlink the skill folder into their agent's skill directory.
