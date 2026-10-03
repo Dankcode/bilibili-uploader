@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "purpose": "visual-training-examples",
+  "executableCalibration": false,
+  "sourceAppearance": {
+    "platform": "macOS",
+    "language": "English",
+    "theme": "dark"
+  },
+  "privacyReview": "All included pixels visually reviewed: generic UI only. PNG chunks restricted to IHDR, IDAT, IEND; no embedded text or EXIF.",
+  "excluded": [
+    "channel_badge",
+    "full-screen screenshots",
+    "video thumbnails and titles",
+    "video URLs",
+    "account identifiers",
+    "runtime calibration and click coordinates"
+  ],
+  "requiredLocalCapture": [
+    "channel_badge",
+    "controls needed by the chosen workflow",
+    "actual saved-result evidence"
+  ],
+  "examples": [
+    {
+      "template": "dashboard_ready",
+      "file": "dashboard_ready.png",
+      "stage": "Open Studio",
+      "guidance": "Recognize the Studio interface. This logo alone does not prove sign-in or the correct channel.",
+      "widthPx": 208,
+      "heightPx": 67,
+      "sha256": "85446cd423ba288491a1d52b969ec0fdde2502a916fb7432779810044bdbf937"
+    },
+    {
+      "template": "create_button",
+      "file": "create_button.png",
+      "stage": "Open Create",
+      "guidance": "Capture the visible Create button on the local browser.",
+      "widthPx": 203,
+      "heightPx": 83,
+      "sha256": "9dc8d8371d23633385b90f2b3ce9210f8e4c97175f9673577140f8f387220257"
+    },
+    {
+      "template": "upload_videos_item",
+      "file": "upload_videos_item.png",
+      "stage": "Choose upload",
+      "guidance": "Capture Upload videos from the open Create menu.",
+      "widthPx": 310,
+      "heightPx": 64,
+      "sha256": "d3da54fa7d80a6cb725dff139ab10d1d2f40fa47640e0bd1b474d8c07fd44e4e"
+    },
+    {
+      "template": "select_files_button",
+      "file": "select_files_button.png",
+      "stage": "Select media",
+      "guidance": "Capture Select files. Choosing a file starts a transfer; use an authorized SQL video.",
+      "widthPx": 211,
+      "heightPx": 86,
+      "sha256": "429a83a5d1b3c02875b32cc78e144346775f76fed66f556b1ad187b2d1da78e5"
+    },
+    {
+      "template": "details_title_field",
+      "file": "details_title_field.png",
+      "stage": "Title",
+      "guidance": "Capture the stable Title label, then measure a local click point inside its editable area. Do not capture a video title.",
+      "widthPx": 208,
+      "heightPx": 40,
+      "sha256": "b398826ad59bd0f865d2ad7175c9db1998450914cf5404e6ecd1ed37318fc9c6"
+    },
+    {
+      "template": "details_description_field",
+      "file": "details_description_field.png",
+      "stage": "Description",
+      "guidance": "Capture the stable Description label and measure the local editable-area click point. Omit entered text.",
+      "widthPx": 171,
+      "heightPx": 37,
+      "sha256": "3e342c6ae74abcf0dda55029c32e927d608c95f62422cb8717cd85d94c6c2ff1"
+    },
+    {
+      "template": "not_made_for_kids_radio",
+      "file": "not_made_for_kids_radio.png",
+      "stage": "Audience",
+      "guidance": "Capture this audience choice and the local radio target. Choose only when appropriate for the video.",
+      "widthPx": 369,
+      "heightPx": 45,
+      "sha256": "1fc913398ff8697ec67ab031a36eee0289d5f234983e73873a7cc230f01dc236"
+    },
+    {
+      "template": "made_for_kids_radio",
+      "file": "made_for_kids_radio.png",
+      "stage": "Audience",
+      "guidance": "Alternative audience choice. Do not select it just because it appears in this example set.",
+      "widthPx": 329,
+      "heightPx": 45,
+      "sha256": "7db45b05baac3da0368a1a70076bdefdc999564f7a69610aa9503bb6c5aba780"
+    },
+    {
+      "template": "show_more_button",
+      "file": "show_more_button.png",
+      "stage": "Expand details",
+      "guidance": "Capture Show more to reveal the tags controls.",
+      "widthPx": 216,
+      "heightPx": 80,
+      "sha256": "7ad462d4604dd4170f7288ca81f40d2e87882dcbcc23a2b828c91e2375307bac"
+    },
+    {
+      "template": "tags_field",
+      "file": "tags_field.png",
+      "stage": "Tags",
+      "guidance": "Example shows a label and help text, not the actual editable input. Locate and measure the input locally; omit entered tags.",
+      "widthPx": 1074,
+      "heightPx": 122,
+      "sha256": "e9051d5c403b3dd9335f07d45118591109db59212b0d3b92670135982f7f7016"
+    },
+    {
+      "template": "next_button",
+      "file": "next_button.png",
+      "stage": "Advance",
+      "guidance": "Capture enabled Next as a fallback when direct step navigation is unavailable.",
+      "widthPx": 136,
+      "heightPx": 86,
+      "sha256": "a367a44e500d8bad3cf65f3f0161e0ab11b3fca20f3866dd49ecad2507c85390"
+    },
+    {
+      "template": "visibility_tab_button",
+      "file": "visibility_tab_button.png",
+      "stage": "Direct navigation",
+      "guidance": "Capture the visible Visibility step tab and verify that clicking it opens that step.",
+      "widthPx": 151,
+      "heightPx": 54,
+      "sha256": "a59ca171d6044cb3107ec239a5f7390490f70be70c951caeb8254316a9914661"
+    },
+    {
+      "template": "visibility_step_marker",
+      "file": "visibility_step_marker.png",
+      "stage": "Visibility state",
+      "guidance": "Heading identifies the Visibility step; it is not a click target or a selected privacy state.",
+      "widthPx": 278,
+      "heightPx": 80,
+      "sha256": "c56b23c4a57239e5c9c1f96408d53250ee7ae295e7b200f5dd3dad4d9f8c6294"
+    },
+    {
+      "template": "private_radio",
+      "file": "private_radio.png",
+      "stage": "Privacy",
+      "guidance": "Label example only. Capture the local radio control and verify its selected state before saving.",
+      "widthPx": 118,
+      "heightPx": 45,
+      "sha256": "e9bf978e41d2c615cd49f524792b2a6323d8a08f6c797314fd78f7fe5302072f"
+    },
+    {
+      "template": "copy_link_button",
+      "file": "copy_link_button.png",
+      "stage": "Read video URL",
+      "guidance": "Capture the copy-link control with enough local context to distinguish it from other copy icons. The URL is intentionally absent.",
+      "widthPx": 64,
+      "heightPx": 72,
+      "sha256": "48ca9aa9d592ad38304e90002a83ff20d91276c372e7396b73e92974a71cea56"
+    },
+    {
+      "template": "save_button",
+      "file": "save_button.png",
+      "stage": "Submit",
+      "guidance": "Capture the enabled Save button. Save acceptance is submitted status, not proof processing finished.",
+      "widthPx": 136,
+      "heightPx": 86,
+      "sha256": "5bb4eee1e23f86fa000d9e3993b36546e07c6026f5b15c2c4bb40ed2a9998680"
+    },
+    {
+      "template": "upload_complete_marker",
+      "file": "upload_complete_marker.png",
+      "stage": "Checks state",
+      "guidance": "Legacy template name: this image actually reads Checks complete. No issues found. It does not prove transfer completion or a saved upload. Do not wait for checks in the default fast flow.",
+      "widthPx": 465,
+      "heightPx": 53,
+      "sha256": "d01403fbe54188057ff23fda14e8742f664d353f16611c5136a244e8c795c675"
+    },
+    {
+      "template": "finished_content_marker",
+      "file": "finished_content_marker.png",
+      "stage": "Content page",
+      "guidance": "Channel content heading is a navigation marker only. It does not prove a specific video was saved; verify the matching row or confirmation and URL locally.",
+      "widthPx": 502,
+      "heightPx": 86,
+      "sha256": "1f0ea5cc33a0412dc35d873fa2318d5fb6ee9b6ded17f10fec52d24e80efc440"
+    }
+  ]
+}

@@ -34,6 +34,12 @@ Verify the intended channel ID and visible identity after sign-in.
 
 ## Create an isolated local profile
 
+First inspect the [reviewed visual examples](../assets/studio-examples/README.md)
+and [example index](../assets/studio-examples/examples.json). Match the semantic
+purpose of each control to the local UI, then capture it anew. Do not copy this
+directory into a runtime profile or treat the examples as successful upload
+evidence. The index deliberately omits channel identity and click coordinates.
+
 Choose a descriptive profile such as `oldlaptop-firefox-wayland`:
 
 ```sh
