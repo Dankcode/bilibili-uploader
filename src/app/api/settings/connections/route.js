@@ -12,7 +12,7 @@ import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { listServiceChecklist } from '../../../../lib/pipeline/registry';
 import { listConnections, saveConnection, testService, setConnectionEnabled } from '../../../../lib/pipeline/connections';
-import { refreshBilibiliLoginStatus, startBilibiliLogin } from '../../../../lib/video/bilibili';
+import { connectBilibiliProfile, getBilibiliLoginStatus, refreshBilibiliLoginStatus, startBilibiliLogin } from '../../../../lib/video/bilibili';
 import { confirmYouTubeAuthorization, getYouTubeAuthorizationStatus, startDefaultYouTubeAuthorization, startYouTubeAuthorization } from '../../../../lib/youtube/oauth';
 
 async function handleGET() {
@@ -29,14 +29,17 @@ async function handleGET() {
       defaults: connection?.preferences || {},
     };
   });
-  return NextResponse.json({ checklist });
+  return NextResponse.json({ checklist, bilibiliLogin: getBilibiliLoginStatus() });
 }
 
 async function handlePOST(request) {
   try {
     const body = await request.json();
+    if (body.action === 'bilibili-connect-profile') {
+      return NextResponse.json({ bilibiliLogin: await connectBilibiliProfile({ profileUrl: body.profileUrl }) });
+    }
     if (body.action === 'bilibili-login-start') {
-      return NextResponse.json({ bilibiliLogin: await startBilibiliLogin() });
+      return NextResponse.json({ bilibiliLogin: await startBilibiliLogin({ profileUrl: body.profileUrl }) });
     }
     if (body.action === 'bilibili-login-status') {
       return NextResponse.json({ bilibiliLogin: await refreshBilibiliLoginStatus() });
@@ -66,7 +69,7 @@ async function handlePOST(request) {
     if (body.action === 'enable') {
       return NextResponse.json({ connection: setConnectionEnabled(body.serviceId, Boolean(body.enabled)) });
     }
-    return NextResponse.json({ error: 'Unknown action. Valid actions: save|test|enable|bilibili-login-start|bilibili-login-status|youtube-login-start-default|youtube-login-start|youtube-login-status|youtube-login-confirm' }, { status: 400 });
+    return NextResponse.json({ error: 'Unknown action. Valid actions: save|test|enable|bilibili-connect-profile|bilibili-login-start|bilibili-login-status|youtube-login-start-default|youtube-login-start|youtube-login-status|youtube-login-confirm' }, { status: 400 });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }

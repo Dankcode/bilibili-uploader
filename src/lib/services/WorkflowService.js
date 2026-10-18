@@ -3,10 +3,9 @@ import {
   addVideo, getDueUploads, getValidUploadSearch, logError, updateVideoMetadata, updateVideoStatus,
 } from '../db/sqlite';
 import { getEnglishData } from '../ai/getEnglish';
+import { getCredentials } from '../pipeline/connections';
 import { createJob } from '../pipeline/pipeline';
 import Scraper from '../video/scraper';
-
-const DEFAULT_DESC = "Hi, my name is, nice to meet you! I'm an ASMR artist and I hope you like it here. These videos are made to help you relax and sleep.";
 
 function stripJsonFence(value) {
   const text = String(value || '').trim();
@@ -46,7 +45,10 @@ async function ensureMetadata(video) {
   let lastError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const raw = await getEnglishData(video.chinese_name, video.chinese_description || DEFAULT_DESC);
+      const credentials = getCredentials('metadata');
+      const raw = await getEnglishData(video.chinese_name, video.chinese_description || '', {
+        provider: credentials.provider, credentials,
+      });
       const metadata = validateMetadata(JSON.parse(stripJsonFence(raw)));
       updateVideoMetadata(video.id, {
         english_name: metadata.title,

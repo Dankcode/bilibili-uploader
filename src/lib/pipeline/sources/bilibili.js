@@ -38,7 +38,7 @@ export async function testConnection() {
   const status = getBilibiliLoginStatus();
   return status.authenticated
     ? { ok: true, detail: status.message }
-    : { ok: false, error: status.message };
+    : { ok: true, detail: 'Public Bilibili sources need no setup. Saved browser cookies are gathered automatically if a source requires them.' };
 }
 
 /**

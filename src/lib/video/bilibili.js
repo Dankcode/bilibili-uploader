@@ -1,13 +1,13 @@
 import axios from 'axios';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { chromium } from 'playwright';
 import Downloader from './downloader.js';
 import { assertBilibiliUrl, guardRedirect, normalizeBilibiliVideoInput } from './bilibiliUrl.js';
+import { readChromeBilibiliCookies } from './browserCookies.js';
 
 const BILIBILI_ORIGIN = 'https://www.bilibili.com';
-const BILIBILI_LOGIN_URL = 'https://passport.bilibili.com/login';
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const VIEW_API_URL = 'https://api.bilibili.com/x/web-interface/view';
 const NAV_API_URL = 'https://api.bilibili.com/x/web-interface/nav';
@@ -19,7 +19,8 @@ const WBI_MIXIN_KEY_INDEXES = [
   22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
 ];
 
-let activeLogin = null;
+// Next.js route bundles share the same pending browser and capture operation.
+const loginRuntime = globalThis[Symbol.for('videops.bilibili.session')] ||= { active: null, pending: null };
 
 export function bilibiliStoragePath(root = process.cwd()) {
   return path.join(root, 'config', 'storage.json');
@@ -38,9 +39,60 @@ function readStorageState(storagePath = bilibiliStoragePath()) {
 function sessionCookie(cookies, now = Date.now()) {
   return cookies.find((cookie) => (
     cookie?.name === 'SESSDATA'
-    && String(cookie.domain || '').replace(/^\./, '').endsWith('bilibili.com')
+    && typeof cookie.value === 'string' && cookie.value.trim()
+    && /(^|\.)bilibili\.com$/i.test(String(cookie.domain || '').replace(/^\./, ''))
     && (Number(cookie.expires) <= 0 || Number(cookie.expires) * 1000 > now)
   )) || null;
+}
+
+export function normalizeBilibiliProfileUrl(value) {
+  let url;
+  try { url = new URL(String(value || '').trim()); } catch { throw new Error('Enter a Bilibili profile URL such as https://space.bilibili.com/33633128.'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.hostname !== 'space.bilibili.com' || url.port || url.username || url.password || !/^\/\d{1,20}(?:\/|$)/.test(url.pathname)) {
+    throw new Error('Use a profile URL on space.bilibili.com with a numeric creator ID.');
+  }
+  return `https://space.bilibili.com/${url.pathname.split('/')[1]}`;
+}
+
+function connectionDetails(storagePath) {
+  try {
+    const saved = JSON.parse(fs.readFileSync(`${storagePath}.connection.json`, 'utf8'));
+    return { profileUrl: normalizeBilibiliProfileUrl(saved.profileUrl), accountId: String(saved.accountId || ''), accountName: String(saved.accountName || ''), verifiedAt: String(saved.verifiedAt || '') };
+  } catch { return { profileUrl: '', accountId: '', accountName: '', verifiedAt: '' }; }
+}
+
+function writePrivateJson(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  const temporary = `${filePath}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, filePath);
+  } finally {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
+}
+
+async function verifyBilibiliCookies(cookies) {
+  const cookie = sessionCookie(cookies);
+  if (!cookie) return null;
+  let payload;
+  try {
+    ({ data: payload } = await axios.get(NAV_API_URL, {
+      headers: apiHeaders(cookie.value), timeout: 15_000, beforeRedirect: guardRedirect,
+    }));
+  } catch {
+    // Axios errors contain the authenticated headers; never propagate them.
+    throw new Error('Could not verify the Bilibili session. Check the network and try again.');
+  }
+  if (Number(payload?.code) === -101 || payload?.data?.isLogin === false) return null;
+  if (Number(payload?.code) !== 0 || payload?.data?.isLogin !== true) throw new Error('Bilibili did not confirm the session. Try again after its access check clears.');
+  return { accountId: String(payload.data.mid || ''), accountName: String(payload.data.uname || '') };
+}
+
+function saveConnectedSession(storagePath, state, profileUrl, identity) {
+  writePrivateJson(storagePath, { cookies: state.cookies || [], origins: state.origins || [] });
+  writePrivateJson(`${storagePath}.connection.json`, { profileUrl, ...identity, verifiedAt: new Date().toISOString() });
+  return { ...getBilibiliLoginStatus({ storagePath }), verified: true, message: `Saved Bilibili cookie connected${identity.accountName ? ` as ${identity.accountName}` : ''}. The profile URL is ready to use.` };
 }
 
 /**
@@ -48,91 +100,165 @@ function sessionCookie(cookies, now = Date.now()) {
  * the Playwright storage file and the downloader process.
  */
 export function getBilibiliLoginStatus({ storagePath = bilibiliStoragePath(), now = Date.now() } = {}) {
+  const details = connectionDetails(storagePath);
+  if (loginRuntime.active?.storagePath === storagePath) {
+    return {
+      ...details, profileUrl: loginRuntime.active.profileUrl,
+      authenticated: false, waitingForLogin: true, persisted: false, expiresAt: '',
+      message: 'No signed-in cookie is available yet. Sign in once in the Bilibili profile window; Video Ops will capture and save SESSDATA automatically.',
+    };
+  }
   const cookie = sessionCookie(readStorageState(storagePath).cookies, now);
   if (cookie) {
     return {
-      authenticated: true,
+      ...details, authenticated: true,
       waitingForLogin: false,
       persisted: true,
       expiresAt: Number(cookie.expires) > 0 ? new Date(Number(cookie.expires) * 1000).toISOString() : '',
-      message: 'Bilibili Playwright session is ready for downloads.',
-    };
-  }
-  if (activeLogin) {
-    return {
-      authenticated: false,
-      waitingForLogin: true,
-      persisted: false,
-      expiresAt: '',
-      message: 'Complete the Bilibili login in the Playwright browser window, then return here.',
+      message: 'Saved Bilibili cookie is available. Sources start with public access and use cookies automatically when needed.',
     };
   }
   return {
-    authenticated: false,
+    ...details, authenticated: false,
     waitingForLogin: false,
     persisted: false,
     expiresAt: '',
-    message: 'Log in to Bilibili with the Playwright browser before starting a download.',
+    message: 'No setup required. Use a Bilibili URL to start; Video Ops gathers available browser cookies automatically if the source needs them.',
   };
 }
 
 async function persistActiveLoginIfReady() {
-  if (!activeLogin) return getBilibiliLoginStatus();
-  const cookie = sessionCookie(await activeLogin.context.cookies(BILIBILI_ORIGIN));
-  if (!cookie) return getBilibiliLoginStatus();
-  await activeLogin.context.storageState({ path: activeLogin.storagePath });
-  try {
-    fs.chmodSync(activeLogin.storagePath, 0o600);
-  } catch {
-    // Best effort only; storageState already persisted the authenticated session.
-  }
-  const { browser } = activeLogin;
-  activeLogin = null;
-  await browser.close();
-  return getBilibiliLoginStatus();
+  const active = loginRuntime.active;
+  if (!active) return getBilibiliLoginStatus();
+  if (active.capture) return active.capture;
+  active.capture = (async () => {
+    const cookies = await active.context.cookies(BILIBILI_ORIGIN);
+    const cookie = sessionCookie(cookies);
+    if (!cookie || cookie.value === active.rejectedCookie) return getBilibiliLoginStatus({ storagePath: active.storagePath });
+    const identity = await active.verifySession(cookies);
+    if (!identity) {
+      active.rejectedCookie = cookie.value;
+      return getBilibiliLoginStatus({ storagePath: active.storagePath });
+    }
+    const state = await active.context.storageState();
+    clearInterval(active.timer);
+    loginRuntime.active = null;
+    const status = saveConnectedSession(active.storagePath, state, active.profileUrl, identity);
+    await active.context.close();
+    return status;
+  })();
+  try { return await active.capture; } finally { active.capture = null; }
 }
 
 /**
- * Opens a headed Playwright browser. The operator completes Bilibili login in
- * that window; polling refreshBilibiliLoginStatus() saves the resulting state.
+ * A public profile identifies the source creator, never its session secret.
+ * Reuse and verify saved cookies first. Only an absent/expired session opens
+ * the requested profile in an app-owned persistent browser for one-time login.
  */
-export async function startBilibiliLogin({ storagePath = bilibiliStoragePath() } = {}) {
-  if (activeLogin) return getBilibiliLoginStatus();
-  fs.mkdirSync(path.dirname(storagePath), { recursive: true });
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext(fs.existsSync(storagePath) ? { storageState: storagePath } : {});
-  activeLogin = { browser, context, storagePath };
-  browser.on('disconnected', () => {
-    if (activeLogin?.browser === browser) activeLogin = null;
-  });
-  try {
-    const page = await context.newPage();
-    await page.goto(BILIBILI_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    return getBilibiliLoginStatus();
-  } catch (error) {
-    activeLogin = null;
-    await browser.close();
-    throw new Error(`Could not open Bilibili login: ${error.message}`);
+export async function connectBilibiliProfile({ profileUrl, storagePath = bilibiliStoragePath() } = {}, {
+  verifySession = verifyBilibiliCookies,
+  importCookies = readChromeBilibiliCookies,
+  launch = async (directory, options) => {
+    try { return await chromium.launchPersistentContext(directory, options); } catch (error) {
+      if (!/Executable doesn't exist/.test(String(error.message))) throw new Error('Could not open the saved Bilibili browser. Close its other window and try again.');
+      try { return await chromium.launchPersistentContext(directory, { ...options, channel: 'chrome' }); } catch {
+        throw new Error('A local Chrome browser is required to connect Bilibili. Install Chrome or the Playwright browser on the backend.');
+      }
+    }
+  },
+} = {}) {
+  const normalizedUrl = normalizeBilibiliProfileUrl(profileUrl);
+  if (loginRuntime.pending) {
+    await loginRuntime.pending;
+    return connectBilibiliProfile({ profileUrl: normalizedUrl, storagePath }, { verifySession, importCookies, launch });
   }
+  if (loginRuntime.active) return getBilibiliLoginStatus({ storagePath: loginRuntime.active.storagePath });
+  loginRuntime.pending = (async () => {
+    const state = readStorageState(storagePath);
+    const identity = await verifySession(state.cookies);
+    if (identity) return saveConnectedSession(storagePath, state, normalizedUrl, identity);
+    const imported = await importCookies();
+    for (const session of imported.sessions || []) {
+      if (!sessionCookie(session.cookies || [])) continue;
+      const importedIdentity = await verifySession(session.cookies);
+      if (importedIdentity) return saveConnectedSession(storagePath, { cookies: session.cookies, origins: [] }, normalizedUrl, importedIdentity);
+    }
+    const directory = path.join(path.dirname(storagePath), 'bilibili-browser');
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const context = await launch(directory, { headless: false, userAgent: USER_AGENT });
+    const active = { context, storagePath, profileUrl: normalizedUrl, verifySession, capture: null, timer: null };
+    loginRuntime.active = active;
+    context.on('close', () => {
+      clearInterval(active.timer);
+      if (loginRuntime.active === active) loginRuntime.active = null;
+    });
+    try {
+      const page = context.pages()[0] || await context.newPage();
+      await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      const status = await persistActiveLoginIfReady();
+      if (loginRuntime.active === active) {
+        active.timer = setInterval(() => { persistActiveLoginIfReady().catch(() => {}); }, 2500);
+        active.timer.unref?.();
+      }
+      return status;
+    } catch {
+      loginRuntime.active = null;
+      await context.close();
+      throw new Error('Could not open the Bilibili profile browser on this backend. Connect from a machine with a desktop session.');
+    }
+  })();
+  try { return await loginRuntime.pending; } finally { loginRuntime.pending = null; }
+}
+
+export async function startBilibiliLogin({ profileUrl, storagePath = bilibiliStoragePath() } = {}) {
+  return connectBilibiliProfile({ profileUrl: profileUrl || connectionDetails(storagePath).profileUrl || 'https://space.bilibili.com/33633128', storagePath });
 }
 
 export async function refreshBilibiliLoginStatus() {
   return persistActiveLoginIfReady();
 }
 
-function getSessData({ storagePath = bilibiliStoragePath() } = {}) {
-  const cookie = sessionCookie(readStorageState(storagePath).cookies);
-  if (!cookie?.value) {
-    throw new Error('Bilibili login required. In Connections, open Bilibili login and complete sign-in in the Playwright browser.');
+/** Lazy acquisition for scraping/downloads: never opens an interactive window. */
+export async function ensureBilibiliSession({ storagePath = bilibiliStoragePath() } = {}, {
+  verifySession = verifyBilibiliCookies, importCookies = readChromeBilibiliCookies,
+} = {}) {
+  const state = readStorageState(storagePath);
+  const existing = sessionCookie(state.cookies);
+  if (existing && await verifySession(state.cookies)) return { available: true, source: 'saved' };
+  const imported = await importCookies();
+  for (const session of imported.sessions || []) {
+    if (!sessionCookie(session.cookies || [])) continue;
+    if (!await verifySession(session.cookies)) continue;
+    writePrivateJson(storagePath, { cookies: session.cookies, origins: [] });
+    return { available: true, source: 'chrome' };
   }
-  return cookie.value;
+  return { available: false, source: 'public' };
+}
+
+/** Public videos work immediately; restricted responses trigger cookie discovery. */
+export async function withAutomaticBilibiliSession(operation, options = {}, {
+  acquireSession = ensureBilibiliSession,
+} = {}) {
+  try { return await operation(''); } catch (publicError) {
+    const session = await acquireSession(options);
+    if (!session.available) throw new Error(`${publicError.message} No signed-in Bilibili cookie was found automatically. Public sources need no setup; restricted sources need an existing Bilibili browser sign-in.`);
+    const cookie = sessionCookie(readStorageState(options.storagePath).cookies);
+    return operation(cookie?.value || '');
+  }
+}
+
+export async function launchBilibiliBrowser(options = {}) {
+  try { return await chromium.launch(options); } catch (error) {
+    if (!/Executable doesn't exist/.test(String(error.message))) throw error;
+    return chromium.launch({ ...options, channel: 'chrome' });
+  }
 }
 
 function apiHeaders(sessData) {
   return {
     'User-Agent': USER_AGENT,
     Referer: `${BILIBILI_ORIGIN}/`,
-    cookie: `SESSDATA=${sessData}`,
+    ...(sessData ? { cookie: `SESSDATA=${sessData}` } : {}),
   };
 }
 
@@ -280,7 +406,8 @@ export async function parseBilibiliVideoInfo(bilibiliUrl, sessData) {
 
 /** Read-only metadata preview used by the planner before it creates a job. */
 export async function resolveBilibiliVideoPreview(bilibiliUrl, options = {}) {
-  const info = await parseBilibiliVideoInfo(bilibiliUrl, getSessData({ storagePath: options.storagePath }));
+  const safeUrl = normalizeBilibiliVideoInput(bilibiliUrl);
+  const info = await withAutomaticBilibiliSession((session) => parseBilibiliVideoInfo(safeUrl, session), options);
   return {
     title: info.title,
     url: info.canonicalUrl || String(bilibiliUrl),
@@ -302,8 +429,8 @@ export async function resolveBilibiliVideoPreview(bilibiliUrl, options = {}) {
 export async function processBilibiliUrl(videoName, bilibiliUrl, options = {}) {
   try {
     console.log(`Processing Bilibili URL: ${bilibiliUrl}`);
-    const sessData = getSessData({ storagePath: options.storagePath });
-    const info = await parseBilibiliVideoInfo(bilibiliUrl, sessData);
+    const safeUrl = normalizeBilibiliVideoInput(bilibiliUrl);
+    const info = await withAutomaticBilibiliSession((session) => parseBilibiliVideoInfo(safeUrl, session), options);
     console.log(`Starting Bilibili download: ${info.title} (as ${videoName})`);
     const filePath = await Downloader(videoName, info.canonicalUrl || bilibiliUrl, info.videoUrl, info.audioUrl, options);
     return { filePath, title: info.title, description: info.description, canonicalUrl: info.canonicalUrl || bilibiliUrl };

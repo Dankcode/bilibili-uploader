@@ -47,6 +47,7 @@ export const id = 'voiceover';
 function resolveCreds(credentials = {}) {
   const env = globalThis.process?.env || {};
   return {
+    ...credentials,
     // transcription
     transcribeApiKey: credentials.transcribeApiKey || env.OPENAI_API_KEY || '',
     transcribeBaseUrl: credentials.transcribeBaseUrl || env.WHISPER_BASE_URL || undefined,
@@ -218,7 +219,7 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
   // 3) Re-script the literal translation into narration (Kimi). Non-fatal:
   //    if re-scripting fails we fall back to the literal translation.
   if (doRescript) {
-    onProgress(46, 'Re-scripting narration (Kimi)');
+    onProgress(46, 'Polishing narration with the selected text provider');
     try {
       const rescripted = await rescriptSegments(translated.segments, {
         targetLang: options.targetLang || 'English',

@@ -7,13 +7,15 @@
     "mcp": "node scripts/mcp/server.mjs",
     "mcp:setup": "node scripts/mcp/setup.mjs",
     "dev": "node scripts/run_server.mjs dev",
-    "dev:web": "next dev -H 0.0.0.0 -p 4455",
+    "dev:web": "next dev -H 127.0.0.1 -p 4455",
     "worker": "node --import ./scripts/register_loader.mjs scripts/server_worker.mjs",
+    "setup:bilibili-cookies": "node scripts/setup_bilibili_cookies.mjs",
     "build": "next build",
     "start": "node scripts/run_server.mjs start",
-    "start:web": "next start -H 0.0.0.0 -p 4455",
+    "start:web": "next start -H 127.0.0.1 -p 4455",
     "lint": "next lint",
     "test": "node --import ./test/setup.mjs --test test/*.test.mjs",
+    "secrets:check": "node scripts/check_secrets.mjs",
     "proof:face-swap": "node scripts/prove_facefusion.mjs"
   },
   "dependencies": {

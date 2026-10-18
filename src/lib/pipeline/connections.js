@@ -12,7 +12,6 @@ import * as videoContextProcessor from './processors/videoContext';
 import * as ocrContextProcessor from './processors/ocrContext';
 import * as youtubeUploader from './uploaders/youtube';
 import * as gmailNotifier from './notifiers/gmail';
-import { getBilibiliLoginStatus } from '../video/bilibili';
 import { decryptSecret, encryptSecret, hasSecretKey, isEncryptedSecret } from '../security/secrets.js';
 
 const SERVICES = [
@@ -59,11 +58,8 @@ function encodeCredentials(service, credentials) {
   const secretKeys = new Set((service.credentialFields || []).filter((field) => field.type === 'secret').map((field) => field.key));
   return Object.fromEntries(Object.entries(credentials).map(([key, item]) => {
     if (!secretKeys.has(key) || !item || isEncryptedSecret(item)) return [key, item];
-    // Existing optional services remain compatible until an operator provides
-    // a key. Gmail is stricter because its refresh token is mailbox access.
     if (!hasSecretKey()) {
-      if (service.id === 'gmail') throw new Error('Set STUDIO_SECRET_KEY before saving Gmail OAuth credentials.');
-      return [key, item];
+      throw new Error('Set STUDIO_SECRET_KEY before saving service credentials. API keys and tokens must be encrypted.');
     }
     return [key, encryptSecret(item)];
   }));
@@ -98,6 +94,9 @@ function untestedAuthState(configured) {
 function fieldValidationError(field, value) {
   const text = String(value ?? '').trim();
   if (!text) return field.required === false ? '' : `${field.label} is required.`;
+  if (field.options && !field.options.some((option) => option.value.toLowerCase() === text.toLowerCase())) {
+    return `Choose a valid ${field.label.toLowerCase()}.`;
+  }
   if (field.pattern && !(new RegExp(field.pattern)).test(text)) {
     return field.hint || `${field.label} has an invalid format.`;
   }
@@ -115,7 +114,7 @@ export function validateCredentials(serviceId, credentials = {}) {
 }
 
 function isConfigured(service, credentials) {
-  if (service.id === 'bilibili') return getBilibiliLoginStatus().authenticated;
+  if (service.id === 'bilibili') return true; // Public access; discover cookies lazily when needed.
   const fields = service.credentialFields || [];
   if (fields.length === 0) return true;
   return fields.filter((field) => field.required !== false).every((field) => {
