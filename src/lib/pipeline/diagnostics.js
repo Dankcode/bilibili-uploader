@@ -6,6 +6,7 @@ import db from '../db/sqlite';
 import { getLocalWhisperStatus } from '../studio/localWhisper';
 import { getCredentials, listConnections, probeService } from './connections';
 import { getUsageSummary } from './usage';
+import { hasProvider } from '../ai/getEnglish.js';
 const execFileAsync = promisify(execFile);
 const STEP_LABELS = {
   localFile: 'Local file source', bilibili: 'Bilibili source', douyin: 'Douyin source',
@@ -15,7 +16,7 @@ const STEP_LABELS = {
   youtube: 'YouTube upload',
 };
 const STEP_FIX = {
-  bilibili: 'Add your SESSDATA cookie in Settings ▸ bilibili for HD downloads.',
+  bilibili: 'Paste a Bilibili URL into an automation. Cookies are gathered automatically when needed; restricted sources require an existing Bilibili browser sign-in.',
   douyin: 'Start the Douyin sidecar and set its URL/cookie in Settings ▸ douyin.',
   voiceover: 'In Settings ▸ voiceover set the Whisper key + your TTS backend (ElevenLabs / CosyVoice / Qwen3), then Test.',
   faceFusion: 'Run scripts/install_facefusion.sh, set facefusionDir + a source face image in Settings ▸ faceFusion, then Test.',
@@ -102,10 +103,17 @@ function checkDbIntegrity() {
 }
 
 function checkAiKey() {
+  const credentials = getCredentials('metadata');
+  const selected = credentials.provider || process.env.AI_PROVIDER;
+  if (selected) {
+    return hasProvider(selected, credentials)
+      ? ok('ai_key', 'AI text provider', `${selected} available; Test connection verifies authentication`)
+      : warn('ai_key', 'AI text provider', `${selected} is unavailable`, 'Configure the selected provider in Connections. Codex sign-in needs the CLI on the worker host.');
+  }
   const configured = [
-    ['Kimi', process.env.KIMI_API_KEY],
-    ['OpenAI', process.env.OPENAI_API_KEY],
-    ['Gemini', process.env.GEMINI_API_KEY],
+    ['Kimi', hasProvider('kimi', credentials)],
+    ['OpenAI', hasProvider('openai', credentials)],
+    ['Gemini', hasProvider('gemini', credentials)],
   ].filter(([, value]) => Boolean(value)).map(([name]) => name);
   if (!configured.length) return warn('ai_key', 'AI metadata key', 'No text provider key is set', 'Set a Kimi, OpenAI, or Gemini key before generating metadata.');
   return ok('ai_key', 'AI metadata key', `${configured.join(', ')} configured`);

@@ -68,6 +68,10 @@ function validateMetadata(payload) {
   if (!metadata.titleEn || !metadata.descriptionEn || metadata.tags.length === 0) {
     throw new Error('The metadata provider returned incomplete title, description, or tags.');
   }
+  if (metadata.titleEn.length > 100) throw new Error('YouTube metadata title exceeds 100 characters.');
+  if (metadata.descriptionEn.length > 5000) throw new Error('YouTube metadata description exceeds 5000 characters.');
+  const tagLength = metadata.tags.reduce((total, tag) => total + tag.length + (tag.includes(' ') ? 2 : 0), Math.max(0, metadata.tags.length - 1));
+  if (tagLength > 500) throw new Error('YouTube metadata tags exceed the 500-character budget.');
   return metadata;
 }
 
@@ -109,7 +113,7 @@ export async function generateMetadataDraft({
 }
 
 export async function testConnection(credentials = {}) {
-  const provider = credentials.provider || globalThis.process?.env?.AI_PROVIDER || (hasProvider('kimi', credentials) ? 'kimi' : 'gemini');
+  const provider = credentials.provider || globalThis.process?.env?.AI_PROVIDER || (hasProvider('kimi', credentials) ? 'kimi' : hasProvider('openai', credentials) ? 'openai' : 'gemini');
   try {
     const result = await completeJsonWithMeta('Return {"ok":true}.', {
       system: 'Return strict JSON only.',

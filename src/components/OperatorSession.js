@@ -8,14 +8,30 @@ export default function OperatorSession({ children }) {
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
   useEffect(() => {
-    fetch('/api/auth/session', { cache: 'no-store' }).then((response) => response.json()).then((data) => {
-      setRequired(data.required && !data.authenticated); setReady(true);
-    }).catch(() => setError('Unable to check operator session. Reload to retry.'));
+    let cancelled = false;
+    async function restoreSession() {
+      try {
+        const response = await fetch('/api/auth/session', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Unable to check operator session.');
+        const data = await response.json();
+        if (data.required && !data.authenticated && data.localPairing) {
+          const paired = await fetch('/api/auth/session', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'pair-local' }),
+          });
+          if (!paired.ok) throw new Error('Unable to restore local access. Reload to retry.');
+          data.authenticated = true;
+        }
+        if (!cancelled) { setRequired(data.required && !data.authenticated); setReady(true); }
+      } catch (failure) { if (!cancelled) setError(failure.message); }
+    }
+    restoreSession();
+    return () => { cancelled = true; };
   }, []);
   if (ready && !required) return children;
   return <main className={styles.panelBody} style={{ maxWidth: 520, margin: '12vh auto', padding: 24 }}>
-    <h1>VideoOps operator sign-in</h1>
-    <p>The MCP bridge uses a separate agent credential. Use your operator token to manage tasks and approve publishing.</p>
+    <h1>{required ? 'VideoOps remote access' : 'Opening VideoOps'}</h1>
+    {required && <p>Local access connects automatically. For a network connection, enter your operator token once; this browser remembers it for 30 days.</p>}
     {required && <form onSubmit={async (event) => {
       event.preventDefault(); setError('');
       try {

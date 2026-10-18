@@ -1,6 +1,5 @@
-import { chromium } from 'playwright';
 import fs from 'fs';
-import { bilibiliStoragePath, signWbiParams } from './bilibili.js';
+import { bilibiliStoragePath, ensureBilibiliSession, launchBilibiliBrowser, signWbiParams } from './bilibili.js';
 
 const SPACE_HOST = 'space.bilibili.com';
 const PAGE_SIZE = 30;
@@ -109,15 +108,22 @@ async function requestSpaceVideos(page, accountId, pageNumber, keys) {
 export async function scanBilibiliCreatorPage(creatorUrl, pageNumber = 1) {
   const target = bilibiliSpacePageUrl(creatorUrl, pageNumber);
   const accountId = accountIdFromSpaceUrl(target);
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchBilibiliBrowser({ headless: true });
   try {
     const storagePath = bilibiliStoragePath();
-    const context = await browser.newContext({ userAgent: BILIBILI_USER_AGENT,
-      ...(fs.existsSync(storagePath) ? { storageState: storagePath } : {}) });
+    const context = await browser.newContext({ userAgent: BILIBILI_USER_AGENT });
     const page = await context.newPage();
     await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     // No DOM fallback here: an ambiguous page must be an error, not "complete".
-    const result = await requestSpaceVideos(page, accountId, pageNumber, await wbiKeys(page));
+    let result;
+    try {
+      result = await requestSpaceVideos(page, accountId, pageNumber, await wbiKeys(page));
+    } catch (error) {
+      const session = await ensureBilibiliSession({ storagePath });
+      if (!session.available) throw error;
+      await context.addCookies(JSON.parse(fs.readFileSync(storagePath, 'utf8')).cookies);
+      result = await requestSpaceVideos(page, accountId, pageNumber, await wbiKeys(page));
+    }
     if (!result.videos.length && (pageNumber - 1) * PAGE_SIZE < result.total) throw new Error('Bilibili returned an incomplete page; retry later');
     return { creatorId: accountId, videos: result.videos, total: result.total,
       nextPage: pageNumber * PAGE_SIZE < result.total ? pageNumber + 1 : null };
@@ -149,18 +155,17 @@ async function scrapeVideoCards(page) {
  * requested cap so a creator URL can become a full, bounded batch.
  */
 export default async function Scraper(pageUrl, { limit = 100 } = {}) {
+  pageUrl = normalizeBilibiliSpaceUrl(pageUrl);
   const maximum = Math.max(1, Math.min(100, Number(limit) || 100));
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    browser = await launchBilibiliBrowser({ headless: true });
     const storagePath = bilibiliStoragePath();
-    // The Bilibili login launched from Connections writes this file with 0600
-    // permissions. Reuse it for account discovery, but never read or return
-    // its cookies from this module.
+    // Start with public browsing. Cookie discovery happens only when the API
+    // refuses the anonymous request; no Connections setup blocks a first use.
     const context = await browser.newContext({
       userAgent: BILIBILI_USER_AGENT,
       viewport: { width: 1280, height: 800 },
-      ...(fs.existsSync(storagePath) ? { storageState: storagePath } : {}),
     });
     const page = await context.newPage();
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -169,6 +174,7 @@ export default async function Scraper(pageUrl, { limit = 100 } = {}) {
     const accountId = accountIdFromSpaceUrl(pageUrl);
     let apiKeys = null;
     let apiUnavailable = false;
+    let cookieDiscoveryAttempted = false;
 
     for (let pageNumber = 1; allVideos.length < maximum; pageNumber += 1) {
       const target = bilibiliSpacePageUrl(pageUrl, pageNumber);
@@ -184,10 +190,22 @@ export default async function Scraper(pageUrl, { limit = 100 } = {}) {
           pageVideos = response.videos;
           totalVideos = response.total;
         } catch (apiError) {
+          if (!cookieDiscoveryAttempted) {
+            cookieDiscoveryAttempted = true;
+            const session = await ensureBilibiliSession({ storagePath });
+            if (session.available) {
+              await context.addCookies(JSON.parse(fs.readFileSync(storagePath, 'utf8')).cookies);
+              apiKeys = await wbiKeys(page);
+              try {
+                const response = await requestSpaceVideos(page, accountId, pageNumber, apiKeys);
+                pageVideos = response.videos;
+                totalVideos = response.total;
+              } catch { apiUnavailable = true; }
+            } else { apiUnavailable = true; }
+          } else { apiUnavailable = true; }
           // Bilibili occasionally blocks a WBI response despite a valid
           // browser session. Preserve the page-card fallback for that case.
-          apiUnavailable = true;
-          console.warn(`Bilibili public-video API unavailable: ${apiError.message}`);
+          if (apiUnavailable) console.warn(`Bilibili public-video API unavailable: ${apiError.message}`);
         }
       }
 
@@ -196,7 +214,7 @@ export default async function Scraper(pageUrl, { limit = 100 } = {}) {
           pageVideos = await scrapeVideoCards(page);
         } catch {
           if (pageNumber === 1) {
-            throw new Error('The account did not return public video data. In Connections, complete Bilibili sign-in and verify the account has public uploads.');
+            throw new Error('Bilibili returned no public video data after automatic cookie discovery. Check that the creator has public uploads; restricted pages require a signed-in Bilibili browser session.');
           }
           break;
         }

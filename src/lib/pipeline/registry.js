@@ -22,6 +22,25 @@
  *                -> { remoteId, url } }
  */
 
+const TEXT_PROVIDER_FIELDS = [
+  { key: 'provider', label: 'Text generation provider', type: 'select', required: false, options: [
+    { value: '', label: 'Use environment / automatic selection' },
+    { value: 'codexCli', label: 'GPT-6.1 Sol · Codex sign-in' },
+    { value: 'openai', label: 'OpenAI API' },
+    { value: 'codex', label: 'OpenAI API (legacy codex setting)' },
+    { value: 'kimi', label: 'Kimi' },
+    { value: 'gemini', label: 'Gemini' },
+  ] },
+  { key: 'codexBin', label: 'Codex executable', type: 'text', required: false, placeholder: 'Automatic detection, or an absolute path' },
+  { key: 'codexModel', label: 'Codex text model', type: 'text', required: false, placeholder: 'gpt-6.1-sol' },
+  { key: 'codexReasoningEffort', label: 'Codex reasoning effort', type: 'select', required: false, options: [
+    { value: '', label: 'Use environment (default: medium)' },
+    ...['low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({ value, label: value })),
+  ] },
+  { key: 'openaiApiKey', label: 'OpenAI API key', type: 'secret', required: false },
+  { key: 'openaiModel', label: 'OpenAI API model', type: 'text', required: false, placeholder: 'gpt-6.1-sol' },
+];
+
 export const SOURCES = [
   { id: 'library', label: 'Saved library video', credentialFields: [], inputKinds: ['video-record-id'], adapterPath: 'src/lib/pipeline/sources/library.js' },
   {
@@ -34,8 +53,8 @@ export const SOURCES = [
   {
     id: 'bilibili',
     label: 'Bilibili',
-    // Login is captured by a visible Playwright session and stored locally in
-    // config/storage.json; the SESSDATA cookie is never typed into the app.
+    // Connections accepts a profile URL and reuses the saved cookie. A missing
+    // session is captured once in the app-owned Bilibili browser.
     credentialFields: [],
     inputKinds: ['video-url', 'space-url'],
     adapterPath: 'src/lib/pipeline/sources/bilibili.js',
@@ -97,6 +116,9 @@ export const PROCESSORS = [
       { key: 'transcribeBaseUrl', label: 'Whisper Base URL', type: 'text', required: false, placeholder: 'https://api.openai.com/v1 (or Groq / self-hosted)' },
       { key: 'transcribeModel', label: 'Whisper Model', type: 'text', required: false, placeholder: 'whisper-1' },
       // -- translation + re-scripting --
+      ...TEXT_PROVIDER_FIELDS,
+      { key: 'kimiApiKey', label: 'Kimi API Key', type: 'secret', required: false },
+      { key: 'kimiModel', label: 'Kimi Model', type: 'text', required: false },
       { key: 'translationBackend', label: 'Translation Backend', type: 'text', required: false, placeholder: 'aiProvider | liveTranslation | googleFree | gemini' },
       { key: 'geminiApiKey', label: 'Gemini API Key', type: 'secret', required: false },
       { key: 'geminiModel', label: 'Gemini Model', type: 'text', required: false, placeholder: 'gemini-1.5-flash' },
@@ -149,7 +171,7 @@ export const PROCESSORS = [
     id: 'metadata',
     label: 'AI Metadata (title, description, tags)',
     credentialFields: [
-      { key: 'provider', label: 'Primary Provider', type: 'text', required: false, placeholder: 'kimi | codex | gemini' },
+      ...TEXT_PROVIDER_FIELDS,
       { key: 'metadataStyle', label: 'Metadata Style', type: 'text', required: false, placeholder: 'professional | educational | asmr' },
       { key: 'kimiApiKey', label: 'Kimi API Key', type: 'secret', required: false, pattern: '^sk-[A-Za-z0-9_-]{12,}$', example: 'sk-…', hint: 'Kimi keys start with sk-. Check that an OpenAI or Gemini key was not pasted here.' },
       { key: 'kimiModel', label: 'Kimi Model', type: 'text', required: false, placeholder: 'moonshot-v1-32k' },

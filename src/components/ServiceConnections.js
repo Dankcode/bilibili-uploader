@@ -107,6 +107,8 @@ export default function ServiceConnections({ section = 'accounts' }) {
   const [youtubeAuthorizationBusy, setYoutubeAuthorizationBusy] = useState('');
   const [bilibiliLoginMessage, setBilibiliLoginMessage] = useState(null);
   const [bilibiliLoginBusy, setBilibiliLoginBusy] = useState('');
+  const [bilibiliProfileUrl, setBilibiliProfileUrl] = useState('https://space.bilibili.com/33633128');
+  const [bilibiliSession, setBilibiliSession] = useState(null);
   const [youtubeLoginCredentialRef, setYoutubeLoginCredentialRef] = useState('youtube-ops');
   const [youtubeLoginClientRef, setYoutubeLoginClientRef] = useState('youtube');
   const [youtubeLoginEmail, setYoutubeLoginEmail] = useState('');
@@ -124,6 +126,10 @@ export default function ServiceConnections({ section = 'accounts' }) {
     if (!response.ok) throw new Error(data.error || 'Could not load service connections');
     const checklist = data.checklist || [];
     setRows(checklist);
+    if (data.bilibiliLogin) {
+      setBilibiliSession(data.bilibiliLogin);
+      if (data.bilibiliLogin.profileUrl) setBilibiliProfileUrl(data.bilibiliLogin.profileUrl);
+    }
     setDrafts((previous) => {
       const next = { ...previous };
       for (const row of checklist) {
@@ -211,6 +217,12 @@ export default function ServiceConnections({ section = 'accounts' }) {
     const timer = window.setInterval(() => { runYoutubeLogin('youtube-login-status'); }, 2000);
     return () => window.clearInterval(timer);
   }, [youtubeLoginStatus?.state, youtubeLoginStatus?.credentialRef]);
+
+  useEffect(() => {
+    if (!bilibiliSession?.waitingForLogin) return undefined;
+    const timer = window.setInterval(() => { runBilibiliLogin('bilibili-login-status'); }, 3000);
+    return () => window.clearInterval(timer);
+  }, [bilibiliSession?.waitingForLogin]);
 
   const grouped = useMemo(() => rows.reduce((acc, row) => {
     const key = row.role || 'other';
@@ -351,11 +363,12 @@ export default function ServiceConnections({ section = 'accounts' }) {
       const response = await fetch('/api/control/settings/connections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, profileUrl: bilibiliProfileUrl.trim() }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not open Bilibili login');
+      if (!response.ok) throw new Error(data.error || 'Could not connect the Bilibili cookie');
       const status = data.bilibiliLogin;
+      setBilibiliSession(status);
       setBilibiliLoginMessage({ tone: status.authenticated ? 'ok' : 'info', text: status.message });
       await loadRows();
     } catch (error) {
@@ -615,27 +628,32 @@ export default function ServiceConnections({ section = 'accounts' }) {
       <section className={styles.serviceSection} hidden={section !== 'accounts'}>
         <header className={styles.settingsSectionHeader}>
           <div>
-            <span className={styles.settingsEyebrow}>Required accounts</span>
-            <h2>Sign in for automated delivery</h2>
+            <span className={styles.settingsEyebrow}>Source and upload accounts</span>
+            <h2>Accounts for automated delivery</h2>
           </div>
-          <span className={styles.connectionMeta}>Browser sign-in only</span>
+          <span className={styles.connectionMeta}>Saved sessions</span>
         </header>
         <div className={styles.connectionList}>
           <div className={styles.connectionRow}>
             <div className={styles.connectionDetails}>
               <strong>Bilibili source</strong>
-              <span className={styles.connectionMeta}>Sign in in the visible Playwright window. SESSDATA stays in the local browser storage file and is never shown in Settings.</span>
+              <span className={styles.connectionMeta}>No setup required. Paste a creator or video URL into an automation to start. Video Ops uses public access first and gathers saved Bilibili cookies automatically when needed. Connecting a profile here is optional.</span>
+              <label className={styles.settingsFieldWide}>
+                <span>Bilibili profile URL</span>
+                <input className={styles.input} type="url" value={bilibiliProfileUrl} onChange={(event) => setBilibiliProfileUrl(event.target.value)} placeholder="https://space.bilibili.com/33633128" autoComplete="url" spellCheck={false} />
+              </label>
+              <span className={styles.connectionMeta}>{bilibiliSession?.verifiedAt ? `Cookie verified${bilibiliSession.accountName ? ` as ${bilibiliSession.accountName}` : ''} · ${new Date(bilibiliSession.verifiedAt).toLocaleString()}` : bilibiliSession?.message || 'Checking saved session…'}</span>
               {bilibiliLoginMessage && (
                 <div className={bilibiliLoginMessage.tone === 'error' ? styles.settingsMessageError : styles.settingsMessageOk} role="status">
                   {bilibiliLoginMessage.text}
                 </div>
               )}
               <div className={styles.operationRow}>
-                <button className={styles.buttonSecondary} type="button" disabled={Boolean(bilibiliLoginBusy)} onClick={() => runBilibiliLogin('bilibili-login-start')}>
-                  {bilibiliLoginBusy === 'bilibili-login-start' ? <LoaderCircle className={styles.spin} size={14} /> : <KeyRound size={14} />} Open Bilibili login
+                <button className={styles.buttonSecondary} type="button" disabled={Boolean(bilibiliLoginBusy) || !bilibiliProfileUrl.trim()} onClick={() => runBilibiliLogin('bilibili-connect-profile')}>
+                  {bilibiliLoginBusy === 'bilibili-connect-profile' ? <LoaderCircle className={styles.spin} size={14} /> : <KeyRound size={14} />} Connect saved cookie
                 </button>
                 <button className={styles.buttonSecondary} type="button" disabled={Boolean(bilibiliLoginBusy)} onClick={() => runBilibiliLogin('bilibili-login-status')}>
-                  {bilibiliLoginBusy === 'bilibili-login-status' ? <LoaderCircle className={styles.spin} size={14} /> : <RefreshCw size={14} />} Check sign-in
+                  {bilibiliLoginBusy === 'bilibili-login-status' ? <LoaderCircle className={styles.spin} size={14} /> : <RefreshCw size={14} />} Check cookie
                 </button>
               </div>
             </div>
@@ -793,7 +811,12 @@ export default function ServiceConnections({ section = 'accounts' }) {
                           {row.credentialFields.map((field) => (
                             <label key={field.key} className={styles.settingsField}>
                               <span>{fieldLabel(field)}</span>
-                              <input
+                              {field.type === 'select' ? (
+                                <select className={styles.input} value={drafts[row.id]?.[field.key] || ''}
+                                  onChange={(event) => updateDraft(row.id, field.key, event.target.value)}>
+                                  {field.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                </select>
+                              ) : <input
                                 className={styles.input}
                                 type={field.type === 'secret' ? 'password' : 'text'}
                                 placeholder={field.type === 'secret' && row.configured ? 'Saved value' : (field.placeholder || field.label)}
@@ -806,7 +829,7 @@ export default function ServiceConnections({ section = 'accounts' }) {
                                   if (!(row.configured && !event.target.value.trim())) validateDraftField(row.id, field, event.target.value);
                                 }}
                                 autoComplete={field.type === 'secret' ? 'new-password' : 'off'}
-                              />
+                              />}
                               {field.example && <small className={styles.connectionMeta}>Example: <code>{field.example}</code></small>}
                               {fieldErrors[row.id]?.[field.key] && <small className={styles.errorText}>{fieldErrors[row.id][field.key]}</small>}
                             </label>

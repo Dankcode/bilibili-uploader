@@ -14,7 +14,7 @@ export function hasSecretKey() { return Boolean(key()); }
 
 export function encryptSecret(value) {
   const encryptionKey = key();
-  if (!encryptionKey) throw new Error('Set STUDIO_SECRET_KEY before connecting Gmail; mailbox refresh tokens are never stored plaintext.');
+  if (!encryptionKey) throw new Error('Set STUDIO_SECRET_KEY before saving credentials; secrets are never stored plaintext.');
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', encryptionKey, iv);
   const ciphertext = Buffer.concat([cipher.update(String(value || ''), 'utf8'), cipher.final()]);

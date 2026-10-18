@@ -47,6 +47,8 @@ config/keys.json
 config/client_secret.json
 config/token.json
 config/storage.json
+config/bilibili-browser/
+config/storage.json.*.tmp
 # Studio screen templates are captured per machine/display/theme.
 config/studio_templates/
 videos/
@@ -61,6 +63,7 @@ video-work/
 __pycache__/
 *.py[cod]
 .venv-gui/
+.venv-bilibili/
 config/gui-references/
 *_token.json
 
@@ -77,3 +80,19 @@ docs/SERVER-PREP-*.md
 
 # Local secrets bundle — never commit
 *-secrets-*.zip
+
+# Database remnants and local credential backups, including nested copies
+.fuse_hidden*
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+.env*.bak*
+.env*.backup*
+*client_secret*.json*
+*_token.json*
+*_token.pickle*
+*credentials*.json*
+*secrets*.zip

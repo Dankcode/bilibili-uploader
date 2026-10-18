@@ -74,10 +74,32 @@ npm run build
 npm start
 ```
 
-> **Security.** Both commands bind `0.0.0.0`, so anything on your network can
-> reach the console, and the console has local-file access, stored provider
-> credentials, and publishing rights. There is no built-in login. Keep it on a
-> trusted network, or put authentication and a reverse proxy in front of it.
+Both commands bind `127.0.0.1` by default. Local browser access pairs
+automatically with an HttpOnly cookie, without asking for an operator token.
+Set `VIDEO_BIND_HOST=0.0.0.0` explicitly for LAN access; automatic pairing is
+disabled on network listeners and a configured operator token is required.
+Browser sessions last 30 days. Agent credentials remain separate and cannot
+create an operator session.
+
+There is no Bilibili credential requirement at startup. Paste a creator or
+video URL in **Create New Automations** and use it immediately. Public access
+is attempted first. If Bilibili requires a session, Video Ops verifies a saved
+cookie or gathers Bilibili cookies from Chrome on the backend computer, saves
+them privately in `config/storage.json`, and retries automatically.
+The app cannot create a signed-in session from a public profile URL; a source
+restricted by Bilibili still needs an existing browser sign-in.
+
+**Connections → Bilibili source** has an optional profile URL check, such as
+`https://space.bilibili.com/33633128`, with **Connect saved cookie**.
+Run `npm run setup:bilibili-cookies` once to install the optional Chrome cookie
+reader into a project-local Python environment. The OS may request keychain
+access. Only Bilibili-domain cookies are imported; the values are never shown.
+The profile URL selects the creator to scrape; it does not contain anyone’s
+login cookie. When explicitly connecting a profile with no valid session,
+the profile opens in the app’s
+persistent Bilibili browser for a one-time sign-in. The app captures the cookie
+automatically and reuses it on later runs. This browser belongs to the backend
+machine and needs a desktop session when first connecting.
 
 ## How to use the console
 
@@ -256,7 +278,9 @@ variables act as fallbacks.
 **Text and vision providers**
 
 ```dotenv
-AI_PROVIDER=codex          # codex | kimi | gemini
+AI_PROVIDER=codexCli       # codexCli | openai | kimi | gemini (codex = legacy API)
+CODEX_MODEL=gpt-6.1-sol
+CODEX_REASONING_EFFORT=medium
 OPENAI_API_KEY=
 KIMI_API_KEY=
 KIMI_BASE_URL=https://api.moonshot.cn/v1
@@ -270,6 +294,34 @@ GEMINI_MODEL=gemini-1.5-flash
 Studio's screenshot context needs a vision-capable Kimi configuration. Without
 it, local Whisper still runs and the context and context-assisted stages report
 themselves unavailable rather than failing silently.
+
+For GPT titles, descriptions, tags, and voiceover translation, choose
+**Connections → AI Metadata → Text generation provider → GPT-6.1 Sol · Codex sign-in**,
+then **Test connection**, **Save**, and enable the connection. The default model
+is `gpt-6.1-sol` with medium reasoning. Run `codex login` as the backend worker's
+OS user first; the CLI uses that user's existing ChatGPT authentication and plan
+limits. On macOS the bundled ChatGPT CLI is detected; elsewhere install Codex
+on PATH or set `CODEX_BIN`. A remote worker needs its own sign-in. No Codex
+tokens are copied into this repo. Jobs use an ephemeral, read-only invocation
+in a temporary directory with repository instructions and shell tools disabled.
+
+**OpenAI API** is a separate option requiring `OPENAI_API_KEY`; it uses API
+billing. The old `codex` provider value keeps its legacy API behavior. An
+explicit provider selection is enforced: errors do not silently switch providers.
+Saved connection settings override `AI_PROVIDER`. Legacy scheduled auto-uploads
+also use the AI Metadata connection. Voiceover has its own provider selector;
+Subtitle Studio's screenshot and ASS translation workflow keeps its existing
+Kimi configuration.
+
+Set a private `STUDIO_SECRET_KEY` (32 bytes in base64 or 64 hex characters)
+before saving service secrets. New API keys and tokens are encrypted with
+AES-256-GCM; old plaintext records remain readable and are encrypted on their
+next save. Keep this key outside Git and preserve it for database restores.
+`scripts/prepare_host.mjs` generates it for new backend installations.
+Local env, OAuth, SQLite, and credential backup files must remain ignored and
+owner-readable only. Run `npm run secrets:check` before committing. See
+[credential cleanup notes](./docs/CREDENTIALS.md) for the cleanup scope and
+rotation procedure.
 
 **Local Whisper**
 
@@ -390,7 +442,8 @@ mode is active.
   targets timestamp-matched cues rather than low-confidence ones.
 - Remote analysis and translation consume provider quota and are slow on long
   videos.
-- The console has no authentication of its own.
+- Remote console access requires an operator token when authentication is configured;
+  local loopback access restores its browser session automatically.
 
 ## Documentation
 

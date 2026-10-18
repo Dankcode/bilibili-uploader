@@ -3,7 +3,7 @@ import path from 'path';
 
 const mode = process.argv[2] === 'start' ? 'start' : 'dev';
 const port = String(process.env.PORT || '4455');
-const host = String(process.env.VIDEO_BIND_HOST || '0.0.0.0');
+const host = String(process.env.VIDEO_BIND_HOST || '127.0.0.1');
 const nextBin = path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');
 const children = [];
 let stopping = false;
@@ -42,6 +42,8 @@ process.on('SIGTERM', () => stop('SIGTERM'));
 
 launch('web control plane', process.execPath, [nextBin, mode, '-H', host, '-p', port], {
   VIDEO_PROCESS_ROLE: 'frontend',
+  VIDEO_BIND_HOST: host,
+  VIDEO_LOCAL_COOKIE_AUTH: ['127.0.0.1', '::1', 'localhost'].includes(host) && process.env.VIDEO_LOCAL_COOKIE_AUTH !== '0' ? '1' : '0',
 });
 launch('pipeline worker', process.execPath, [
   '--import',

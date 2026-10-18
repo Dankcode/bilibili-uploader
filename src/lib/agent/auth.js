@@ -43,6 +43,28 @@ export function sameOrigin(request) {
   } catch { return false; }
 }
 
+function isLoopbackHost(value) {
+  return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(String(value || '').toLowerCase());
+}
+
+// Only the combined launcher may enable automatic local pairing, and only
+// when it actually binds the web server to loopback. Never trust Host alone:
+// an agent bearer or a request forwarded from the network cannot pair itself.
+export function localCookiePairingAllowed(request) {
+  if (process.env.VIDEO_LOCAL_COOKIE_AUTH !== '1' || !isLoopbackHost(process.env.VIDEO_BIND_HOST)) return false;
+  if (request.headers.has('authorization') || request.headers.has('forwarded')) return false;
+  try {
+    const target = new URL(request.url);
+    const host = new URL(`${target.protocol}//${request.headers.get('host') || target.host}`);
+    if (!isLoopbackHost(target.hostname) || !isLoopbackHost(host.hostname)) return false;
+    const forwardedHost = request.headers.get('x-forwarded-host');
+    if (forwardedHost && forwardedHost !== host.host) return false;
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    if (forwardedFor && !forwardedFor.split(',').every((ip) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip.trim()))) return false;
+    return true;
+  } catch { return false; }
+}
+
 // Every legacy API and server action is operator-only once the bridge is enabled.
 // Headers such as x-video-ops-local are routing hints, never authentication.
 export function operatorGuard(request) {
