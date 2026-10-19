@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { operations } from '../src/lib/agent/contract.js';
 
-test('stdio MCP handshake, tools, resources and bearer forwarding use the shared REST contract', async () => {
+test('stdio MCP handshake, tools and resources work without any agent/operator token', async () => {
   const requests = [];
   const backend = http.createServer(async (request, response) => {
     let body = ''; for await (const chunk of request) body += chunk;
@@ -15,7 +15,7 @@ test('stdio MCP handshake, tools, resources and bearer forwarding use the shared
   });
   await new Promise((resolve, reject) => { backend.once('error', reject); backend.listen(0, '127.0.0.1', resolve); });
   const transport = new StdioClientTransport({ command: process.execPath, args: ['scripts/mcp/server.mjs'],
-    env: { PATH: process.env.PATH, VIDEO_AGENT_TOKEN: 'stdio-agent-fixture', VIDEO_AGENT_BASE_URL: `http://127.0.0.1:${backend.address().port}` }, stderr: 'pipe' });
+    env: { PATH: process.env.PATH, VIDEO_AGENT_BASE_URL: `http://127.0.0.1:${backend.address().port}` }, stderr: 'pipe' });
   const client = new Client({ name: 'videops-test', version: '1.0.0' });
   let stderr = ''; transport.stderr?.on('data', (chunk) => { stderr += chunk; });
   try {
@@ -32,7 +32,7 @@ test('stdio MCP handshake, tools, resources and bearer forwarding use the shared
     assert.equal((await client.listResourceTemplates()).resourceTemplates[0].uriTemplate, 'videops://job/{id}/log');
     const health = await client.readResource({ uri: 'videops://health' });
     assert.equal(JSON.parse(health.contents[0].text).bridgeTest, true);
-    assert.ok(requests.every((request) => request.authorization === 'Bearer stdio-agent-fixture'));
+    assert.ok(requests.every((request) => request.authorization === undefined));
     assert.match(requests[0].url, /^\/api\/agent\/v1\/work\?/);
     assert.equal(stderr.includes('SQLite'), false);
   } finally { await client.close(); await new Promise((resolve) => backend.close(resolve)); }

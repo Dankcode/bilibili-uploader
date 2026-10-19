@@ -1,7 +1,6 @@
 import { withOperator } from '../../../../lib/agent/auth.js';
-import { timingSafeEqual } from 'crypto';
-import { bridgeConfig, internalApiBase } from '../../../../lib/agent/auth.js';
-import { getServerApiToken, readRuntimeSettings } from '../../../../lib/runtime/settings';
+import { internalApiBase } from '../../../../lib/agent/auth.js';
+import { readRuntimeSettings } from '../../../../lib/runtime/settings';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,15 +17,6 @@ const FORWARDED_RESPONSE_HEADERS = [
   'last-modified',
 ];
 
-function authorized(request) {
-  const expected = getServerApiToken();
-  const supplied = String(request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  if (!expected || !supplied) return false;
-  const expectedBuffer = Buffer.from(expected);
-  const suppliedBuffer = Buffer.from(supplied);
-  return expectedBuffer.length === suppliedBuffer.length && timingSafeEqual(expectedBuffer, suppliedBuffer);
-}
-
 function safeHeaders(request) {
   const headers = new Headers();
   for (const [key, value] of request.headers.entries()) {
@@ -35,7 +25,6 @@ function safeHeaders(request) {
     }
   }
   headers.set('x-video-ops-local', '1');
-  if (bridgeConfig().operatorToken) headers.set('authorization', `Bearer ${bridgeConfig().operatorToken}`);
   return headers;
 }
 
@@ -57,14 +46,6 @@ async function ping() {
 }
 
 async function handle(request, context) {
-  if (!authorized(request)) {
-    return Response.json({
-      error: getServerApiToken()
-        ? 'Invalid backend access token'
-        : 'Backend access token is not configured on this server',
-    }, { status: getServerApiToken() ? 401 : 503 });
-  }
-
   const routePath = ((await context.params).path || []).join('/').replace(/^\/+|\/+$/g, '');
   if (!routePath || [...BLOCKED_PATHS].some((blocked) => routePath === blocked || routePath.startsWith(`${blocked}/`))) {
     return Response.json({ error: 'This backend route is not exposed' }, { status: 403 });

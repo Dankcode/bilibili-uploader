@@ -152,7 +152,6 @@ export function getServerApiToken(settings = readRuntimeSettings()) {
 export function assertRuntimeSettings(settings) {
   if (settings.connectionMode === CONNECTION_MODES.REMOTE) {
     if (!settings.remoteUrl) throw new Error('Backend URL is required for a remote connection');
-    if (!settings.remoteAuthToken) throw new Error('Backend access token is required for a remote connection');
   }
   if (settings.connectionMode !== CONNECTION_MODES.REMOTE && !String(settings.sqlitePath || '').trim()) {
     throw new Error('SQLite database path is required');

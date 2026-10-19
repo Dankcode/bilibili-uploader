@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isIP } from 'node:net';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getServerApiToken } from '../runtime/settings.js';
-import { isLoopbackHost, loopbackRequestAllowed, resolveAccessPolicy } from '../security/access.js';
 
 export function bridgeConfig() {
   const file = process.env.VIDEO_AGENT_CONFIG || path.join(process.cwd(), 'config/agent-bridge.json');
   let saved = {};
-  try { saved = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  try { saved = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* Legacy credentials are optional. */ }
   return {
     agentToken: process.env.VIDEO_AGENT_TOKEN || saved.agentToken || '',
     operatorToken: process.env.VIDEO_OPERATOR_TOKEN || saved.operatorToken || getServerApiToken() || '',
@@ -19,9 +19,8 @@ export function equalSecret(a, b) {
   return left.length > 0 && left.length === right.length && timingSafeEqual(left, right);
 }
 
-// Saved integration credentials must never turn ordinary localhost usage into
-// an operator sign-in requirement. Shared mode is the explicit auth boundary.
-export function authRequired() { return (process.env.VIDEO_ACCESS_MODE || 'local') !== 'local'; }
+// Retained for older integrations; the app no longer requires a sign-in.
+export function authRequired() { return false; }
 export function bearer(request) { return (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''); }
 export function isAgent(request) { return equalSecret(bearer(request), bridgeConfig().agentToken); }
 export function operatorSession(token, expires = Date.now() + 12 * 60 * 60 * 1000) {
@@ -46,31 +45,15 @@ export function sameOrigin(request) {
   } catch { return false; }
 }
 
-// Only the combined launcher may enable automatic local pairing, and only
-// when it actually binds the web server to loopback. Never trust Host alone:
-// an agent bearer or a request forwarded from the network cannot pair itself.
+// No automatic pairing or operator cookie is needed.
 export function localCookiePairingAllowed(request) {
-  if ((process.env.VIDEO_ACCESS_MODE || 'local') !== 'local' || process.env.VIDEO_LOCAL_COOKIE_AUTH !== '1' || !isLoopbackHost(process.env.VIDEO_BIND_HOST)) return false;
-  if (request.headers.has('authorization') || request.headers.has('forwarded')) return false;
-  return loopbackRequestAllowed(request);
+  return false;
 }
 
-// Every legacy API and server action is operator-only once the bridge is enabled.
-// Headers such as x-video-ops-local are routing hints, never authentication.
+// Compatibility wrapper for existing route declarations.
 export function operatorGuard(request) {
-  let policy;
-  try { policy = resolveAccessPolicy(process.env, bridgeConfig()); }
-  catch { return Response.json({ error: 'Invalid access configuration; check the server access mode and operator token.' }, { status: 503 }); }
-  if (policy.mode === 'local' && !loopbackRequestAllowed(request)) return Response.json({ error: 'Local access only. Enable shared mode explicitly for network access.' }, { status: 403 });
-  const required = authRequired();
-  const operator = isOperator(request);
-  // A configured agent remains restricted even on a token-free local console.
-  if (isAgent(request) || (required && !operator)) return Response.json({ error: 'Operator authentication required' }, { status: 401 });
-  // Origin protection is independent of authentication. A random Authorization
-  // header must not disable it in credentialless local mode.
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && !(operator && bearer(request)) && !sameOrigin(request)) {
-    return Response.json({ error: 'Same-origin request required' }, { status: 403 });
-  }
+  // Single-owner deployment: access is controlled by the listener/Tailscale,
+  // not app-level roles, cookies, tokens, Host or Origin checks.
   return null;
 }
 export function withOperator(handler) {
@@ -82,5 +65,8 @@ export function withOperator(handler) {
 export function internalApiBase() {
   const port = String(process.env.PORT || '4455');
   if (!/^\d{1,5}$/.test(port) || Number(port) > 65535) throw new Error('Invalid application port');
-  return `http://127.0.0.1:${port}`;
+  // A Tailscale-only listener does not accept loopback connections.
+  const configured = String(process.env.VIDEO_BIND_HOST || '').trim();
+  const host = isIP(configured) && !['0.0.0.0', '::'].includes(configured) ? configured : '127.0.0.1';
+  return `http://${isIP(host) === 6 ? `[${host}]` : host}:${port}`;
 }

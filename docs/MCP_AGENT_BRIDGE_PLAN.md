@@ -1,5 +1,7 @@
 # MCP Agent Bridge — Implementation Plan
 
+> Historical design, superseded by [MCP_AGENT_BRIDGE.md](MCP_AGENT_BRIDGE.md). The current single-owner app has no operator/agent token gate and executes owner-requested MCP uploads without a separate human approval. Do not implement the approval/token requirements below.
+
 Status: **plan and code review only, nothing built yet.**
 Reviewed against the working tree at `b1cc71b` (branch `codex/pygui-upload`), 2026-09-10.
 Companion plan artifact: https://claude.ai/code/artifact/93411104-cd81-43b0-893e-724efaca6c62

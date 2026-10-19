@@ -45,7 +45,7 @@ export function queueLibraryUploads(input = {}, { principal = '' } = {}) {
           style: generation.personality, copyPrompt: generation.context,
           generationFields: useSaved ? [] : ['title', 'description', 'tags'],
           title: saved.titleEn || '', description: saved.descriptionEn || '', tags: saved.tags || [],
-          reviewMetadata: Boolean(principal) || input.reviewMetadata !== false },
+          reviewMetadata: principal ? false : Boolean(input.reviewMetadata) },
           youtube: { uploadMethod: input.uploadMethod || 'studio', privacyStatus } } };
     });
     return createJobBatch({ name: input.name || 'Library uploads', items });

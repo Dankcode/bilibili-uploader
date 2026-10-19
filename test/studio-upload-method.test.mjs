@@ -148,11 +148,11 @@ test('Studio uploads are unbudgeted and cannot be reconciled automatically', asy
 
 // ---------------------------------------------------------------- end to end
 
-test('a queued Studio job publishes through the pipeline without spending API quota', async () => {
+test('an MCP-authorized Studio job reaches stubbed upload without human approval or API quota', async () => {
   process.env.STUB_MODE = 'ok';
   db.prepare("UPDATE video_jobs SET status = 'done' WHERE status IN ('queued', 'running')").run();
   const created = pipeline.createJob({
-    sourceId: 'localFile', sourceInput: video, processorIds: [], uploaderId: 'youtube', title: 'Studio end to end',
+    sourceId: 'localFile', sourceInput: video, processorIds: [], uploaderId: 'youtube', title: 'Studio end to end', agentPrincipal: 'agent:owner',
     options: { youtube: { uploadMethod: 'studio', privacyStatus: 'private' } },
   });
   const source = db.prepare("SELECT id FROM video_job_steps WHERE job_id = ? AND step LIKE 'source:%'").get(created.id);
@@ -163,6 +163,7 @@ test('a queued Studio job publishes through the pipeline without spending API qu
 
   const job = db.prepare('SELECT status, error FROM video_jobs WHERE id = ?').get(created.id);
   assert.equal(job.status, 'done', job.error);
+  assert.equal(db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(created.id).metadata_approved_by, '');
   const publication = db.prepare('SELECT remote_id, url FROM video_publications WHERE job_id = ?').get(created.id);
   assert.equal(publication.remote_id, 'AbCdEfGhIjK');
   const receipt = db.prepare('SELECT state, units FROM upload_receipts WHERE job_id = ?').get(created.id);

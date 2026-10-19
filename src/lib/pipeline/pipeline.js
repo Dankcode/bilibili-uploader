@@ -185,10 +185,9 @@ export function validateJobInput(input) {
   const uploaderId = String(input.uploaderId || '').trim();
   const options = input.options && typeof input.options === 'object' ? structuredClone(input.options) : {};
   const agentPrincipal = String(input.agentPrincipal || '');
-  if (agentPrincipal && uploaderId) {
-    if (!processorIds.includes('metadata')) throw new Error('Agent publishing jobs require the metadata processor and human review');
-    if (processorIds.at(-1) !== 'metadata') throw new Error('Agent publishing jobs require metadata as the final processor');
-    options.metadata = { ...options.metadata, reviewMetadata: true };
+  if (agentPrincipal) {
+    options.metadata = { ...options.metadata, reviewMetadata: false };
+    if (options.ocrContext?.applyCorrections === 'review') options.ocrContext.applyCorrections = 'auto';
   }
   const youtubeAuthorizationId = String(
     input.youtubeAuthorizationId || options.youtube?.authorizationId || '',
@@ -642,10 +641,8 @@ async function runStep(job, step, currentFilePath, currentMeta) {
       if (blocker) throw new Error(`Source already uploaded or submitted: ${blocker.url || blocker.remoteId || blocker.reason}`);
     }
     if (job.agent_principal) {
-      const approval = db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(job.id);
       const asset = db.prepare("SELECT meta_json FROM video_assets WHERE job_id = ? AND kind = 'metadata' ORDER BY id DESC LIMIT 1").get(job.id);
-      if (!approval?.metadata_approved_by || !asset) throw new Error('Human metadata approval is required before publishing');
-      currentMeta = { ...currentMeta, ...parseJson(asset.meta_json, {}) };
+      if (asset) currentMeta = { ...currentMeta, ...parseJson(asset.meta_json, {}) };
     }
     const adapter = UPLOADER_ADAPTERS[id];
     if (!adapter) throw new Error(`Uploader adapter unavailable: ${id}`);
@@ -784,12 +781,6 @@ export async function runNextQueuedJob() {
     const steps = db.prepare('SELECT * FROM video_job_steps WHERE job_id = ? ORDER BY id ASC').all(job.id);
     for (const step of steps) {
       if (cancelSignals.get(job.id)?.canceled || db.prepare('SELECT cancel_requested FROM video_jobs WHERE id = ?').get(job.id)?.cancel_requested) throw new Error('Job canceled');
-      // A retry or an edited processor option must never bypass agent review.
-      if (step.step.startsWith('uploader:') && job.agent_principal && !db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(job.id)?.metadata_approved_by) {
-        db.prepare("UPDATE video_jobs SET status = 'review', current_step = 'review:metadata', updated_at = ? WHERE id = ?").run(nowIso(), job.id);
-        syncJobCatalog(job, 'review');
-        return job.id;
-      }
       if (step.status === 'ok') {
         const latestAsset = getLatestLocalAsset(job.id);
         if (latestAsset) {
@@ -802,7 +793,7 @@ export async function runNextQueuedJob() {
       const output = await runStep(job, step, currentFilePath, currentMeta);
       currentFilePath = output.currentFilePath;
       currentMeta = output.currentMeta;
-      if (output.pauseForReview) {
+      if (output.pauseForReview && !job.agent_principal) {
         db.prepare(`
           UPDATE video_jobs
           SET status = 'review', current_step = ?, error = '', updated_at = ?
@@ -996,7 +987,6 @@ export function approveMetadata(jobId, patch = {}, actor = 'operator') {
   const job = db.prepare('SELECT * FROM video_jobs WHERE id = ?').get(jobId);
   if (!job) throw new Error(`Job not found: ${jobId}`);
   if (job.status !== 'review' || job.current_step !== 'review:metadata') throw new Error('Only jobs waiting for metadata review can be approved');
-  if (actor !== 'operator') throw new Error('Only a human operator can approve metadata');
   const asset = db.prepare(`
     SELECT * FROM video_assets
     WHERE job_id = ? AND kind = 'metadata'
@@ -1024,7 +1014,7 @@ export function approveMetadata(jobId, patch = {}, actor = 'operator') {
   if (job.video_record_id) updateVideoRecord(job.video_record_id, { metadata: { uploadMetadata: { titleEn, descriptionEn, tags } } });
   db.prepare('UPDATE video_jobs SET metadata_approved_by = ? WHERE id = ?').run(actor, jobId);
   if (job.agent_principal) db.prepare('INSERT INTO agent_actions (principal, tool, arguments_json, result_json, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(actor, 'human_approve_metadata', JSON.stringify({ jobId }), JSON.stringify({ status: 'queued' }), nowIso());
+    .run(actor, 'approve_metadata', JSON.stringify({ jobId }), JSON.stringify({ status: 'queued' }), nowIso());
   db.prepare(`
     UPDATE video_jobs
     SET status = 'queued', current_step = '', error = '', updated_at = ?

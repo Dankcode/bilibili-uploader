@@ -1,7 +1,7 @@
 # Project Context
 
 ## Overview
-Automated Youtube video uploader and management suite. Replaced Notion with a local SQLite engine and a local-first management dashboard with optional authenticated sharing.
+Automated Youtube video uploader and management suite. Replaced Notion with a local SQLite engine and a local-first management dashboard with optional Tailscale sharing.
 
 ## Tech Stack
 - **Frontend**: Next.js (App Router), React, CSS Modules.
@@ -9,7 +9,7 @@ Automated Youtube video uploader and management suite. Replaced Notion with a lo
 - **State Management**: React Hooks (`useState`, `useEffect`) and Server Actions.
 - **Video Processing**: FFmpeg and Python core logic.
 - **AI Integration**: Kimi 2.5 API for high-quality text translation and metadata generation.
-- **Networking**: Loopback-only on port **4455** by default. LAN access requires explicit shared mode and a strong, distinct operator token; collaborators share workspace authority.
+- **Networking**: Loopback-only on port **4455** by default. `dev:tailscale` / `start:tailscale` bind to the device's Tailscale IP. No app sign-in or operator/agent token is required; every reachable client has full workspace authority. Explicit MCP uploads run without a separate human approval pause.
 
 ## Core Features
 1. **Automated Workflow**:

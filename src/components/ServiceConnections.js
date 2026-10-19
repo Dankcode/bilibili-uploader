@@ -13,7 +13,6 @@ import {
   RefreshCw,
   Save,
   Server,
-  ShieldCheck,
   TestTube2,
   WifiOff,
 } from 'lucide-react';
@@ -50,12 +49,6 @@ function formatBytes(value) {
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-}
-
-function generateToken() {
-  const bytes = new Uint8Array(32);
-  window.crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function runtimeDatabase(status) {
@@ -483,7 +476,7 @@ export default function ServiceConnections({ section = 'accounts' }) {
           <div>
             <span className={styles.settingsEyebrow}>Data plane</span>
             <h2>Database & API runtime</h2>
-            <span className={styles.connectionMeta}>Keep SQLite beside the worker. Use the remote option only for an authenticated backend reachable over LAN or Tailscale.</span>
+            <span className={styles.connectionMeta}>Keep SQLite beside the worker. Connect to your backend over Tailscale; no app sign-in or access token is required.</span>
           </div>
           <div className={`${styles.runtimeBadge} ${runtimeOnline ? styles.runtimeBadgeOnline : styles.runtimeBadgeOffline}`}>
             {runtimeOnline ? <CheckCircle2 size={14} /> : <WifiOff size={14} />}
@@ -519,26 +512,6 @@ export default function ServiceConnections({ section = 'accounts' }) {
                   placeholder={runtimeForm.connectionMode === 'local' ? '/Users/name/video-ops/bilibili.db' : 'config/bilibili.db'}
                   spellCheck="false"
                 />
-              </label>
-              <label className={styles.settingsFieldWide}>
-                <span><ShieldCheck size={14} />Backend access token</span>
-                <div className={styles.secretInputRow}>
-                  <input
-                    className={styles.input}
-                    type="password"
-                    value={runtimeForm.serverApiToken}
-                    onChange={(event) => updateRuntime('serverApiToken', event.target.value)}
-                    placeholder={runtimeSaved.hasServerApiToken ? 'Saved token (leave blank to keep)' : 'Required for Tailscale or LAN access'}
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    onClick={() => updateRuntime('serverApiToken', generateToken())}
-                    title="Generate access token"
-                    aria-label="Generate access token"
-                  ><KeyRound size={16} /></button>
-                </div>
               </label>
               <label className={styles.checkRow}>
                 <input
@@ -589,17 +562,6 @@ export default function ServiceConnections({ section = 'accounts' }) {
                   onChange={(event) => updateRuntime('remoteUrl', event.target.value)}
                   placeholder={runtimeForm.remoteTransport === 'tailscale' ? 'http://100.x.x.x:4455' : 'http://192.168.1.20:4455'}
                   spellCheck="false"
-                />
-              </label>
-              <label className={styles.settingsFieldWide}>
-                <span><ShieldCheck size={14} />Backend access token</span>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={runtimeForm.remoteAuthToken}
-                  onChange={(event) => updateRuntime('remoteAuthToken', event.target.value)}
-                  placeholder={runtimeSaved.hasRemoteAuthToken ? 'Saved token (leave blank to keep)' : 'Access token from the backend machine'}
-                  autoComplete="new-password"
                 />
               </label>
             </>

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { bearer, bridgeConfig, equalSecret, isAgent } from '../../../../../lib/agent/auth.js';
+import { bearer } from '../../../../../lib/agent/auth.js';
 import { operations, openApiDocument } from '../../../../../lib/agent/contract.js';
 import { AgentError, executeOperation, readAgentResource, sanitize } from '../../../../../lib/agent/service.js';
 import { readRuntimeSettings } from '../../../../../lib/runtime/settings.js';
@@ -7,9 +7,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 async function handle(request, context) {
-  const config = bridgeConfig();
-  if (!config.agentToken || !config.operatorToken || equalSecret(config.agentToken, config.operatorToken)) return Response.json({ error: { code: 'PRECONDITION_FAILED', message: 'Configure distinct agent and operator tokens with npm run mcp:setup' } }, { status: 503 });
-  if (!isAgent(request)) return Response.json({ error: { code: 'UNAUTHORIZED', message: 'Agent bearer token required' } }, { status: 401 });
   if (readRuntimeSettings().connectionMode === 'remote') return Response.json({ error: { code: 'PRECONDITION_FAILED', message: 'Point the MCP bridge at the backend server, not a remote-mode frontend' } }, { status: 409 });
   try {
     const path = `/${(await context.params).path.join('/')}`;
@@ -36,7 +33,7 @@ async function handle(request, context) {
         if (value) input[key] = value;
       }
     }
-    const principal = `agent:${createHash('sha256').update(bearer(request)).digest('hex').slice(0, 16)}`;
+    const principal = bearer(request) ? `agent:${createHash('sha256').update(bearer(request)).digest('hex').slice(0, 16)}` : 'agent:owner';
     const result = await executeOperation(op.name, input, principal);
     return Response.json(op.project(result), { headers: { 'Cache-Control': 'no-store', ...(result.updatedAt ? { ETag: `"${result.updatedAt}"` } : {}) } });
   } catch (error) {

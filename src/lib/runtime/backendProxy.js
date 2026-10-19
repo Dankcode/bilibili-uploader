@@ -25,7 +25,7 @@ function requestHeaders(request, token) {
   for (const [key, value] of request.headers.entries()) {
     if (!REQUEST_HEADER_BLOCKLIST.has(key.toLowerCase())) headers.set(key, value);
   }
-  headers.set('authorization', `Bearer ${token}`);
+  if (token) headers.set('authorization', `Bearer ${token}`);
   headers.set('x-video-ops-proxy', '1');
   return headers;
 }
@@ -47,7 +47,7 @@ export async function proxyBackendRequest(request, routePath) {
   if (request.headers.get('x-video-ops-local') === '1') return null;
   const settings = readRuntimeSettings();
   if (settings.connectionMode !== CONNECTION_MODES.REMOTE) return null;
-  if (!settings.remoteUrl || !settings.remoteAuthToken) {
+  if (!settings.remoteUrl) {
     return Response.json({ error: 'Remote backend settings are incomplete' }, { status: 503 });
   }
 
@@ -85,7 +85,7 @@ export async function testRemoteBackend(settings, { timeoutMs = 8000 } = {}) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${settings.remoteUrl}/api/server/runtime/ping`, {
-      headers: { authorization: `Bearer ${settings.remoteAuthToken}` },
+      headers: settings.remoteAuthToken ? { authorization: `Bearer ${settings.remoteAuthToken}` } : {},
       cache: 'no-store',
       signal: controller.signal,
     });

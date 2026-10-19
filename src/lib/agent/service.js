@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import { readSavedUpload, saveUploadMetadata } from '../operations/uploadCatalog.js';
 import { queueLibraryUploads } from '../operations/libraryUpload.js';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import Ajv from 'ajv';
 import db from '../db/sqlite.js';
 import { operations } from './contract.js';
 import { bridgeConfig, equalSecret } from './auth.js';
-import { createJobBatch, validateJobInput, retryJob, cancelJob } from '../pipeline/pipeline.js';
+import { approveCorrections, approveMetadata, createJobBatch, validateJobInput, retryJob, cancelJob } from '../pipeline/pipeline.js';
 import { SOURCES, PROCESSORS, UPLOADERS } from '../pipeline/registry.js';
 import { listConnections } from '../pipeline/connections.js';
 import { getUsageSummary } from '../pipeline/usage.js';
@@ -54,7 +54,7 @@ function requireJob(id, ifMatch) {
 }
 const jobProjection = (row) => ({ id: row.id, sourceId: row.source_id, sourceInput: row.source_input, status: row.status,
   currentStep: row.current_step, error: sanitize(row.error || ''), scheduledFor: row.scheduled_for, updatedAt: row.updated_at,
-  nextAction: row.status === 'review' ? (row.current_step === 'review:metadata' && !db.prepare("SELECT id FROM video_assets WHERE job_id = ? AND kind = 'metadata' AND meta_json LIKE '%agentDraftedAt%' LIMIT 1").get(row.id) ? 'propose_metadata' : 'human_review') : row.status === 'failed' ? 'get_job' : 'wait',
+  nextAction: row.status === 'review' ? (row.current_step === 'review:metadata' ? 'propose_metadata' : 'retry_job') : row.status === 'failed' ? 'get_job' : 'wait',
   consoleUrl: row.video_record_id ? `/videos/${encodeURIComponent(row.video_record_id)}` : '/?view=library' });
 function getJob(id) {
   const row = requireJob(id);
@@ -71,7 +71,7 @@ function preconditions() {
   return { checkedAt: timestamp(), connections: listConnections().map(({ serviceId, configured, enabled, status, authState, checkedAt, lastError }) => ({ serviceId, configured, enabled, status, authState, checkedAt, lastError: sanitize(lastError) })),
     channels: listYouTubeAuthorizations().filter((channel) => channel.enabled && ['configured', 'active'].includes(channel.status)),
     disk, usage: getUsageSummary().map(({ service, seconds, maxDailySeconds }) => ({ service, seconds, maxDailySeconds })),
-    youtubeQuotaRemaining: null, quotaNote: 'YouTube remaining quota is not measured locally. Planning reports upload count, not a guaranteed quota reservation.', humanApprovalRequired: true };
+    youtubeQuotaRemaining: null, quotaNote: 'YouTube remaining quota is not measured locally. Planning reports upload count, not a guaranteed quota reservation.', humanApprovalRequired: false };
 }
 function context(id) {
   const job = requireJob(id);
@@ -105,14 +105,14 @@ function publicationBlocker(video) {
   return '';
 }
 function signPlan(plan) {
-  const secret = bridgeConfig().operatorToken;
-  if (!secret) throw new AgentError('PRECONDITION_FAILED', 'Configure separate operator and agent tokens before planning', 409);
+  const secret = globalThis[Symbol.for('videops.plan-signing-key')] ||= randomBytes(32);
   const payload = Buffer.from(JSON.stringify(plan)).toString('base64url');
   return `${payload}.${createHmac('sha256', secret).update(payload).digest('base64url')}`;
 }
 function readPlan(token, principal) {
   const [payload, signature, extra] = token.split('.');
-  const expected = createHmac('sha256', bridgeConfig().operatorToken).update(payload || '').digest('base64url');
+  const secret = globalThis[Symbol.for('videops.plan-signing-key')] ||= randomBytes(32);
+  const expected = createHmac('sha256', secret).update(payload || '').digest('base64url');
   if (extra || !equalSecret(signature, expected)) throw new AgentError('INVALID_INPUT', 'Invalid plan token');
   const plan = parse(Buffer.from(payload, 'base64url').toString());
   if (plan.principal !== principal || plan.expiresAt < Date.now()) throw new AgentError('PRECONDITION_FAILED', 'Plan expired or belongs to another principal; plan again', 409);
@@ -140,7 +140,7 @@ function planBatch(input, principal) {
     const item = { sourceId: 'bilibili', sourceInput: video.url, sourceDurationSeconds: video.durationSeconds, title: video.title,
       processorIds, uploaderId, youtubeAuthorizationId: authorizationId,
       scheduledFor: new Date(start + index * (input.everyDays || 1) * 86400000).toISOString(), agentPrincipal: principal,
-      options: { metadata: { reviewMetadata: true, title: video.title, description: video.description, tags: video.tags,
+      options: { metadata: { reviewMetadata: false, title: video.title, description: video.description, tags: video.tags,
         sourceTitle: video.sourceTitle, sourceDescription: video.sourceDescription, sourceUrl: video.url, creatorId: input.creatorId, bvid,
         generationFields: video.generationFields, copyPrompt: video.copyPrompt }, youtube: video.youtubeOptions } };
     items.push(item);
@@ -149,12 +149,12 @@ function planBatch(input, principal) {
   const batch = { name: input.name || `Agent batch · ${input.creatorId}`, items };
   const plan = { principal, expiresAt: Date.now() + 15 * 60000, creatorId: input.creatorId, versions, batch };
   return { batch, blockers, uploadCount: uploaderId ? items.length : 0, youtubeQuotaCost: null, youtubeQuotaRemaining: readiness.youtubeQuotaRemaining,
-    expiresAt: new Date(plan.expiresAt).toISOString(), humanApprovalRequired: Boolean(uploaderId), planToken: blockers.length ? null : signPlan(plan) };
+    expiresAt: new Date(plan.expiresAt).toISOString(), humanApprovalRequired: false, planToken: blockers.length ? null : signPlan(plan) };
 }
 
 function mutate(name, input, principal) {
   if (name === 'save_upload_metadata') return saveUploadMetadata(input);
-  if (name === 'queue_saved_uploads') return { batch: queueLibraryUploads({ ...input, uploadMethod: 'studio' }, { principal }), nextAction: 'wait_for_human_review' };
+  if (name === 'queue_saved_uploads') return { batch: queueLibraryUploads({ ...input, uploadMethod: 'studio' }, { principal }), nextAction: 'wait' };
   if (name === 'claim_youtube_post') return claimYouTubePost(input.postId, input.ifMatch, principal);
   if (name === 'record_youtube_post') return recordYouTubePost(input.postId, input.ifMatch, input, principal);
   if (name === 'queue_batch') {
@@ -166,7 +166,7 @@ function mutate(name, input, principal) {
     }
     // Revalidate live channel authorization and pipeline IDs; the signed payload is exact.
     for (const item of plan.batch.items) validateJobInput(item);
-    return { batch: createJobBatch(plan.batch), nextAction: 'wait_for_human_review' };
+    return { batch: createJobBatch(plan.batch), nextAction: 'wait' };
   }
   if (name === 'select_creator_videos') {
     if (new Set(input.videos.map((video) => video.bvid)).size !== input.videos.length) throw new AgentError('INVALID_INPUT', 'Duplicate BV IDs in selection');
@@ -190,20 +190,21 @@ function mutate(name, input, principal) {
     if (!asset) throw new AgentError('PRECONDITION_FAILED', 'Metadata asset is not ready', 409);
     if (!input.title.trim() || !input.description.trim() || input.tags.some((tag) => !tag.trim()) || input.tags.join(',').length > 500) throw new AgentError('INVALID_INPUT', 'Nonempty title, description and tags (at most 500 characters total) are required');
     db.prepare('UPDATE video_assets SET meta_json = ? WHERE id = ?').run(JSON.stringify({ ...parse(asset.meta_json), titleEn: input.title.trim(), descriptionEn: input.description.trim(), tags: input.tags.map((tag) => tag.trim()),
-      metadataReviewRequired: true, metadataApprovedAt: '', agentDraftedAt: timestamp(), agentDraftedBy: principal }), asset.id);
-    db.prepare("UPDATE video_jobs SET metadata_approved_by = '', updated_at = ? WHERE id = ?").run(timestamp(job.updated_at), job.id);
+      metadataReviewRequired: false, agentDraftedAt: timestamp(), agentDraftedBy: principal }), asset.id);
+    approveMetadata(job.id, {}, principal);
+    db.prepare('UPDATE video_jobs SET updated_at = ? WHERE id = ?').run(timestamp(job.updated_at), job.id);
   } else if (name === 'retry_job') {
     if (db.prepare("SELECT id FROM video_publications WHERE job_id = ? AND status = 'published' LIMIT 1").get(job.id)) throw new AgentError('PRECONDITION_FAILED', 'This job already published a video; an operator must investigate before retrying', 409);
-    // Retrying an old operator-created upload is also an agent write. Adopt the
-    // review constraint before it can resume past a previously successful step.
-    if (job.uploader_id && !job.agent_principal) {
-      const processors = parse(job.processor_ids_json, []);
-      if (!processors.includes('metadata')) throw new AgentError('PRECONDITION_FAILED', 'This legacy upload has no metadata review gate; an operator must retry it', 409);
+    if (job.uploader_id) {
       const options = parse(job.options_json);
-      options.metadata = { ...options.metadata, reviewMetadata: true };
-      db.prepare("UPDATE video_jobs SET agent_principal = ?, metadata_approved_by = '', options_json = ? WHERE id = ?").run(principal, JSON.stringify(options), job.id);
+      options.metadata = { ...options.metadata, reviewMetadata: false };
+      db.prepare('UPDATE video_jobs SET agent_principal = ?, options_json = ? WHERE id = ?').run(principal, JSON.stringify(options), job.id);
     }
-    try { retryJob(job.id); } catch (error) { throw new AgentError('PRECONDITION_FAILED', error.message, 409); }
+    try {
+      if (job.status === 'review' && job.current_step === 'review:metadata') approveMetadata(job.id, {}, principal);
+      else if (job.status === 'review' && job.current_step === 'review:corrections') approveCorrections(job.id);
+      else retryJob(job.id);
+    } catch (error) { throw new AgentError('PRECONDITION_FAILED', error.message, 409); }
   } else if (name === 'cancel_job') cancelJob(job.id);
   if (name !== 'propose_metadata') db.prepare('UPDATE video_jobs SET updated_at = ? WHERE id = ?').run(timestamp(job.updated_at), job.id);
   return getJob(job.id);
@@ -301,7 +302,7 @@ export function readAgentResource(uri) {
   if (uri === 'videops://health') return sanitize(preconditions());
   if (uri === 'videops://manifest') {
     const project = ({ id, label, inputKinds, optionFields }) => ({ id, label, inputKinds, optionFields: optionFields || [] });
-    return { sources: SOURCES.map(project), processors: PROCESSORS.map(project), uploaders: UPLOADERS.map(project), humanApprovalRequired: true };
+    return { sources: SOURCES.map(project), processors: PROCESSORS.map(project), uploaders: UPLOADERS.map(project), humanApprovalRequired: false };
   }
   if (uri === 'videops://presets') return db.prepare('SELECT id, name, template_json, updated_at FROM pipeline_presets ORDER BY name').all().map((row) => ({ id: row.id, name: row.name, template: sanitize(parse(row.template_json)), updatedAt: row.updated_at }));
   const match = uri.match(/^videops:\/\/job\/(\d+)\/log$/);
