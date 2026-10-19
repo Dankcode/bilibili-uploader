@@ -77,6 +77,17 @@ npm start
 Both commands bind `127.0.0.1` by default. Local browser access needs no
 operator token, sign-in, or operator cookie, even if integration tokens were
 saved previously. Loopback Host and mutation-origin checks remain enforced.
+Local-mode pages render the workspace directly; the operator sign-in wrapper
+and browser session check are mounted only in shared mode. This is determined
+when the server runs, not when it is built. If an older copy on another device
+still displays “VideoOps operator sign-in”, update that device's source, rebuild
+its production app, stop its old web process, and restart with
+`npm run start:local -- --web-only` (no upload worker), or `npm run start:local`
+for the web app and worker together. `npm run dev:local` is the development
+equivalent. These commands force loopback-only, token-free local mode even if
+that device's environment file still contains shared-mode settings. Refresh
+the page after restarting. A rebuild on one computer cannot update another
+computer's running copy.
 Network access is disabled unless `VIDEO_ACCESS_MODE=shared` is explicitly set
 (or `npm run dev:shared` / `npm run start:shared` is used). Shared mode defaults
 to `0.0.0.0`; set `VIDEO_BIND_HOST` to select a specific interface. Startup fails
