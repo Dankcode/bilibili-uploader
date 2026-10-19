@@ -52,24 +52,22 @@ test('generated metadata has no em dashes and reaches the upload title', () => {
 });
 
 const channel = 'UC6hpd-_yLeKs-SZc4BzDzzQ';
-test('GUI posts require approval, a versioned single claim, and a real post receipt', async () => {
+test('MCP claims saved draft posts without approval and records a versioned single delivery', async () => {
   let post = saveYouTubePost({ channelId: channel, text: 'Quiet rain — what helps you unwind?' });
   assert.ok(!post.text.includes('—'));
-  assert.throws(() => claimYouTubePost(post.id, post.updatedAt, 'agent'), /not approved/);
   assert.throws(() => approveYouTubePost(post.id, 'stale'), /changed/);
-  post = approveYouTubePost(post.id, post.updatedAt);
   const input = { postId: post.id, ifMatch: post.updatedAt, idempotencyKey: randomUUID() };
   const claimed = await executeOperation('claim_youtube_post', input, 'agent');
   assert.equal(claimed.status, 'posting');
   assert.deepEqual(await executeOperation('claim_youtube_post', input, 'agent'), claimed);
-  assert.throws(() => claimYouTubePost(post.id, claimed.updatedAt, 'other'), /not approved/);
+  assert.throws(() => claimYouTubePost(post.id, claimed.updatedAt, 'other'), /already claimed/);
   assert.throws(() => recordYouTubePost(post.id, claimed.updatedAt, { url: 'https://youtube.com/post/abc' }, 'other'), /does not hold/);
   assert.throws(() => recordYouTubePost(post.id, claimed.updatedAt, { url: 'https://evil.example/post/abc' }, 'agent'), /saved YouTube post/);
   const done = recordYouTubePost(post.id, claimed.updatedAt, { url: 'https://www.youtube.com/post/UgkxTest', screenshot: '/tmp/proof.png' }, 'agent');
   assert.equal(done.status, 'posted'); assert.equal(getYouTubePost(post.id).url, done.url);
 });
 
-test('SQL metadata and personality flow through MCP to review-gated GUI jobs', async () => {
+test('SQL metadata and personality flow through MCP to immediately executable GUI jobs', async () => {
   const saved = video();
   const first = await executeOperation('get_saved_upload', { videoId: saved.id }, 'agent');
   const args = { videoId: saved.id, ifMatch: first.updatedAt, title: 'Rain at the window', description: 'A quiet evening with rain.', tags: ['rain sounds'], personality: 'Warm, understated storyteller', context: 'Write for people winding down. Avoid hype.', idempotencyKey: randomUUID() };
@@ -81,7 +79,8 @@ test('SQL metadata and personality flow through MCP to review-gated GUI jobs', a
   const options = JSON.parse(job.options_json);
   assert.equal(job.source_input, saved.id);
   assert.equal(job.agent_principal, 'agent');
-  assert.equal(options.metadata.reviewMetadata, true);
+  assert.equal(options.metadata.reviewMetadata, false);
+  assert.equal(queued.nextAction, 'wait');
   assert.equal(options.metadata.title, args.title);
   assert.equal(options.metadata.style, args.personality);
   assert.equal(options.metadata.copyPrompt, args.context);

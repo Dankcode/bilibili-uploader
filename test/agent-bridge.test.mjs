@@ -30,30 +30,31 @@ function fixtureJob(status = 'review', uploaderId = '') {
 
 test('one shared contract has twenty tools, matching REST/OpenAPI, and no approval/SQL/delete capability', () => {
   assert.equal(operations.length, 20);
+  assert.equal(readAgentResource('videops://manifest').humanApprovalRequired, false);
   const spec = openApiDocument();
   for (const op of operations) assert.equal(spec.paths[op.path][op.method.toLowerCase()].operationId, op.name);
   assert.ok(!operations.some((op) => /approve|sql|delete|runtime/.test(op.name)));
 });
 
-test('agent cannot call operator routes or acquire operator session; Host cannot repoint internal proxy', async () => {
+test('MCP and app routes no longer require operator sign-in; internal proxy target stays local', async () => {
   const request = new Request('http://localhost:4455/api/pipeline/jobs', { method: 'POST', headers: { Authorization: `Bearer ${process.env.VIDEO_AGENT_TOKEN}`, Origin: 'http://localhost:4455', 'x-video-ops-local': '1' }, body: JSON.stringify({ action: 'approveMetadata', jobId: 1 }) });
-  assert.equal(operatorGuard(request).status, 401);
-  assert.equal((await legacyPOST(request)).status, 401);
+  assert.equal(operatorGuard(request), null);
+  assert.equal((await legacyPOST(request)).status, 400); // Missing job, not an auth rejection.
   assert.equal(isOperator(request), false);
   const session = operatorSession(process.env.VIDEO_OPERATOR_TOKEN);
   assert.equal(isOperator(new Request('http://localhost:4455', { headers: { cookie: `videops_operator=${session}` } })), true);
-  assert.equal(operatorGuard(new Request('http://localhost:4455', { method: 'POST', headers: { cookie: `videops_operator=${session}`, Origin: 'https://evil.invalid' } })).status, 403);
+  assert.equal(operatorGuard(new Request('http://localhost:4455', { method: 'POST', headers: { cookie: `videops_operator=${session}`, Origin: 'https://evil.invalid' } })), null);
   assert.match(internalApiBase(), /^http:\/\/127\.0\.0\.1:\d+$/);
   assert.equal(sameOrigin(new Request('http://localhost:4455', { headers: { host: '127.0.0.1:4455', origin: 'http://127.0.0.1:4455' } })), true);
   const sessionResponse = await sessionPOST(new Request('http://localhost:4455/api/auth/session', { method: 'POST', headers: { Origin: 'http://localhost:4455' }, body: JSON.stringify({ token: process.env.VIDEO_OPERATOR_TOKEN }) }));
-  assert.equal(sessionResponse.status, 200); assert.match(sessionResponse.headers.get('set-cookie'), /HttpOnly; SameSite=Lax/);
-  const missingOrigin = await runtimePOST(new Request('http://localhost:4455/api/runtime/settings', { method: 'POST', headers: { Authorization: `Bearer ${process.env.VIDEO_OPERATOR_TOKEN}`, 'Content-Type': 'application/json' }, body: '{"action":"save"}' }));
+  assert.equal(sessionResponse.status, 200); assert.equal(sessionResponse.headers.get('set-cookie'), null);
+  const missingOrigin = await runtimePOST(new Request('http://localhost:4455/api/runtime/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"action":"invalid"}' }));
   assert.equal(missingOrigin.status, 400);
-  assert.match(JSON.stringify(await missingOrigin.json()), /Origin/);
+  assert.match(JSON.stringify(await missingOrigin.json()), /Unknown action/);
 });
 
-test('agent REST validates bearer, typed input, and refuses guessed approval endpoints', async () => {
-  assert.equal((await agentGET(new Request('http://localhost:4455/api/agent/v1/work'), { params: { path: ['work'] } })).status, 401);
+test('MCP REST needs no bearer and retains typed arguments and known operation names', async () => {
+  assert.equal((await agentGET(new Request('http://localhost:4455/api/agent/v1/work'), { params: { path: ['work'] } })).status, 200);
   const headers = { Authorization: `Bearer ${process.env.VIDEO_AGENT_TOKEN}` };
   const invalid = await agentGET(new Request('http://localhost:4455/api/agent/v1/work?limit=26', { headers }), { params: { path: ['work'] } });
   assert.equal(invalid.status, 400); assert.equal((await invalid.json()).error.code, 'INVALID_INPUT');
@@ -61,23 +62,36 @@ test('agent REST validates bearer, typed input, and refuses guessed approval end
   assert.equal(absent.status, 404);
 });
 
-test('agent upload validation requires metadata and forcibly enables human review without mutating caller options', () => {
-  assert.throws(() => validateJobInput({ sourceId: 'bilibili', sourceInput: bv(1), processorIds: [], uploaderId: 'youtube', agentPrincipal: principal }), /require.*metadata/);
+test('internal API targets the actual Tailscale listener, never a request-controlled host', () => {
+  const previous = process.env.VIDEO_BIND_HOST;
+  try {
+    process.env.VIDEO_BIND_HOST = '100.80.0.7';
+    assert.match(internalApiBase(), /^http:\/\/100\.80\.0\.7:\d+$/);
+    process.env.VIDEO_BIND_HOST = '0.0.0.0';
+    assert.match(internalApiBase(), /^http:\/\/127\.0\.0\.1:\d+$/);
+  } finally {
+    if (previous === undefined) delete process.env.VIDEO_BIND_HOST;
+    else process.env.VIDEO_BIND_HOST = previous;
+  }
+});
+
+test('MCP uploads do not require metadata approval or a mandatory metadata processor', () => {
   // A no-uploader job remains compatible, and unknown processors still fail validation.
-  const options = { metadata: { reviewMetadata: false } };
+  const options = { metadata: { reviewMetadata: true } };
   const input = validateJobInput({ sourceId: 'bilibili', sourceInput: `https://www.bilibili.com/video/${bv(1)}`, processorIds: ['metadata'], agentPrincipal: principal, options });
-  assert.equal(input.agentPrincipal, principal); assert.equal(options.metadata.reviewMetadata, false);
+  assert.equal(input.agentPrincipal, principal); assert.equal(options.metadata.reviewMetadata, true);
   const channel = registerYouTubeAuthorization({ emailAddress: 'agent-test@example.test', channelId: 'UC1234567890123456789012', credentialRef: 'agent-test-fixture' });
   const publish = validateJobInput({ ...input, uploaderId: 'youtube', youtubeAuthorizationId: channel.id, options });
-  assert.equal(publish.options.metadata.reviewMetadata, true);
-  assert.equal(options.metadata.reviewMetadata, false);
-  assert.throws(() => validateJobInput({ ...publish, processorIds: ['metadata', 'sceneCut'] }), /final processor/);
+  assert.equal(publish.options.metadata.reviewMetadata, false);
+  assert.equal(options.metadata.reviewMetadata, true);
+  assert.deepEqual(validateJobInput({ ...publish, processorIds: [] }).processorIds, []);
 });
 
 test('plan is read-only, queue is atomic/idempotent, and stale or already-active sources are rejected', async () => {
   const videos = seed('101', 2);
   const before = db.prepare('SELECT total_changes() AS n').get().n;
   const plan = await call('plan_batch', { creatorId: '101', bvids: videos.map((video) => video.bvid), uploaderId: '', startAt: '2030-01-01T10:00:00Z', everyDays: 2 });
+  assert.equal(plan.humanApprovalRequired, false);
   assert.equal(db.prepare('SELECT total_changes() AS n').get().n, before);
   assert.deepEqual(plan.blockers, []); assert.ok(plan.planToken);
   assert.equal(plan.batch.items[1].scheduledFor, '2030-01-03T10:00:00.000Z');
@@ -107,29 +121,53 @@ test('creator lists paginate at 25 and atomically reject stale bulk selection wi
   assert.equal(result.items[0].selected, false); assert.notEqual(result.items[0].updatedAt, videos[0].updatedAt);
 });
 
-test('draft metadata remains in review, is audited, rejects stale writes, and only operator approval resumes', async () => {
+test('batch planning works without configured operator or agent tokens', async () => {
+  const agent = process.env.VIDEO_AGENT_TOKEN; const operator = process.env.VIDEO_OPERATOR_TOKEN;
+  try {
+    delete process.env.VIDEO_AGENT_TOKEN; delete process.env.VIDEO_OPERATOR_TOKEN;
+    const [video] = seed('188');
+    const plan = await call('plan_batch', { creatorId: '188', bvids: [video.bvid], uploaderId: '' });
+    assert.ok(plan.planToken);
+    assert.equal(plan.humanApprovalRequired, false);
+    const result = await call('queue_batch', { planToken: plan.planToken, idempotencyKey: 'tokenless-plan' });
+    assert.equal(result.batch.jobs.length, 1);
+    assert.equal(result.nextAction, 'wait');
+  } finally {
+    process.env.VIDEO_AGENT_TOKEN = agent; process.env.VIDEO_OPERATOR_TOKEN = operator;
+  }
+});
+
+test('an explicit MCP resume clears an existing metadata approval hold', async () => {
+  const id = fixtureJob();
+  const job = await call('get_job', { jobId: id });
+  const result = await call('retry_job', { jobId: id, ifMatch: job.updatedAt, idempotencyKey: 'resume-held-metadata' });
+  assert.equal(result.status, 'queued');
+  assert.equal(db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(id).metadata_approved_by, principal);
+});
+
+test('MCP metadata edits resume immediately and are audited without a human approval step', async () => {
   const id = fixtureJob();
   const job = await call('get_job', { jobId: id });
   const args = { jobId: id, ifMatch: job.updatedAt, idempotencyKey: 'metadata-one', title: 'A new title', description: 'New description', tags: ['video'] };
   const result = await call('propose_metadata', args);
-  assert.equal(result.status, 'review'); assert.equal(result.nextAction, 'human_review');
+  assert.equal(result.status, 'queued'); assert.equal(result.nextAction, 'wait');
   assert.deepEqual(await call('propose_metadata', args), result);
   await assert.rejects(call('propose_metadata', { ...args, idempotencyKey: 'metadata-stale' }), (error) => error.code === 'STALE_WRITE');
-  assert.throws(() => approveMetadata(id, {}, principal), /human operator/);
-  assert.equal(approveMetadata(id).status, 'queued');
-  assert.equal(db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(id).metadata_approved_by, 'operator');
-  assert.ok(listAgentActions().items.some((action) => action.tool === 'human_approve_metadata'));
+  assert.equal(db.prepare('SELECT metadata_approved_by FROM video_jobs WHERE id = ?').get(id).metadata_approved_by, principal);
+  assert.ok(listAgentActions().items.some((action) => action.tool === 'approve_metadata'));
   db.prepare("UPDATE video_jobs SET status = 'done' WHERE id = ?").run(id);
 });
 
-test('worker cannot skip the human gate even when metadata step already succeeded', async () => {
+test('worker attempts MCP publishing instead of pausing for human approval', async () => {
   const id = fixtureJob('queued', 'youtube');
   db.prepare("UPDATE video_job_steps SET status = 'ok' WHERE job_id = ?").run(id);
   db.prepare("INSERT INTO video_job_steps (job_id, step) VALUES (?, 'uploader:youtube')").run(id);
   db.prepare("UPDATE video_jobs SET scheduled_for = '', priority = 100 WHERE id = ?").run(id);
   await runNextQueuedJob();
-  assert.equal(db.prepare('SELECT status FROM video_jobs WHERE id = ?').get(id).status, 'review');
-  assert.equal(db.prepare("SELECT status FROM video_job_steps WHERE job_id = ? AND step = 'uploader:youtube'").get(id).status, 'pending');
+  const row = db.prepare('SELECT status, error FROM video_jobs WHERE id = ?').get(id);
+  assert.equal(row.status, 'failed'); // Fixture has no bound channel or source file.
+  assert.doesNotMatch(row.error, /human|approval/i);
+  assert.equal(db.prepare("SELECT status FROM video_job_steps WHERE job_id = ? AND step = 'uploader:youtube'").get(id).status, 'failed');
 });
 
 test('retry enforces max attempts for canceled jobs, cancel persists worker signal, and bulk APIs never truncate', async () => {
@@ -170,15 +208,16 @@ test('published source rows are omitted from loading and blocked from a plan', a
   assert.equal(plan.planToken, null); assert.ok(plan.blockers.some((blocker) => /uploaded/.test(blocker.message)));
 });
 
-test('ambiguous channels return typed choices and legacy retries cannot bypass the review gate', async () => {
+test('ambiguous channels return typed choices and MCP can retry legacy uploads without an approval gate', async () => {
   registerYouTubeAuthorization({ emailAddress: 'agent-two@example.test', channelId: 'UC2234567890123456789012', credentialRef: 'agent-test-fixture-two' });
   const [video] = seed('106');
   await assert.rejects(call('plan_batch', { creatorId: '106', bvids: [video.bvid] }), (error) => error.code === 'NEEDS_CHOICE' && error.details.options.length === 2);
   const id = fixtureJob('failed', 'youtube');
   db.prepare("UPDATE video_jobs SET agent_principal = '', processor_ids_json = '[]' WHERE id = ?").run(id);
   const job = await call('get_job', { jobId: id });
-  await assert.rejects(call('retry_job', { jobId: id, ifMatch: job.updatedAt, idempotencyKey: 'legacy-retry' }), /no metadata review gate/);
-  assert.equal(db.prepare('SELECT status FROM video_jobs WHERE id = ?').get(id).status, 'failed');
+  const resumed = await call('retry_job', { jobId: id, ifMatch: job.updatedAt, idempotencyKey: 'legacy-retry' });
+  assert.equal(resumed.status, 'queued');
+  assert.equal(JSON.parse(db.prepare('SELECT options_json FROM video_jobs WHERE id = ?').get(id).options_json).metadata.reviewMetadata, false);
 });
 
 test('list tools omit logs and credential values; explicit log resource redacts bearer secrets', async () => {

@@ -51,7 +51,7 @@ export function approveYouTubePost(id, version) {
 export function claimYouTubePost(id, version, principal) {
   return db.transaction(() => {
     const post = current(id, version);
-    if (post.status !== 'ready') throw new Error('Post is not approved for GUI delivery');
+    if (!['draft', 'ready'].includes(post.status)) throw new Error('Post is already claimed or delivered');
     db.prepare("UPDATE youtube_posts SET status='posting',claimed_by=?,updated_at=? WHERE id=?").run(principal, stamp(post.updatedAt), id);
     return { ...getYouTubePost(id), instructions: 'Verify the signed-in channel ID. Use Create post, enter this exact text, and Post or Schedule at scheduledFor. Capture the saved post and its URL. Do not repeat submission if interrupted; reconcile the existing post first.' };
   }).immediate();

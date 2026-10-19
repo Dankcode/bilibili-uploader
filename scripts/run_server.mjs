@@ -1,4 +1,5 @@
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
+import { isIPv4 } from 'node:net';
 import path from 'path';
 import nextEnv from '@next/env';
 import { resolveAccessPolicy } from '../src/lib/security/access.js';
@@ -6,8 +7,8 @@ import { resolveAccessPolicy } from '../src/lib/security/access.js';
 const mode = process.argv[2] === 'start' ? 'start' : 'dev';
 // Next and the worker must receive the same local environment configuration.
 nextEnv.loadEnvConfig(process.cwd(), mode === 'dev');
-if (process.argv.includes('--local') && process.argv.includes('--shared')) {
-  console.error('[Server] Choose either --local or --shared, not both.'); process.exit(1);
+if (['--local', '--shared', '--tailscale'].filter((flag) => process.argv.includes(flag)).length > 1) {
+  console.error('[Server] Choose one listener mode: --local, --shared or --tailscale, not both.'); process.exit(1);
 }
 if (process.argv.includes('--local')) {
   // An explicit local launch must not inherit an old device's sharing config.
@@ -16,9 +17,16 @@ if (process.argv.includes('--local')) {
   process.env.VIDEO_LOCAL_COOKIE_AUTH = '0';
 }
 if (process.argv.includes('--shared')) process.env.VIDEO_ACCESS_MODE = 'shared';
-const { bridgeConfig } = await import('../src/lib/agent/auth.js');
+if (process.argv.includes('--tailscale')) {
+  const result = spawnSync(process.env.TAILSCALE_BIN || 'tailscale', ['ip', '-4'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+  const address = result.stdout?.trim().split(/\s+/)[0];
+  if (result.status !== 0 || !isIPv4(address || '')) {
+    console.error('[Server] Start Tailscale and put its CLI on PATH (or set TAILSCALE_BIN). Alternatively set VIDEO_ACCESS_MODE=tailscale and VIDEO_BIND_HOST to this device\'s Tailscale IP.'); process.exit(1);
+  }
+  process.env.VIDEO_ACCESS_MODE = 'tailscale'; process.env.VIDEO_BIND_HOST = address;
+}
 let policy;
-try { policy = resolveAccessPolicy(process.env, bridgeConfig()); }
+try { policy = resolveAccessPolicy(process.env); }
 catch (error) { console.error(`[Server] ${error.message}`); process.exit(1); }
 const port = String(process.env.PORT || '4455');
 const host = policy.host;

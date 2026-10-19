@@ -1,16 +1,17 @@
 import fs from 'node:fs';
 import { normalizeRemoteUrl, writeRuntimeSettings } from '../src/lib/runtime/settings.js';
 
-const [url, tokenFile, action] = process.argv.slice(2);
+const [url, ...options] = process.argv.slice(2);
+const tokenFile = options.find((value) => value !== '--save');
+const action = options.includes('--save') ? '--save' : '';
 try {
-  if (!url || !tokenFile || (action && action !== '--save')) {
-    throw new Error('Usage: node scripts/connect_backend.mjs https://backend.ts.net /private/token-file [--save]');
+  if (!url || options.length > (tokenFile ? 2 : 1)) {
+    throw new Error('Usage: node scripts/connect_backend.mjs http://backend.ts.net:4455 [legacy-token-file] [--save]');
   }
   const remoteUrl = normalizeRemoteUrl(url);
-  const remoteAuthToken = fs.readFileSync(tokenFile, 'utf8').trim();
-  if (!remoteAuthToken || /\s/.test(remoteAuthToken)) throw new Error('Token file must contain only the backend access token');
+  const remoteAuthToken = tokenFile ? fs.readFileSync(tokenFile, 'utf8').trim() : '';
   const response = await fetch(`${remoteUrl}/api/server/runtime/ping`, {
-    headers: { authorization: `Bearer ${remoteAuthToken}` },
+    headers: remoteAuthToken ? { authorization: `Bearer ${remoteAuthToken}` } : {},
     signal: AbortSignal.timeout(8000),
     redirect: 'error',
   });

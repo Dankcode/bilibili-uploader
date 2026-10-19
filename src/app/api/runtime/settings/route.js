@@ -16,16 +16,6 @@ import { testRemoteBackend } from '../../../../lib/runtime/backendProxy';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function assertSameOrigin(request) {
-  const origin = request.headers.get('origin');
-  if (!origin) throw new Error('An Origin header is required for settings changes');
-  const originUrl = new URL(origin);
-  const requestUrl = new URL(request.url);
-  const forwardedHost = String(request.headers.get('x-forwarded-host') || request.headers.get('host') || '').trim();
-  const allowedHosts = new Set([requestUrl.host, forwardedHost].filter(Boolean));
-  if (!allowedHosts.has(originUrl.host)) throw new Error('Cross-origin settings changes are not allowed');
-}
-
 function candidateSettings(input = {}) {
   const previous = readRuntimeSettings();
   return normalizeRuntimeSettings({
@@ -71,7 +61,6 @@ async function handleGET() {
 
 async function handlePOST(request) {
   try {
-    assertSameOrigin(request);
     const body = await request.json();
     const candidate = assertRuntimeSettings(candidateSettings(body.settings || {}));
 

@@ -31,6 +31,10 @@ test('normalizes Tailscale host input into an HTTP backend URL', () => {
   );
 });
 
+test('remote Tailscale settings require a URL but no access token', () => {
+  assert.doesNotThrow(() => settingsModule.assertRuntimeSettings({ connectionMode: 'remote', remoteUrl: 'http://100.80.0.7:4455', remoteAuthToken: '' }));
+});
+
 test('persists bootstrap settings without exposing access tokens', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'video-runtime-'));
   const settingsPath = path.join(directory, 'runtime.json');

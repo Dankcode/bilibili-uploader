@@ -6,15 +6,13 @@ import { operations, resources } from '../../src/lib/agent/contract.js';
 
 const base = new URL(process.env.VIDEO_AGENT_BASE_URL || 'http://127.0.0.1:4455');
 if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) throw new Error('VIDEO_AGENT_BASE_URL must be an HTTP(S) server origin without credentials');
-if (base.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname) && process.env.VIDEO_AGENT_ALLOW_INSECURE_REMOTE !== '1') throw new Error('Use HTTPS for remote agent access, or explicitly opt into trusted LAN/Tailscale HTTP with VIDEO_AGENT_ALLOW_INSECURE_REMOTE=1');
-const token = process.env.VIDEO_AGENT_TOKEN;
-if (!token) throw new Error('Set VIDEO_AGENT_TOKEN to the separate agent token from mcp:setup');
+const token = process.env.VIDEO_AGENT_TOKEN || '';
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validators = new Map(operations.map((op) => [op.name, ajv.compile(op.inputSchema)]));
 const server = new Server({ name: 'videops', version: '1.0.0' }, { capabilities: { tools: {}, resources: {} } });
 async function api(path, method = 'GET', args) {
   const url = new URL(`/api/agent/v1${path}`, base);
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const options = { method, headers, redirect: 'error', signal: AbortSignal.timeout(120000) };
   if (method === 'GET' && args) for (const [key, value] of Object.entries(args)) url.searchParams.set(key, String(value));
   else if (args) {
@@ -36,7 +34,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     if (!op || !validators.get(op.name)(args)) return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: { code: 'INVALID_INPUT', message: 'Unknown tool or invalid arguments' } }) }] };
     const result = await api(op.path, op.method, args);
     return { isError: Boolean(result.error), content: [{ type: 'text', text: JSON.stringify(result) }] };
-  } catch (error) { return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: { code: 'RETRYABLE', message: String(error.message).split(token).join('[redacted]') } }) }] }; }
+  } catch (error) { return { isError: true, content: [{ type: 'text', text: JSON.stringify({ error: { code: 'RETRYABLE', message: token ? String(error.message).split(token).join('[redacted]') : String(error.message) } }) }] }; }
 });
 server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources }));
 server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [{ uriTemplate: 'videops://job/{id}/log', name: 'Job log', mimeType: 'application/json' }] }));

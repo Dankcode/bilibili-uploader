@@ -74,31 +74,31 @@ npm run build
 npm start
 ```
 
-Both commands bind `127.0.0.1` by default. Local browser access needs no
-operator token, sign-in, or operator cookie, even if integration tokens were
-saved previously. Loopback Host and mutation-origin checks remain enforced.
-Local-mode pages render the workspace directly; the operator sign-in wrapper
-and browser session check are mounted only in shared mode. This is determined
-when the server runs, not when it is built. If an older copy on another device
-still displays “VideoOps operator sign-in”, update that device's source, rebuild
-its production app, stop its old web process, and restart with
-`npm run start:local -- --web-only` (no upload worker), or `npm run start:local`
-for the web app and worker together. `npm run dev:local` is the development
-equivalent. These commands force loopback-only, token-free local mode even if
-that device's environment file still contains shared-mode settings. Refresh
-the page after restarting. A rebuild on one computer cannot update another
-computer's running copy.
-Network access is disabled unless `VIDEO_ACCESS_MODE=shared` is explicitly set
-(or `npm run dev:shared` / `npm run start:shared` is used). Shared mode defaults
-to `0.0.0.0`; set `VIDEO_BIND_HOST` to select a specific interface. Startup fails
-unless a distinct operator token of at least 32 characters is configured.
-Run `npm run mcp:setup` once to generate private saved tokens, or configure
-`VIDEO_OPERATOR_TOKEN` in the ignored `.env.local`. Automatic pairing is disabled
-in shared mode. Give the operator token only to trusted collaborators; each
-browser signs in once. Use Tailscale or HTTPS on a trusted network. This shares
-the entire workspace with equal operator permissions, not isolated user accounts.
-Never expose this console directly to the public internet. The same environment
-files are loaded for both frontend and worker.
+Both commands bind `127.0.0.1` by default. There is no app sign-in screen,
+operator token, operator cookie, or MCP token requirement in any mode. Existing
+token files are left untouched but do not gate access. The same environment
+files are loaded for frontend and worker.
+
+For access from your other Tailscale devices, use `npm run dev:tailscale`, or
+build and run `npm run start:tailscale`. These discover the backend's address
+with `tailscale ip -4` and bind to that Tailscale IP, not every LAN interface.
+Set `TAILSCALE_BIN` if needed, or set `VIDEO_ACCESS_MODE=tailscale` and
+`VIDEO_BIND_HOST` to the backend's Tailscale IP yourself. Open that address or
+its MagicDNS name on port 4455. No token setup or browser pairing is needed.
+
+Anyone who can reach the app has full workspace authority. Restrict access
+using Tailscale permissions; do not expose the app publicly or through Funnel.
+The legacy `shared` listener also needs no token but binds all interfaces by
+default, so prefer the Tailscale command. `start:local` / `dev:local` force
+loopback-only operation. Add `-- --web-only` to any start script to leave the
+upload worker stopped while checking the UI.
+
+MCP upload requests execute without a second human metadata/correction approval.
+`queue_saved_uploads` and `queue_batch` enqueue ready-to-run jobs; metadata edits
+or retries can resume an existing review hold. Media validation, target account
+binding, versions, quotas and duplicate-delivery receipts remain intact. Provider
+sign-in is still required where YouTube or another platform requires it. See
+[MCP setup and workflow](docs/MCP_AGENT_BRIDGE.md).
 
 `npm run build` checks publishable source for credentials/private runtime files
 before compiling, then checks deployment trace manifests for private inputs.
@@ -107,8 +107,6 @@ traces and must be provisioned separately on the runtime host. Building does not
 open or migrate the live database. Never publish a working-directory archive or
 the Next build cache; neither is a sanitized public release artifact. Removing
 files from current Git tracking does not remove older copies from Git history.
-Browser sessions last 30 days. Agent credentials remain separate and cannot
-create an operator session.
 
 There is no Bilibili credential requirement at startup. Paste a creator or
 video URL in **Create New Automations** and use it immediately. Public access
@@ -392,8 +390,8 @@ supports three modes:
 | Tailscale / LAN | This UI is a thin client for another backend; the local worker pauses |
 
 In remote mode the browser talks to `/api/control/*`, which forwards to the
-configured backend's `/api/server/*` surface using a bearer token
-(`VIDEO_SERVER_API_TOKEN`, or generated in the UI). The worker's poll interval
+configured backend's `/api/server/*` surface without an app access token.
+The worker's poll interval
 and the upload scheduler's interval are set in the same panel.
 
 To run the two processes separately:
@@ -476,8 +474,8 @@ mode is active.
   targets timestamp-matched cues rather than low-confidence ones.
 - Remote analysis and translation consume provider quota and are slow on long
   videos.
-- Remote console access requires an operator token when authentication is configured;
-  local loopback access restores its browser session automatically.
+- Console access needs no app token or browser sign-in. Tailscale/network reachability
+  controls access; every reachable client has full workspace authority.
 
 ## Documentation
 
