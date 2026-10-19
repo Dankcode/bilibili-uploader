@@ -27,7 +27,6 @@ export function prepareHost(directory) {
       'PORT=4455',
       'VIDEO_BIND_HOST=127.0.0.1',
       `VIDEO_RUNTIME_SETTINGS_PATH="${runtimePath}"`,
-      `VIDEO_SERVER_API_TOKEN=${randomBytes(32).toString('hex')}`,
       `STUDIO_SECRET_KEY=${randomBytes(32).toString('base64')}`,
       '',
     ].join('\n'), { mode: 0o600, flag: 'wx' });

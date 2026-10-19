@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-test('connection CLI saves only after authenticated backend verification, never prints tokens', () => {
+test('connection CLI verifies token-free and legacy backends before saving, never prints tokens', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'video-connect-'));
   const runtime = path.join(root, 'runtime.json');
   const token = path.join(root, 'token');
@@ -16,7 +16,7 @@ test('connection CLI saves only after authenticated backend verification, never 
       import assert from 'node:assert/strict';
       globalThis.fetch = async (url, options) => {
         assert.equal(url, 'https://backend.test/api/server/runtime/ping');
-        assert.equal(options.headers.authorization, 'Bearer test-secret');
+        assert.equal(options.headers.authorization, process.env.MOCK_TOKEN_FREE ? undefined : 'Bearer test-secret');
         assert.equal(options.redirect, 'error');
         return Response.json({ok: true, service: 'video-automation-backend', runtime: {connectionMode: 'server'}}, {status: Number(process.env.MOCK_STATUS)});
       };
@@ -39,5 +39,13 @@ test('connection CLI saves only after authenticated backend verification, never 
     const before = fs.readFileSync(runtime, 'utf8');
     assert.equal(run(401, true).status, 1);
     assert.equal(fs.readFileSync(runtime, 'utf8'), before);
+    const tokenlessRuntime = path.join(root, 'tokenless-runtime.json');
+    const tokenless = spawnSync(process.execPath, [
+      '--import', mock, 'scripts/connect_backend.mjs', 'https://backend.test', '--save',
+    ], { encoding: 'utf8', env: { ...process.env, VIDEO_RUNTIME_SETTINGS_PATH: tokenlessRuntime, MOCK_STATUS: '200', MOCK_TOKEN_FREE: '1' } });
+    assert.equal(tokenless.status, 0, tokenless.stderr);
+    const tokenlessSettings = JSON.parse(fs.readFileSync(tokenlessRuntime));
+    assert.equal(tokenlessSettings.connectionMode, 'remote');
+    assert.equal(tokenlessSettings.remoteAuthToken, '');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

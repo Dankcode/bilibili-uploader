@@ -50,7 +50,7 @@ export function normalizeRemoteUrl(value) {
     throw new Error('Backend URL must use http:// or https://');
   }
   if (parsed.username || parsed.password) {
-    throw new Error('Put credentials in the access token field, not in the backend URL');
+    throw new Error('Backend URL must not contain credentials; no app access token is needed');
   }
   parsed.pathname = parsed.pathname.replace(/\/+$/, '');
   parsed.search = '';
