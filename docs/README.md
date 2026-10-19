@@ -20,6 +20,10 @@ treat a document as a description of the running app.
 
 ## Partly built
 
+The legacy crop-profile uploader is retained as a standalone prototype in
+[GUI_UPLOAD.md](./GUI_UPLOAD.md). Use [STUDIO_VISION_UPLOADER.md](./STUDIO_VISION_UPLOADER.md)
+for the supported visual pipeline; its profile format differs from the prototype.
+
 | Document | Status |
 |---|---|
 | [SUBTITLE_STUDIO_PLAN.md](./SUBTITLE_STUDIO_PLAN.md) | The original integration plan for Subtitle Studio. The feature shipped — `src/lib/studio/` and the Editor view — so the README is the accurate description; this is kept for the design reasoning behind it. |

@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import { normalizeUploadMethod } from '../youtube/uploadMethod.js';
+import { parseUploadResult } from './uploadResult.js';
 
 const DEFAULT_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -14,15 +15,6 @@ const PRE_UPLOAD_ERROR = /OAuth channel mismatch|Missing OAuth client file|does 
 function preUpload(error) {
   if (error && PRE_UPLOAD_ERROR.test(String(error.message || ''))) error.notSent = true;
   return error;
-}
-
-function parseUploadResult(output) {
-  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const urlLine = [...lines].reverse().find((line) => /^https?:\/\/\S+$/i.test(line));
-  if (urlLine) return urlLine;
-  const idLine = [...lines].reverse().find((line) => /^[A-Za-z0-9_-]{8,}$/.test(line));
-  if (idLine) return idLine;
-  return lines[lines.length - 1] || '';
 }
 
 /**
