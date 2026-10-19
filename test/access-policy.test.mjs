@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { resolveAccessPolicy } from '../src/lib/security/access.js';
-import { operatorGuard, localCookiePairingAllowed } from '../src/lib/agent/auth.js';
+import { authRequired, operatorGuard, localCookiePairingAllowed } from '../src/lib/agent/auth.js';
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'videops-access-'));
 const keys = ['VIDEO_ACCESS_MODE', 'VIDEO_BIND_HOST', 'VIDEO_LOCAL_COOKIE_AUTH', 'VIDEO_OPERATOR_TOKEN', 'VIDEO_AGENT_TOKEN', 'VIDEO_SERVER_API_TOKEN', 'VIDEO_AGENT_CONFIG', 'VIDEO_RUNTIME_SETTINGS_PATH'];
@@ -47,6 +47,18 @@ test('credentialless local APIs still reject CSRF, forged Authorization, rebindi
   assert.equal(operatorGuard(request('GET', {}, 'http://evil.test/api/pipeline/jobs')).status, 403);
 });
 
+test('page sign-in is determined by runtime mode, never by saved tokens or local cookie settings', () => {
+  reset();
+  process.env.VIDEO_OPERATOR_TOKEN = 'test-only-saved-operator-token-123456789';
+  process.env.VIDEO_AGENT_TOKEN = 'test-only-saved-agent-token';
+  process.env.VIDEO_LOCAL_COOKIE_AUTH = '0';
+  assert.equal(authRequired(), false);
+  process.env.VIDEO_ACCESS_MODE = 'shared';
+  assert.equal(authRequired(), true);
+  process.env.VIDEO_ACCESS_MODE = 'local';
+  assert.equal(authRequired(), false);
+});
+
 test('shared routes fail closed, authenticate operators, protect cookies and never auto-pair', () => {
   reset(); process.env.VIDEO_ACCESS_MODE = 'shared';
   assert.equal(operatorGuard(request()).status, 503);
@@ -70,4 +82,18 @@ test('launcher loads .env.local before enforcing access policy (without launchin
   const policy = JSON.parse(result.stdout.trim().split('\n').at(-1));
   assert.equal(policy.mode, 'shared'); assert.equal(policy.localPairing, false); assert.equal(policy.webOnly, true);
   assert.doesNotMatch(result.stdout, /test-only-env-operator-token/);
+});
+
+test('explicit local launch overrides an older device sharing setup without credentials', () => {
+  const cwd = fs.mkdtempSync(path.join(directory, 'force-local-'));
+  fs.writeFileSync(path.join(cwd, '.env.local'), 'VIDEO_ACCESS_MODE=shared\nVIDEO_BIND_HOST=0.0.0.0\nVIDEO_LOCAL_COOKIE_AUTH=1\n');
+  const env = { ...process.env };
+  for (const key of keys) delete env[key];
+  delete env.__NEXT_PROCESSED_ENV;
+  const result = spawnSync(process.execPath, [path.resolve('scripts/run_server.mjs'), 'start', '--local', '--web-only', '--check'], { cwd, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const policy = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  assert.equal(policy.mode, 'local'); assert.equal(policy.host, '127.0.0.1'); assert.equal(policy.localPairing, false);
+  const conflict = spawnSync(process.execPath, [path.resolve('scripts/run_server.mjs'), 'start', '--local', '--shared', '--check'], { cwd, env, encoding: 'utf8' });
+  assert.equal(conflict.status, 1); assert.match(conflict.stderr, /not both/);
 });

@@ -6,6 +6,15 @@ import { resolveAccessPolicy } from '../src/lib/security/access.js';
 const mode = process.argv[2] === 'start' ? 'start' : 'dev';
 // Next and the worker must receive the same local environment configuration.
 nextEnv.loadEnvConfig(process.cwd(), mode === 'dev');
+if (process.argv.includes('--local') && process.argv.includes('--shared')) {
+  console.error('[Server] Choose either --local or --shared, not both.'); process.exit(1);
+}
+if (process.argv.includes('--local')) {
+  // An explicit local launch must not inherit an old device's sharing config.
+  process.env.VIDEO_ACCESS_MODE = 'local';
+  process.env.VIDEO_BIND_HOST = '127.0.0.1';
+  process.env.VIDEO_LOCAL_COOKIE_AUTH = '0';
+}
 if (process.argv.includes('--shared')) process.env.VIDEO_ACCESS_MODE = 'shared';
 const { bridgeConfig } = await import('../src/lib/agent/auth.js');
 let policy;
