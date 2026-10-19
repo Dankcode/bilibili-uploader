@@ -107,7 +107,7 @@ export default function ServiceConnections({ section = 'accounts' }) {
   const [youtubeAuthorizationBusy, setYoutubeAuthorizationBusy] = useState('');
   const [bilibiliLoginMessage, setBilibiliLoginMessage] = useState(null);
   const [bilibiliLoginBusy, setBilibiliLoginBusy] = useState('');
-  const [bilibiliProfileUrl, setBilibiliProfileUrl] = useState('https://space.bilibili.com/33633128');
+  const [bilibiliProfileUrl, setBilibiliProfileUrl] = useState('');
   const [bilibiliSession, setBilibiliSession] = useState(null);
   const [youtubeLoginCredentialRef, setYoutubeLoginCredentialRef] = useState('youtube-ops');
   const [youtubeLoginClientRef, setYoutubeLoginClientRef] = useState('youtube');
@@ -640,7 +640,7 @@ export default function ServiceConnections({ section = 'accounts' }) {
               <span className={styles.connectionMeta}>No setup required. Paste a creator or video URL into an automation to start. Video Ops uses public access first and gathers saved Bilibili cookies automatically when needed. Connecting a profile here is optional.</span>
               <label className={styles.settingsFieldWide}>
                 <span>Bilibili profile URL</span>
-                <input className={styles.input} type="url" value={bilibiliProfileUrl} onChange={(event) => setBilibiliProfileUrl(event.target.value)} placeholder="https://space.bilibili.com/33633128" autoComplete="url" spellCheck={false} />
+                <input className={styles.input} type="url" value={bilibiliProfileUrl} onChange={(event) => setBilibiliProfileUrl(event.target.value)} placeholder="https://space.bilibili.com/123456" autoComplete="url" spellCheck={false} />
               </label>
               <span className={styles.connectionMeta}>{bilibiliSession?.verifiedAt ? `Cookie verified${bilibiliSession.accountName ? ` as ${bilibiliSession.accountName}` : ''} · ${new Date(bilibiliSession.verifiedAt).toLocaleString()}` : bilibiliSession?.message || 'Checking saved session…'}</span>
               {bilibiliLoginMessage && (
@@ -669,7 +669,7 @@ export default function ServiceConnections({ section = 'accounts' }) {
               </label>
               <label className={styles.settingsField}>
                 <span>Google account email (optional check)</span>
-                <input className={styles.input} type="email" value={youtubeLoginEmail} onChange={(event) => setYoutubeLoginEmail(event.target.value)} placeholder="name@gmail.com" autoComplete="username" />
+                <input className={styles.input} type="email" value={youtubeLoginEmail} onChange={(event) => setYoutubeLoginEmail(event.target.value)} placeholder="you@example.com" autoComplete="username" />
               </label>
               {youtubeLoginMessage && (
                 <div className={youtubeLoginMessage.tone === 'error' ? styles.settingsMessageError : styles.settingsMessageOk} role="status">

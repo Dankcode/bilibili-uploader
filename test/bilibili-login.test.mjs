@@ -61,8 +61,8 @@ test('cookie look-alike domains and empty cookie values do not authenticate', (c
 });
 
 test('profile URLs reject foreign hosts and normalize the supplied creator URL', () => {
-  assert.equal(normalizeBilibiliProfileUrl('http://space.bilibili.com/33633128/upload/video?x=1'), 'https://space.bilibili.com/33633128');
-  for (const value of ['https://space.bilibili.com.evil.test/33633128', 'https://example.com/1', 'https://user:pass@space.bilibili.com/1', 'https://space.bilibili.com:444/1', 'file:///33633128', 'https://space.bilibili.com/abc']) {
+  assert.equal(normalizeBilibiliProfileUrl('http://space.bilibili.com/123456/upload/video?x=1'), 'https://space.bilibili.com/123456');
+  for (const value of ['https://space.bilibili.com.evil.test/123456', 'https://example.com/1', 'https://user:pass@space.bilibili.com/1', 'https://space.bilibili.com:444/1', 'file:///123456', 'https://space.bilibili.com/abc']) {
     assert.throws(() => normalizeBilibiliProfileUrl(value));
   }
 });
@@ -73,13 +73,13 @@ test('a connected profile reuses a verified saved cookie without opening a login
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bilibili-connect-'));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const storagePath = writeStorage(directory, [testCookie]);
-  const status = await connectBilibiliProfile({ profileUrl: 'https://space.bilibili.com/33633128', storagePath }, {
+  const status = await connectBilibiliProfile({ profileUrl: 'https://space.bilibili.com/123456', storagePath }, {
     verifySession: async () => ({ accountId: '42', accountName: 'Test viewer' }),
     importCookies: async () => assert.fail('A working saved cookie must not read Chrome'),
     launch: async () => assert.fail('A working saved cookie must not open a window'),
   });
   assert.equal(status.verified, true);
-  assert.equal(status.profileUrl, 'https://space.bilibili.com/33633128');
+  assert.equal(status.profileUrl, 'https://space.bilibili.com/123456');
   assert.equal(status.accountId, '42'); // Viewer identity is separate from source creator ID.
   assert.doesNotMatch(JSON.stringify(status), /test-only-bilibili-session/);
   assert.equal(fs.statSync(storagePath).mode & 0o777, 0o600);
@@ -138,13 +138,13 @@ test('optional profile connection captures the cookie after a one-time browser s
   browserContext.storageState = async () => ({ cookies, origins: [] });
   browserContext.close = async () => browserContext.emit('close');
   context.after(() => browserContext.close());
-  const waiting = await connectBilibiliProfile({ profileUrl: 'https://space.bilibili.com/33633128', storagePath }, {
+  const waiting = await connectBilibiliProfile({ profileUrl: 'https://space.bilibili.com/123456', storagePath }, {
     verifySession: async (items) => items.length ? { accountId: '42', accountName: 'Test viewer' } : null,
     importCookies: async () => ({ sessions: [] }),
     launch: async () => browserContext,
   });
   assert.equal(waiting.waitingForLogin, true);
-  assert.equal(navigated, 'https://space.bilibili.com/33633128');
+  assert.equal(navigated, 'https://space.bilibili.com/123456');
   assert.equal(fs.existsSync(storagePath), false);
   cookies = [testCookie];
   const captured = await refreshBilibiliLoginStatus();

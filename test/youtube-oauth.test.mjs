@@ -18,7 +18,7 @@ test('YouTube OAuth client files are constrained to a simple local credential re
 });
 
 test('expected Google login emails are normalized and validated before OAuth starts', () => {
-  assert.equal(normalizeExpectedGoogleEmail(' LXU4354@gmail.com '), 'you@example.com');
+  assert.equal(normalizeExpectedGoogleEmail(' YOU@EXAMPLE.COM '), 'you@example.com');
   assert.equal(normalizeExpectedGoogleEmail(''), '');
   assert.throws(() => normalizeExpectedGoogleEmail('not-an-email'), /valid email address/);
 });

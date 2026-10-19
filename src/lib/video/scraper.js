@@ -119,7 +119,7 @@ export async function scanBilibiliCreatorPage(creatorUrl, pageNumber = 1) {
     try {
       result = await requestSpaceVideos(page, accountId, pageNumber, await wbiKeys(page));
     } catch (error) {
-      const session = await ensureBilibiliSession({ storagePath });
+      const session = await ensureBilibiliSession({ storagePath, sourceUrl: target });
       if (!session.available) throw error;
       await context.addCookies(JSON.parse(fs.readFileSync(storagePath, 'utf8')).cookies);
       result = await requestSpaceVideos(page, accountId, pageNumber, await wbiKeys(page));
@@ -192,7 +192,7 @@ export default async function Scraper(pageUrl, { limit = 100 } = {}) {
         } catch (apiError) {
           if (!cookieDiscoveryAttempted) {
             cookieDiscoveryAttempted = true;
-            const session = await ensureBilibiliSession({ storagePath });
+            const session = await ensureBilibiliSession({ storagePath, sourceUrl: target });
             if (session.available) {
               await context.addCookies(JSON.parse(fs.readFileSync(storagePath, 'utf8')).cookies);
               apiKeys = await wbiKeys(page);

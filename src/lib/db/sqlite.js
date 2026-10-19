@@ -734,6 +734,7 @@ export function getDatabaseStatus() {
  * Fetch all videos, optionally filtered by space_id.
  */
 export function getVideos(spaceId = null) {
+  const db = getDatabase();
   if (spaceId) {
     return db.prepare('SELECT * FROM videos WHERE space_id = ? ORDER BY created_at DESC').all(spaceId);
   }
@@ -744,6 +745,7 @@ export function getVideos(spaceId = null) {
  * Fetch all YouTube Channels.
  */
 export function getYouTubeChannels() {
+  const db = getDatabase();
   return db.prepare('SELECT * FROM youtube_channels ORDER BY id ASC').all();
 }
 
@@ -751,6 +753,7 @@ export function getYouTubeChannels() {
  * Add a new YouTube Channel.
  */
 export function addYouTubeChannel(channelId, name) {
+  const db = getDatabase();
   const stmt = db.prepare('INSERT INTO youtube_channels (channel_id, name) VALUES (?, ?)');
   return stmt.run(channelId, name);
 }
@@ -759,6 +762,7 @@ export function addYouTubeChannel(channelId, name) {
  * Delete a YouTube Channel and its associated spaces/videos.
  */
 export function deleteYouTubeChannel(id) {
+  const db = getDatabase();
   const spaces = db.prepare('SELECT id FROM spaces WHERE youtube_channel_id = ?').all(id);
   for (const space of spaces) {
     deleteSpace(space.id);
@@ -770,6 +774,7 @@ export function deleteYouTubeChannel(id) {
  * Fetch spaces for a specific YouTube Channel.
  */
 export function getSpaces(youtubeChannelId = null) {
+  const db = getDatabase();
   if (youtubeChannelId) {
     return db.prepare('SELECT * FROM spaces WHERE youtube_channel_id = ? ORDER BY id ASC').all(youtubeChannelId);
   }
@@ -780,6 +785,7 @@ export function getSpaces(youtubeChannelId = null) {
  * Add a new space (tab) linked to a YouTube Channel.
  */
 export function addSpace(youtubeChannelId, spaceId, name) {
+  const db = getDatabase();
   const stmt = db.prepare('INSERT INTO spaces (youtube_channel_id, space_id, name) VALUES (?, ?, ?)');
   return stmt.run(youtubeChannelId, spaceId, name);
 }
@@ -788,6 +794,7 @@ export function addSpace(youtubeChannelId, spaceId, name) {
  * Update a space ID or name.
  */
 export function updateSpace(id, spaceId, name) {
+  const db = getDatabase();
   const stmt = db.prepare('UPDATE spaces SET space_id = ?, name = ? WHERE id = ?');
   return stmt.run(spaceId, name, id);
 }
@@ -796,6 +803,7 @@ export function updateSpace(id, spaceId, name) {
  * Delete a space and its associated videos.
  */
 export function deleteSpace(id) {
+  const db = getDatabase();
   const space = db.prepare('SELECT space_id FROM spaces WHERE id = ?').get(id);
   if (space) {
     db.prepare('DELETE FROM videos WHERE space_id = ?').run(space.space_id);
@@ -807,6 +815,7 @@ export function deleteSpace(id) {
  * Get a single video by ID.
  */
 export function getVideoById(id) {
+  const db = getDatabase();
   return db.prepare('SELECT * FROM videos WHERE id = ?').get(id);
 }
 
@@ -814,6 +823,7 @@ export function getVideoById(id) {
  * Find the first pending video for the workflow, prioritizing by space_id.
  */
 export function getValidUploadSearch(spaceId = null) {
+  const db = getDatabase();
   if (spaceId) {
     return db.prepare("SELECT * FROM videos WHERE space_id = ? AND status IN ('Not started', 'In progress') AND valid_upload = 'Valid' LIMIT 1").get(spaceId);
   }
@@ -824,6 +834,7 @@ export function getValidUploadSearch(spaceId = null) {
  * Find videos due for auto-upload based on current time.
  */
 export function getDueUploads() {
+  const db = getDatabase();
   const now = new Date().toISOString();
   return db.prepare(`
     SELECT * FROM videos
@@ -838,6 +849,7 @@ export function getDueUploads() {
  * Add a new video record (Scraped content).
  */
 export function addVideo(data) {
+  const db = getDatabase();
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO videos (space_id, chinese_name, chinese_description, bilibili_url)
     VALUES (?, ?, ?, ?)
@@ -849,6 +861,7 @@ export function addVideo(data) {
  * Update video metadata (AI generated info).
  */
 export function updateVideoMetadata(id, data) {
+  const db = getDatabase();
   const existing = getVideoById(id);
   if (!existing) throw new Error(`Video not found: ${id}`);
   const nextAutoUploadTime = data.auto_upload_time === undefined
@@ -876,6 +889,7 @@ export function updateVideoMetadata(id, data) {
  * Update video status.
  */
 export function updateVideoStatus(id, status) {
+  const db = getDatabase();
   const stmt = db.prepare('UPDATE videos SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
   return stmt.run(status, id);
 }
@@ -884,6 +898,7 @@ export function updateVideoStatus(id, status) {
  * Update YouTube URL and completion.
  */
 export function finalizeUpload(id, youtubeUrl, releaseDate) {
+  const db = getDatabase();
   const stmt = db.prepare(`
     UPDATE videos 
     SET youtube_url = ?, release_date = ?, status = 'Done', updated_at = CURRENT_TIMESTAMP
@@ -896,6 +911,7 @@ export function finalizeUpload(id, youtubeUrl, releaseDate) {
  * Log error.
  */
 export function logError(id, error) {
+  const db = getDatabase();
   const stmt = db.prepare('UPDATE videos SET error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
   return stmt.run(error, id);
 }
@@ -904,6 +920,7 @@ export function logError(id, error) {
  * Manual edit from the dashboard.
  */
 export function manualEdit(id, data) {
+  const db = getDatabase();
   const existing = getVideoById(id);
   if (!existing) throw new Error(`Video not found: ${id}`);
   const stmt = db.prepare(`
@@ -922,8 +939,7 @@ export function manualEdit(id, data) {
   );
 }
 
-// Auto-initialize on import
-initDB();
+// Open lazily on the first query, never while Next loads modules for a build.
 
 export const closeDB = () => {
   if (db && db.open) {

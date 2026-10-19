@@ -75,12 +75,12 @@ test('resolveInput refuses a foreign URL instead of producing an item for it', a
 
 test('Bilibili creator account IDs normalize to the paginated public-video endpoint', () => {
   assert.equal(
-    normalizeBilibiliAccountInput('49748554'),
-    'https://space.bilibili.com/49748554/upload/video?tid=0&pn=1&keyword=&order=pubdate',
+    normalizeBilibiliAccountInput('123456'),
+    'https://space.bilibili.com/123456/upload/video?tid=0&pn=1&keyword=&order=pubdate',
   );
   assert.equal(
-    bilibiliSpacePageUrl('https://space.bilibili.com/49748554', 3),
-    'https://space.bilibili.com/49748554/upload/video?tid=0&pn=3&keyword=&order=pubdate',
+    bilibiliSpacePageUrl('https://space.bilibili.com/123456', 3),
+    'https://space.bilibili.com/123456/upload/video?tid=0&pn=3&keyword=&order=pubdate',
   );
   assert.throws(() => normalizeBilibiliAccountInput('https://space.bilibili.com/not-an-id'), /numeric account ID/);
 });

@@ -48,8 +48,12 @@ must match the Next listening port; both internal proxies always target
 `http://127.0.0.1:${PORT || 4455}`, never the incoming Host header.
 
 Bridge setup is deliberately opt-in. With no bridge/operator/backend token configured,
-legacy local behavior remains unchanged; do not expose that unconfigured app to an
-untrusted network. Do not remove authentication while retaining an agent client.
+local access requires no operator token (including when bridge tokens exist),
+but still enforces loopback Host and mutation
+origin checks. Network access requires explicit `VIDEO_ACCESS_MODE=shared` (or
+the `dev:shared` / `start:shared` script) and a distinct operator token of at
+least 32 characters. Shared mode never automatically pairs browsers. Do not
+remove authentication while retaining an agent client.
 For HTTPS reverse proxies, preserve the original Host and configure forwarded protocol
 correctly. Runtime-setting writes always require an Origin header, including bearer
 clients. Other operator bearer calls do not require Origin.

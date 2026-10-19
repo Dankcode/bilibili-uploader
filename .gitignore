@@ -48,6 +48,7 @@ config/client_secret.json
 config/token.json
 config/storage.json
 config/bilibili-browser/
+config/bilibili-puppeteer/
 config/storage.json.*.tmp
 # Studio screen templates are captured per machine/display/theme.
 config/studio_templates/
@@ -96,3 +97,7 @@ docs/SERVER-PREP-*.md
 *_token.pickle*
 *credentials*.json*
 *secrets*.zip
+
+# Source-specific screenshots can contain real transcripts and video frames.
+/docs/images/subtitle-studio-desktop.png
+/docs/images/subtitle-studio-mobile.png

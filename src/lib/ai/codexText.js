@@ -45,15 +45,19 @@ export function buildCodexTextArgs(config, outputPath) {
 
 // Credentials remain in Codex's own sign-in store. Each job runs outside the
 // repository so source text cannot induce the agent to inspect local secrets.
+export function codexChildEnvironment() {
+  const allowed = ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'TEMP', 'TMP', 'CODEX_HOME',
+    'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
+    'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'LANG'];
+  return Object.fromEntries(allowed.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+}
+
 export async function completeCodexText(prompt, { system, json = false, credentials = {} } = {}) {
   const config = codexTextSettings(credentials);
   if (!hasCodexText(credentials)) throw new Error('Codex CLI is unavailable. Install it or set CODEX_BIN on the worker host, then run codex login.');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'videops-text-'));
   const outputPath = path.join(directory, 'answer.txt');
-  const allowed = ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'TEMP', 'TMP', 'CODEX_HOME',
-    'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
-    'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'LANG'];
-  const env = Object.fromEntries(allowed.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+  const env = codexChildEnvironment();
   try {
     await runSubprocess(config.bin, buildCodexTextArgs(config, outputPath), {
       cwd: directory, env, timeoutMs: config.timeoutMs, label: 'Codex text generation',
