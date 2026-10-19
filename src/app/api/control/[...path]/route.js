@@ -1,6 +1,6 @@
 import { withOperator } from '../../../../lib/agent/auth.js';
 import { proxyBackendRequest } from '../../../../lib/runtime/backendProxy';
-import { bridgeConfig, internalApiBase } from '../../../../lib/agent/auth.js';
+import { internalApiBase } from '../../../../lib/agent/auth.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,12 +10,11 @@ const BLOCKED_PATHS = new Set(['control', 'runtime/settings', 'server', 'agent',
 function forwardedHeaders(request) {
   const headers = new Headers();
   for (const [key, value] of request.headers.entries()) {
-    if (!['connection', 'content-length', 'cookie', 'host', 'transfer-encoding'].includes(key.toLowerCase())) {
+    if (!['authorization', 'connection', 'content-length', 'cookie', 'host', 'transfer-encoding'].includes(key.toLowerCase())) {
       headers.set(key, value);
     }
   }
   headers.set('x-video-ops-local', '1');
-  if (bridgeConfig().operatorToken) headers.set('authorization', `Bearer ${bridgeConfig().operatorToken}`);
   return headers;
 }
 
