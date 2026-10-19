@@ -19,6 +19,7 @@ const localRequest = (headers = {}, body = { action: 'pair-local' }) => new Requ
 
 test('local browser pairs once to a private thirty-day cookie without transmitting the operator token', async () => {
   const status = await (await GET(new Request('http://127.0.0.1:4455/api/auth/session'))).json();
+  assert.equal(status.required, false);
   assert.equal(status.localPairing, true);
   const response = await POST(localRequest());
   assert.equal(response.status, 200);
@@ -27,6 +28,15 @@ test('local browser pairs once to a private thirty-day cookie without transmitti
   assert.doesNotMatch(cookie, /test-only-local-operator/);
   assert.equal(isOperator(new Request('http://127.0.0.1:4455', { headers: { cookie: cookie.split(';')[0] } })), true);
   assert.equal(operatorGuard(new Request('http://127.0.0.1:4455/api/control', { method: 'POST', headers: { cookie, origin: 'http://evil.test' } })).status, 403);
+});
+
+test('saved tokens never require local users to sign in or obtain an operator cookie', async () => {
+  const status = await (await GET(localRequest())).json();
+  assert.equal(status.required, false);
+  assert.equal(status.authenticated, false);
+  assert.equal(operatorGuard(localRequest()), null);
+  assert.equal(operatorGuard(new Request('http://127.0.0.1:4455/api/operations/channels')), null);
+  assert.equal(operatorGuard(localRequest({ authorization: 'Bearer test-only-agent' })).status, 401);
 });
 
 test('agent bearers, foreign origins, and forwarded network clients cannot auto-pair', async () => {

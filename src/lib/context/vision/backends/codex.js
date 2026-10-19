@@ -1,5 +1,8 @@
 import { promises as fs } from 'fs';
+import os from 'node:os';
+import path from 'node:path';
 import { commandExists, runSubprocess } from '../../subprocess.js';
+import { codexChildEnvironment } from '../../../ai/codexText.js';
 
 export const id = 'codex';
 export const label = 'Codex CLI (image)';
@@ -23,7 +26,9 @@ export function getModel(credentials = {}) {
 
 export function buildCodexArgs(batch, credentials = {}) {
   const config = settings(credentials);
-  const args = ['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only'];
+  const args = ['exec', '--ignore-user-config', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only',
+    '-c', 'approval_policy="never"', '-c', 'web_search="disabled"',
+    '-c', 'project_doc_max_bytes=0', '-c', 'features.shell_tool=false'];
   if (config.model) args.push('--model', config.model);
   args.push('--image', batch.map((entry) => entry.imagePath).join(','), '-');
   return args;
@@ -56,8 +61,8 @@ function correctionsPrompt(batch) {
 
 async function dispatch(batch, prompt, credentials) {
   for (const entry of batch) {
-    const stat = await fs.stat(entry.imagePath);
-    if (!stat.isFile() || stat.size === 0) throw new Error(`Codex frame is missing or empty: ${entry.imagePath}`);
+    const stat = await fs.stat(entry.imagePath).catch(() => { throw new Error('Codex frame is missing or unreadable.'); });
+    if (!stat.isFile() || stat.size === 0) throw new Error('Codex frame is missing or empty.');
   }
   const config = settings(credentials);
   if (!isConfigured(credentials)) {
@@ -65,11 +70,28 @@ async function dispatch(batch, prompt, credentials) {
     error.code = 'VISION_NOT_CONFIGURED';
     throw error;
   }
-  return runSubprocess(config.bin, buildCodexArgs(batch, credentials), {
-    input: prompt,
-    timeoutMs: config.timeoutMs,
-    label: 'Codex CLI vision',
-  });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'videops-vision-'));
+  try {
+    // Only staged images belong in this job's cwd, never the operator's repo.
+    const staged = [];
+    for (const [index, entry] of batch.entries()) {
+      const ext = path.extname(entry.imagePath).toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) throw new Error('Unsupported frame format.');
+      const imagePath = path.join(directory, `frame-${index}${ext}`);
+      await fs.copyFile(entry.imagePath, imagePath);
+      await fs.chmod(imagePath, 0o600);
+      staged.push({ ...entry, imagePath });
+    }
+    return await runSubprocess(config.bin, buildCodexArgs(staged, credentials), {
+      cwd: directory, env: codexChildEnvironment(),
+      input: prompt, timeoutMs: config.timeoutMs, label: 'Codex CLI vision',
+    });
+  } catch (error) {
+    if (/timed out/.test(error.message)) throw new Error('Codex vision timed out. Retry or increase the timeout.');
+    throw new Error('Codex vision failed. Check codex login status and model access on the worker host.');
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 }
 
 export async function analyzeFrames(batch, credentials = {}) {

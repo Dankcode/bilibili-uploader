@@ -1,7 +1,7 @@
 # Project Context
 
 ## Overview
-Automated Youtube video uploader and management suite. Replaced Notion with a local SQLite engine and a LAN-accessible management dashboard.
+Automated Youtube video uploader and management suite. Replaced Notion with a local SQLite engine and a local-first management dashboard with optional authenticated sharing.
 
 ## Tech Stack
 - **Frontend**: Next.js (App Router), React, CSS Modules.
@@ -9,7 +9,7 @@ Automated Youtube video uploader and management suite. Replaced Notion with a lo
 - **State Management**: React Hooks (`useState`, `useEffect`) and Server Actions.
 - **Video Processing**: FFmpeg and Python core logic.
 - **AI Integration**: Kimi 2.5 API for high-quality text translation and metadata generation.
-- **Networking**: Configured for LAN access on port **4455**.
+- **Networking**: Loopback-only on port **4455** by default. LAN access requires explicit shared mode and a strong, distinct operator token; collaborators share workspace authority.
 
 ## Core Features
 1. **Automated Workflow**:

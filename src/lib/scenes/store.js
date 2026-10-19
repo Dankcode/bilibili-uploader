@@ -66,9 +66,8 @@ function parseJson(value, fallback) {
   }
 }
 
-ensureSceneTables();
-
 export function upsertShow(show) {
+  ensureSceneTables();
   const titleZh = String(show?.titleZh || show?.title_zh || '').trim();
   if (!titleZh) throw new Error('titleZh is required');
   const now = nowIso();
@@ -101,6 +100,7 @@ export function upsertShow(show) {
 }
 
 export function listShows() {
+  ensureSceneTables();
   return db.prepare('SELECT * FROM shows ORDER BY created_at DESC').all().map((row) => ({
     id: row.id,
     titleZh: row.title_zh,
@@ -113,6 +113,7 @@ export function listShows() {
 }
 
 export function saveMentions(showId, mentions = []) {
+  ensureSceneTables();
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO scene_mentions (
       show_id, site, post_id, url, author, content, engagement_json,
@@ -140,6 +141,7 @@ export function saveMentions(showId, mentions = []) {
 }
 
 export function listMentions(showId) {
+  ensureSceneTables();
   return db.prepare('SELECT * FROM scene_mentions WHERE show_id = ? ORDER BY scraped_at DESC').all(showId).map((row) => ({
     id: row.id,
     site: row.site,
@@ -155,6 +157,7 @@ export function listMentions(showId) {
 }
 
 export function listSceneCandidates(showId) {
+  ensureSceneTables();
   if (!showId) return [];
   return db.prepare('SELECT * FROM scene_candidates WHERE show_id = ? ORDER BY heat_score DESC, created_at DESC').all(showId).map((row) => ({
     id: row.id,
@@ -173,6 +176,7 @@ export function listSceneCandidates(showId) {
 }
 
 export function saveSceneCandidates(showId, candidates = []) {
+  ensureSceneTables();
   const now = nowIso();
   const stmt = db.prepare(`
     INSERT INTO scene_candidates (
@@ -202,11 +206,13 @@ export function saveSceneCandidates(showId, candidates = []) {
 }
 
 export function updateCandidateStatus(candidateId, status) {
+  ensureSceneTables();
   db.prepare('UPDATE scene_candidates SET status = ?, updated_at = ? WHERE id = ?').run(status, nowIso(), candidateId);
   return { id: Number(candidateId), status };
 }
 
 export function saveSceneScript(candidateId, script) {
+  ensureSceneTables();
   const result = db.prepare(`
     INSERT INTO scene_scripts (candidate_id, script_json, model, prompt_version, approved, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -223,6 +229,7 @@ export function saveSceneScript(candidateId, script) {
 }
 
 export function approveSceneScript(candidateId) {
+  ensureSceneTables();
   db.prepare('UPDATE scene_scripts SET approved = 1 WHERE candidate_id = ?').run(candidateId);
   return updateCandidateStatus(candidateId, 'approved');
 }

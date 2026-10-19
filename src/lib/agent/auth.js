@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getServerApiToken } from '../runtime/settings.js';
+import { isLoopbackHost, loopbackRequestAllowed, resolveAccessPolicy } from '../security/access.js';
 
 export function bridgeConfig() {
   const file = process.env.VIDEO_AGENT_CONFIG || path.join(process.cwd(), 'config/agent-bridge.json');
@@ -18,7 +19,9 @@ export function equalSecret(a, b) {
   return left.length > 0 && left.length === right.length && timingSafeEqual(left, right);
 }
 
-export function authRequired() { const config = bridgeConfig(); return Boolean(config.agentToken || config.operatorToken); }
+// Saved integration credentials must never turn ordinary localhost usage into
+// an operator sign-in requirement. Shared mode is the explicit auth boundary.
+export function authRequired() { return (process.env.VIDEO_ACCESS_MODE || 'local') !== 'local'; }
 export function bearer(request) { return (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''); }
 export function isAgent(request) { return equalSecret(bearer(request), bridgeConfig().agentToken); }
 export function operatorSession(token, expires = Date.now() + 12 * 60 * 60 * 1000) {
@@ -43,34 +46,29 @@ export function sameOrigin(request) {
   } catch { return false; }
 }
 
-function isLoopbackHost(value) {
-  return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(String(value || '').toLowerCase());
-}
-
 // Only the combined launcher may enable automatic local pairing, and only
 // when it actually binds the web server to loopback. Never trust Host alone:
 // an agent bearer or a request forwarded from the network cannot pair itself.
 export function localCookiePairingAllowed(request) {
-  if (process.env.VIDEO_LOCAL_COOKIE_AUTH !== '1' || !isLoopbackHost(process.env.VIDEO_BIND_HOST)) return false;
+  if ((process.env.VIDEO_ACCESS_MODE || 'local') !== 'local' || process.env.VIDEO_LOCAL_COOKIE_AUTH !== '1' || !isLoopbackHost(process.env.VIDEO_BIND_HOST)) return false;
   if (request.headers.has('authorization') || request.headers.has('forwarded')) return false;
-  try {
-    const target = new URL(request.url);
-    const host = new URL(`${target.protocol}//${request.headers.get('host') || target.host}`);
-    if (!isLoopbackHost(target.hostname) || !isLoopbackHost(host.hostname)) return false;
-    const forwardedHost = request.headers.get('x-forwarded-host');
-    if (forwardedHost && forwardedHost !== host.host) return false;
-    const forwardedFor = request.headers.get('x-forwarded-for');
-    if (forwardedFor && !forwardedFor.split(',').every((ip) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip.trim()))) return false;
-    return true;
-  } catch { return false; }
+  return loopbackRequestAllowed(request);
 }
 
 // Every legacy API and server action is operator-only once the bridge is enabled.
 // Headers such as x-video-ops-local are routing hints, never authentication.
 export function operatorGuard(request) {
-  if (!authRequired()) return null;
-  if (!isOperator(request)) return Response.json({ error: 'Operator authentication required' }, { status: 401 });
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && !bearer(request) && !sameOrigin(request)) {
+  let policy;
+  try { policy = resolveAccessPolicy(process.env, bridgeConfig()); }
+  catch { return Response.json({ error: 'Invalid access configuration; check the server access mode and operator token.' }, { status: 503 }); }
+  if (policy.mode === 'local' && !loopbackRequestAllowed(request)) return Response.json({ error: 'Local access only. Enable shared mode explicitly for network access.' }, { status: 403 });
+  const required = authRequired();
+  const operator = isOperator(request);
+  // A configured agent remains restricted even on a token-free local console.
+  if (isAgent(request) || (required && !operator)) return Response.json({ error: 'Operator authentication required' }, { status: 401 });
+  // Origin protection is independent of authentication. A random Authorization
+  // header must not disable it in credentialless local mode.
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && !(operator && bearer(request)) && !sameOrigin(request)) {
     return Response.json({ error: 'Same-origin request required' }, { status: 403 });
   }
   return null;

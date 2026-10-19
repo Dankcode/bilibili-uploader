@@ -43,7 +43,7 @@ those boundaries is listed under [Privacy and remote boundaries](#privacy-and-re
 
 ## Requirements
 
-- **Node.js** — a current LTS release.
+- **Node.js 22.12+** — required by the Puppeteer cookie-capture integration; a current LTS release is recommended.
 - **Python 3.10+** — for YouTube publishing and the helper scripts in
   `scripts/python/`. Install with `pip install -r requirements.txt`.
 - **FFmpeg** — the pipeline uses the bundled `ffmpeg-static` and
@@ -74,10 +74,28 @@ npm run build
 npm start
 ```
 
-Both commands bind `127.0.0.1` by default. Local browser access pairs
-automatically with an HttpOnly cookie, without asking for an operator token.
-Set `VIDEO_BIND_HOST=0.0.0.0` explicitly for LAN access; automatic pairing is
-disabled on network listeners and a configured operator token is required.
+Both commands bind `127.0.0.1` by default. Local browser access needs no
+operator token, sign-in, or operator cookie, even if integration tokens were
+saved previously. Loopback Host and mutation-origin checks remain enforced.
+Network access is disabled unless `VIDEO_ACCESS_MODE=shared` is explicitly set
+(or `npm run dev:shared` / `npm run start:shared` is used). Shared mode defaults
+to `0.0.0.0`; set `VIDEO_BIND_HOST` to select a specific interface. Startup fails
+unless a distinct operator token of at least 32 characters is configured.
+Run `npm run mcp:setup` once to generate private saved tokens, or configure
+`VIDEO_OPERATOR_TOKEN` in the ignored `.env.local`. Automatic pairing is disabled
+in shared mode. Give the operator token only to trusted collaborators; each
+browser signs in once. Use Tailscale or HTTPS on a trusted network. This shares
+the entire workspace with equal operator permissions, not isolated user accounts.
+Never expose this console directly to the public internet. The same environment
+files are loaded for both frontend and worker.
+
+`npm run build` checks publishable source for credentials/private runtime files
+before compiling, then checks deployment trace manifests for private inputs.
+Local config, cookies, OAuth files and downloaded media are excluded from those
+traces and must be provisioned separately on the runtime host. Building does not
+open or migrate the live database. Never publish a working-directory archive or
+the Next build cache; neither is a sanitized public release artifact. Removing
+files from current Git tracking does not remove older copies from Git history.
 Browser sessions last 30 days. Agent credentials remain separate and cannot
 create an operator session.
 
@@ -90,15 +108,20 @@ The app cannot create a signed-in session from a public profile URL; a source
 restricted by Bilibili still needs an existing browser sign-in.
 
 **Connections → Bilibili source** has an optional profile URL check, such as
-`https://space.bilibili.com/33633128`, with **Connect saved cookie**.
+`https://space.bilibili.com/123456`, with **Connect saved cookie**.
 Run `npm run setup:bilibili-cookies` once to install the optional Chrome cookie
 reader into a project-local Python environment. The OS may request keychain
 access. Only Bilibili-domain cookies are imported; the values are never shown.
 The profile URL selects the creator to scrape; it does not contain anyone’s
 login cookie. When explicitly connecting a profile with no valid session,
 the profile opens in the app’s
-persistent Bilibili browser for a one-time sign-in. The app captures the cookie
-automatically and reuses it on later runs. This browser belongs to the backend
+persistent Puppeteer-controlled Chrome browser for a one-time sign-in. The app
+opens the supplied profile or video URL, captures SESSDATA from that browser's
+signed-in session, and reuses it on later runs. It cannot obtain another
+creator's login cookie from their public URL. The private Chrome profile lives
+in `config/bilibili-puppeteer/`; only Bilibili-domain cookies are exported to
+`config/storage.json`. Puppeteer Core uses installed Chrome, or the executable
+specified by `BILIBILI_CHROME_PATH`; it does not download a browser. This browser belongs to the backend
 machine and needs a desktop session when first connecting.
 
 ## How to use the console
@@ -205,7 +228,7 @@ visible on screen — lectures, slide decks, product demos, and scientific
 content with terms like `EGFR`, `p-ERK1/2`, drug names, and model numbers. It
 reads the screenshots to fix the transcript.
 
-![Subtitle Studio: project processing on the left, timestamped transcript in the middle, synchronized frames and player on the right](./docs/images/subtitle-studio-desktop.png)
+Screenshots from real source videos are kept local rather than included in the public repository.
 
 ### Using it
 
