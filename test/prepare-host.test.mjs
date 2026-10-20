@@ -17,6 +17,7 @@ test('host preparation creates protected configuration without opening SQL or en
     assert.equal(fs.statSync(result.runtimePath).mode & 0o777, 0o600);
     const env = fs.readFileSync(result.envPath, 'utf8');
     assert.match(env, /VIDEO_BIND_HOST=127\.0\.0\.1/);
+    assert.match(env, /VIDEO_ACCESS_MODE=tailscale/);
     assert.doesNotMatch(env, /VIDEO_(?:SERVER_API|OPERATOR|AGENT)_TOKEN=/);
     assert.match(env, /STUDIO_SECRET_KEY=[A-Za-z0-9+/]{43}=\n/);
     assert.throws(() => prepareHost(root), /Refusing to overwrite/);

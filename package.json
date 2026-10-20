@@ -23,6 +23,7 @@
     "start:tailscale": "node scripts/run_server.mjs start --tailscale",
     "lint": "next lint",
     "test": "node --import ./test/setup.mjs --test test/*.test.mjs",
+    "validate:release": "node scripts/validate_release.mjs",
     "secrets:check": "node scripts/check_secrets.mjs",
     "proof:face-swap": "node scripts/prove_facefusion.mjs"
   },

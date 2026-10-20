@@ -25,6 +25,7 @@ export function prepareHost(directory) {
     fs.writeFileSync(envPath, [
       'NODE_ENV=production',
       'PORT=4455',
+      'VIDEO_ACCESS_MODE=tailscale',
       'VIDEO_BIND_HOST=127.0.0.1',
       `VIDEO_RUNTIME_SETTINGS_PATH="${runtimePath}"`,
       `STUDIO_SECRET_KEY=${randomBytes(32).toString('base64')}`,

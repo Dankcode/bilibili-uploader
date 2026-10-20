@@ -77,3 +77,9 @@ mode is retained for compatibility and is also token-free; it defaults to all
 interfaces, so prefer `start:tailscale`. Remote-mode frontends need only the
 backend URL; their access-token fields are removed. SQLite must remain local
 to the backend, never on a network share.
+
+For private Tailscale Serve, keep the backend loopback-bound instead: persist
+`VIDEO_ACCESS_MODE=tailscale`, `VIDEO_BIND_HOST=127.0.0.1` and `PORT=4455`,
+then start `node scripts/run_server.mjs start --web-only` while validating.
+Do not add `--shared` or `--tailscale`. Set `VIDEO_AGENT_BASE_URL` to the private
+Serve HTTPS origin. This supports tailnet use without SSH or app sign-in.

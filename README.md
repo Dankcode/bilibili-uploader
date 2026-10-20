@@ -79,7 +79,23 @@ operator token, operator cookie, or MCP token requirement in any mode. Existing
 token files are left untouched but do not gate access. The same environment
 files are loaded for frontend and worker.
 
-For access from your other Tailscale devices, use `npm run dev:tailscale`, or
+For private **Tailscale Serve → localhost** access, persist these values in
+the backend's environment file:
+
+```dotenv
+VIDEO_ACCESS_MODE=tailscale
+VIDEO_BIND_HOST=127.0.0.1
+PORT=4455
+```
+
+Start the validated production build with
+`node scripts/run_server.mjs start --web-only`. Keep the worker disabled during
+validation. Point private Tailscale Serve at `http://127.0.0.1:4455` and open
+its HTTPS URL from your tailnet. Do not append `--shared` or `--tailscale`:
+those are different listener modes. No SSH or app sign-in is needed to use
+the dashboard over Tailscale.
+
+For **direct Tailscale-IP binding** instead of Serve, use `npm run dev:tailscale`, or
 build and run `npm run start:tailscale`. These discover the backend's address
 with `tailscale ip -4` and bind to that Tailscale IP, not every LAN interface.
 Set `TAILSCALE_BIN` if needed, or set `VIDEO_ACCESS_MODE=tailscale` and
@@ -103,8 +119,12 @@ sign-in is still required where YouTube or another platform requires it. See
 `npm run build` checks publishable source for credentials/private runtime files
 before compiling, then checks deployment trace manifests for private inputs.
 Local config, cookies, OAuth files and downloaded media are excluded from those
-traces and must be provisioned separately on the runtime host. Building does not
-open or migrate the live database. Never publish a working-directory archive or
+traces and must be provisioned separately on the runtime host. Use
+`scripts/validate_release.mjs` for a clean revision-pinned checkout, per-process
+test isolation, disposable build data, and recorded test/build exit codes;
+do not export production database paths or encryption keys into validation.
+See [deployment validation](docs/OLD_LAPTOP_DEPLOYMENT.md).
+Never publish a working-directory archive or
 the Next build cache; neither is a sanitized public release artifact. Removing
 files from current Git tracking does not remove older copies from Git history.
 

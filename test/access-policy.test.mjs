@@ -62,3 +62,15 @@ test('Tailscale launcher discovers its bind address with no tokens or approval s
   assert.equal(policy.mode, 'tailscale'); assert.equal(policy.host, '100.80.0.7');
   assert.equal(policy.localPairing, false);
 });
+
+test('Tailscale Serve mode persists loopback binding and never starts a worker', () => {
+  const cwd = fs.mkdtempSync(path.join(directory, 'serve-'));
+  fs.writeFileSync(path.join(cwd, '.env'), 'VIDEO_ACCESS_MODE=tailscale\nVIDEO_BIND_HOST=127.0.0.1\n');
+  const result = launch(cwd);
+  assert.equal(result.status, 0, result.stderr);
+  const policy = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  assert.equal(policy.mode, 'tailscale');
+  assert.equal(policy.host, '127.0.0.1');
+  assert.equal(policy.webOnly, true);
+  assert.equal(policy.localPairing, false);
+});

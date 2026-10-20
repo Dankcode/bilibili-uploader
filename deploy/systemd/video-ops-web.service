@@ -9,7 +9,9 @@ User=vops
 WorkingDirectory=/srv/bilibili-uploader
 EnvironmentFile=/srv/bilibili-uploader/config/server.env
 Environment=VIDEO_PROCESS_ROLE=frontend
-ExecStart=/usr/bin/node /srv/bilibili-uploader/node_modules/next/dist/bin/next start -H 127.0.0.1 -p 4455
+Environment=VIDEO_ACCESS_MODE=tailscale
+Environment=VIDEO_BIND_HOST=127.0.0.1
+ExecStart=/usr/bin/node /srv/bilibili-uploader/scripts/run_server.mjs start --web-only
 Restart=on-failure
 RestartSec=5
 KillMode=control-group
