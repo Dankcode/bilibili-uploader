@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { queryBilibiliCli } from './bilibiliCli.js';
 import { bilibiliStoragePath, ensureBilibiliSession, launchBilibiliBrowser, signWbiParams } from './bilibili.js';
 
 const SPACE_HOST = 'space.bilibili.com';
@@ -108,6 +109,10 @@ async function requestSpaceVideos(page, accountId, pageNumber, keys) {
 export async function scanBilibiliCreatorPage(creatorUrl, pageNumber = 1) {
   const target = bilibiliSpacePageUrl(creatorUrl, pageNumber);
   const accountId = accountIdFromSpaceUrl(target);
+  try {
+    const result = await requestCliCreatorPage(accountId, Number(pageNumber));
+    if (result) return result;
+  } catch { /* Retry through the existing browser API and session fallback. */ }
   const browser = await launchBilibiliBrowser({ headless: true });
   try {
     const storagePath = bilibiliStoragePath();
@@ -128,6 +133,19 @@ export async function scanBilibiliCreatorPage(creatorUrl, pageNumber = 1) {
     return { creatorId: accountId, videos: result.videos, total: result.total,
       nextPage: pageNumber * PAGE_SIZE < result.total ? pageNumber + 1 : null };
   } finally { await browser.close(); }
+}
+
+export async function requestCliCreatorPage(accountId, pageNumber, query = queryBilibiliCli) {
+  const data = await query({ operation: 'creator-page', creatorId: accountId, page: pageNumber });
+  if (!data) return null;
+  if (!Array.isArray(data.list?.vlist) || !Number.isInteger(data.page?.count) || data.page.count < 0) {
+    throw new Error('Bilibili CLI returned an incomplete creator page');
+  }
+  const result = parseBilibiliSpaceVideos({ code: 0, data });
+  if (result.videos.length < Math.min(PAGE_SIZE, Math.max(0, result.total - (pageNumber - 1) * PAGE_SIZE))) {
+    throw new Error('Bilibili CLI returned an incomplete creator page');
+  }
+  return { creatorId: accountId, ...result, nextPage: pageNumber * PAGE_SIZE < result.total ? pageNumber + 1 : null };
 }
 
 async function scrapeVideoCards(page) {
@@ -159,6 +177,22 @@ export default async function Scraper(pageUrl, { limit = 100 } = {}) {
   const maximum = Math.max(1, Math.min(100, Number(limit) || 100));
   let browser;
   try {
+    // Keep successful anonymous SDK scans entirely browser-free. If any page
+    // fails, restart with the existing path rather than return a partial list.
+    try {
+      const videos = [];
+      const seen = new Set();
+      let pageNumber = 1;
+      while (videos.length < maximum) {
+        const result = await requestCliCreatorPage(accountIdFromSpaceUrl(pageUrl), pageNumber);
+        if (!result) break;
+        for (const video of result.videos) {
+          if (!seen.has(video.bvid)) { seen.add(video.bvid); videos.push(video); }
+        }
+        if (!result.nextPage || videos.length >= maximum) return videos.slice(0, maximum);
+        pageNumber = result.nextPage;
+      }
+    } catch { /* Browser scraping remains the fallback for blocked SDK calls. */ }
     browser = await launchBilibiliBrowser({ headless: true });
     const storagePath = bilibiliStoragePath();
     // Start with public browsing. Cookie discovery happens only when the API

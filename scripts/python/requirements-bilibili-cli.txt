@@ -1,0 +1,3 @@
+# Reviewed public-clis/bilibili-cli 0.6.2; pin the supplied repository revision.
+bilibili-cli @ git+https://github.com/public-clis/bilibili-cli.git@dbe28551930df43b633baa52e9639832aeada967
+bilibili-api-python==17.4.2

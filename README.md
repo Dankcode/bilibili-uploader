@@ -136,6 +136,24 @@ them privately in `config/storage.json`, and retries automatically.
 The app cannot create a signed-in session from a public profile URL; a source
 restricted by Bilibili still needs an existing browser sign-in.
 
+For browser-free public scraping, run `npm run setup:bilibili-cli` (requires
+`uv`; installs Python 3.12 and the pinned
+[public-clis/bilibili-cli](https://github.com/public-clis/bilibili-cli) revision
+into `.venv-bilibili-cli`). The app then tries the CLI's maintained SDK first
+for metadata, paginated creator uploads, and DASH download URLs. The bridge
+always passes `credential=None` and never reads the CLI's saved login or browser
+cookies. `BILIBILI_CLI_PYTHON` can select an existing environment's absolute
+Python path. If the optional adapter is absent or fails, the existing public
+API/browser path and automatic session fallback remain available.
+
+The CLI itself exposes video metadata and audio extraction, but does not export
+full video stream data, so the bridge uses its underlying `bilibili-api-python`
+SDK for that operation. Public previews fetch metadata only. Anonymous stream
+quality is limited by Bilibili (480p in the live verification); higher quality,
+restricted videos, and subtitles may still require login. Test a video without
+reading any saved login using
+`node --import ./scripts/register_loader.mjs scripts/probe_bilibili_anonymous.mjs BV1xx411c7mD`.
+
 **Connections → Bilibili source** has an optional profile URL check, such as
 `https://space.bilibili.com/123456`, with **Connect saved cookie**.
 Run `npm run setup:bilibili-cookies` once to install the optional Chrome cookie

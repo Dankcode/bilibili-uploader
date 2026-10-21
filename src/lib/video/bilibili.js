@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { chromium } from 'playwright';
 import Downloader from './downloader.js';
+import { queryBilibiliCli } from './bilibiliCli.js';
 import { assertBilibiliUrl, guardRedirect, normalizeBilibiliVideoInput } from './bilibiliUrl.js';
 import { readChromeBilibiliCookies } from './browserCookies.js';
 import { bilibiliCookieBrowserDirectory, launchBilibiliCookieBrowser } from './bilibiliCookieBrowser.js';
@@ -358,6 +359,40 @@ async function resolveCanonicalVideoUrl(bilibiliUrl) {
   return finalUrl;
 }
 
+/** Normalize both the native API and CLI SDK without discarding page selection. */
+export function normalizeBilibiliInfo(videoData, playData, canonicalUrl, metadataOnly = false) {
+  const pages = Array.isArray(videoData?.pages) && videoData.pages.length
+    ? videoData.pages : [{ page: 1, cid: videoData?.cid, part: videoData?.title }];
+  const page = requestedPage(canonicalUrl, pages);
+  const bvid = String(videoData?.bvid || '').trim();
+  const cid = Number(page?.cid || videoData?.cid);
+  if (!/^BV[0-9A-Za-z]{10}$/.test(bvid) || !Number.isSafeInteger(cid) || cid <= 0) {
+    throw new Error('Bilibili metadata did not include a BV ID and CID');
+  }
+  const cleanUrl = new URL(`/video/${bvid}`, BILIBILI_ORIGIN);
+  if (Number(page.page) > 1) cleanUrl.searchParams.set('p', String(page.page));
+  const info = {
+    title: page?.part || videoData.title || 'bilibili-video',
+    description: String(videoData.desc || ''),
+    durationSeconds: Number(page?.duration || videoData.duration || 0),
+    uploader: String(videoData.owner?.name || ''), thumbnailUrl: String(videoData.pic || ''),
+    canonicalUrl: cleanUrl.toString(), bvid, aid: String(videoData.aid || ''), cid: String(cid),
+  };
+  if (metadataOnly) return info;
+  const dash = playData?.dash;
+  // Highest available quality, preferring AVC within that quality for MP4
+  // compatibility. Anonymous access may expose only lower resolutions.
+  const videos = [...(dash?.video || [])].sort((a, b) =>
+    Number(b.id || 0) - Number(a.id || 0)
+    || Number(/^avc/i.test(b.codecs || '')) - Number(/^avc/i.test(a.codecs || ''))
+    || Number(b.bandwidth || 0) - Number(a.bandwidth || 0));
+  const videoUrl = videos.map(streamUrl).find(Boolean);
+  const audioUrl = [...(dash?.audio || [])]
+    .sort((a, b) => Number(b.bandwidth || 0) - Number(a.bandwidth || 0)).map(streamUrl).find(Boolean);
+  if (!videoUrl || !audioUrl) throw new Error('Bilibili did not provide DASH audio/video streams');
+  return { ...info, videoUrl, audioUrl };
+}
+
 /**
  * Resolves a BV/AV record, its selected page CID, and DASH streams using
  * Bilibili's public metadata and signed player APIs. This avoids scraping
@@ -367,11 +402,21 @@ async function resolveCanonicalVideoUrl(bilibiliUrl) {
  * checked here — before the header is built — and again on every redirect hop.
  * Callers must not be trusted to have validated the URL themselves.
  */
-export async function parseBilibiliVideoInfo(bilibiliUrl, sessData) {
+export async function parseBilibiliVideoInfo(bilibiliUrl, sessData, { metadataOnly = false, queryCli = queryBilibiliCli } = {}) {
   try {
     const canonicalUrl = await resolveCanonicalVideoUrl(bilibiliUrl);
     const canonical = new URL(canonicalUrl);
     const videoId = canonical.pathname.split('/').filter(Boolean)[1] || '';
+    // Try the CLI's maintained SDK anonymously before the native API and any
+    // automatic cookie discovery. An unavailable optional runtime is harmless.
+    if (!sessData) {
+      try {
+        const page = Number(canonical.searchParams.get('p') || 1);
+        if (!Number.isInteger(page) || page < 1) throw new Error('Invalid Bilibili page');
+        const result = await queryCli({ operation: metadataOnly ? 'metadata' : 'streams', videoId, page });
+        if (result) return normalizeBilibiliInfo(result.view, result.play, canonicalUrl, metadataOnly);
+      } catch { /* Existing public API remains available when the SDK fails. */ }
+    }
     const viewParams = /^av\d+$/i.test(videoId)
       ? { aid: videoId.slice(2) }
       : { bvid: videoId };
@@ -382,16 +427,9 @@ export async function parseBilibiliVideoInfo(bilibiliUrl, sessData) {
       beforeRedirect: guardRedirect,
     });
     if (viewPayload?.code !== 0 || !viewPayload?.data) throw apiError('Bilibili video metadata lookup', viewPayload);
-    const videoData = viewPayload.data;
-    const pages = Array.isArray(videoData.pages) && videoData.pages.length
-      ? videoData.pages
-      : [{ page: 1, cid: videoData.cid, part: videoData.title }];
-    const page = requestedPage(canonicalUrl, pages);
-    const bvid = String(videoData.bvid || '').trim();
-    const cid = Number(page?.cid || videoData.cid);
-    if (!bvid || !Number.isFinite(cid) || cid <= 0) throw new Error('Bilibili metadata did not include a BV ID and CID');
-    const cleanCanonicalUrl = new URL(`/video/${bvid}`, BILIBILI_ORIGIN);
-    if (Number(page?.page) > 1) cleanCanonicalUrl.searchParams.set('p', String(page.page));
+    const metadata = normalizeBilibiliInfo(viewPayload.data, null, canonicalUrl, true);
+    if (metadataOnly) return metadata;
+    const { bvid, cid } = metadata;
 
     const { data: navPayload } = await axios.get(NAV_API_URL, {
       headers: apiHeaders(sessData),
@@ -407,26 +445,8 @@ export async function parseBilibiliVideoInfo(bilibiliUrl, sessData) {
       beforeRedirect: guardRedirect,
     });
     if (playPayload?.code !== 0 || !playPayload?.data) throw apiError('Bilibili stream lookup', playPayload);
-    const dash = playPayload.data.dash;
-    const videoUrl = (dash?.video || []).map(streamUrl).find(Boolean);
-    const audioUrl = [...(dash?.audio || [])]
-      .sort((left, right) => Number(right?.bandwidth || 0) - Number(left?.bandwidth || 0))
-      .map(streamUrl)
-      .find(Boolean);
-    if (!videoUrl || !audioUrl) throw new Error('Bilibili did not provide DASH audio/video streams');
-    return {
-      title: page?.part || videoData.title || 'bilibili-video',
-      description: String(videoData.desc || ''),
-      durationSeconds: Number(page?.duration || videoData.duration || 0),
-      uploader: String(videoData.owner?.name || ''),
-      thumbnailUrl: String(videoData.pic || ''),
-      videoUrl,
-      audioUrl,
-      canonicalUrl: cleanCanonicalUrl.toString(),
-      bvid,
-      aid: String(videoData.aid || ''),
-      cid: String(cid),
-    };
+    return normalizeBilibiliInfo(viewPayload.data, playPayload.data, canonicalUrl);
+
   } catch (error) {
     throw new Error(`Could not resolve Bilibili video: ${error.message}`);
   }
@@ -435,7 +455,7 @@ export async function parseBilibiliVideoInfo(bilibiliUrl, sessData) {
 /** Read-only metadata preview used by the planner before it creates a job. */
 export async function resolveBilibiliVideoPreview(bilibiliUrl, options = {}) {
   const safeUrl = normalizeBilibiliVideoInput(bilibiliUrl);
-  const info = await withAutomaticBilibiliSession((session) => parseBilibiliVideoInfo(safeUrl, session), { ...options, sourceUrl: safeUrl });
+  const info = await withAutomaticBilibiliSession((session) => parseBilibiliVideoInfo(safeUrl, session, { metadataOnly: true }), { ...options, sourceUrl: safeUrl });
   return {
     title: info.title,
     url: info.canonicalUrl || String(bilibiliUrl),

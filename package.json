@@ -13,6 +13,7 @@
     "dev:tailscale": "node scripts/run_server.mjs dev --tailscale",
     "worker": "node --import ./scripts/register_loader.mjs scripts/server_worker.mjs",
     "setup:bilibili-cookies": "node scripts/setup_bilibili_cookies.mjs",
+    "setup:bilibili-cli": "node scripts/setup_bilibili_cli.mjs",
     "prebuild": "npm run secrets:check",
     "build": "next build",
     "postbuild": "node scripts/check_build_privacy.mjs",
