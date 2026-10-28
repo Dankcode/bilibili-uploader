@@ -6,7 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { once } from 'node:events';
 import { buildCodexTextArgs, codexTextSettings } from '../src/lib/ai/codexText.js';
-import { completeJsonWithMeta, translateSegments, validateSegmentTranslations } from '../src/lib/ai/getEnglish.js';
+import { completeJsonWithMeta } from '../src/lib/ai/getEnglish.js';
 import { generateMetadataDraft, testConnection } from '../src/lib/pipeline/processors/metadata.js';
 
 function fakeCodex(t, response, { fail = false } = {}) {
@@ -66,24 +66,6 @@ test('connection test verifies an actual Codex answer', async (t) => {
   const result = await testConnection(fake.credentials);
   assert.equal(result.ok, true);
   assert.match(result.detail, /codexcli\/gpt-6.1-sol/);
-});
-
-test('voiceover translation obeys the saved provider and source order', async (t) => {
-  const fake = fakeCodex(t, { segments: [{ index: 2, textEn: 'Second' }, { index: 1, textEn: 'First' }] });
-  const result = await translateSegments([{ index: 1, text: '一' }, { index: 2, text: '二' }], { credentials: fake.credentials });
-  assert.equal(result.provider, 'codexcli');
-  assert.deepEqual(result.map((item) => item.textEn), ['First', 'Second']);
-});
-
-test('translation rejects dropped, duplicate, invented, non-numeric and empty segments', () => {
-  const source = [{ index: 1 }, { index: 2 }];
-  for (const segments of [
-    [{ index: 1, textEn: 'One' }],
-    [{ index: 1, textEn: 'One' }, { index: 1, textEn: 'Again' }],
-    [{ index: 1, textEn: 'One' }, { index: 3, textEn: 'Unknown' }],
-    [{ index: 1, textEn: 'One' }, { index: '2', textEn: 'Two' }],
-    [{ index: 1, textEn: 'One' }, { index: 2, textEn: ' ' }],
-  ]) assert.throws(() => validateSegmentTranslations(source, { segments }), /Translation/);
 });
 
 test('OpenAI Sol API requests use medium reasoning and omit unsupported temperature', async (t) => {

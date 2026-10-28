@@ -1,3 +1,5 @@
+> Historical: built-in editing/processing moved to video-automation. See [Video Editor MCP](VIDEO_GENERATION.md) for the current integration.
+
 # Subtitle Studio design philosophy
 
 Subtitle Studio is an evidence-oriented media workbench, not a one-click AI

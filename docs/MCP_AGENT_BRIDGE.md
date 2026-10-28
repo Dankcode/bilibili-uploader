@@ -83,3 +83,11 @@ For private Tailscale Serve, keep the backend loopback-bound instead: persist
 then start `node scripts/run_server.mjs start --web-only` while validating.
 Do not add `--shared` or `--tailscale`. Set `VIDEO_AGENT_BASE_URL` to the private
 Serve HTTPS origin. This supports tailnet use without SSH or app sign-in.
+
+## Outbound Video Editor MCP
+
+The publishing bridge above remains this app's MCP server. Separately, the
+worker is an MCP client of video-automation for video creation. Use processor
+`videoEditor` with `mode: "localize"` or `mode: "render"`; its endpoint defaults
+to `http://127.0.0.1:4560/mcp`. Model and editing configuration belongs to the
+editor. See [video creation](VIDEO_GENERATION.md) for media handoff and retries.

@@ -3,7 +3,7 @@ import AppShell from '@/components/AppShell';
 
 export const metadata = {
   title: "Studio Suite - Automated Video Pipeline",
-  description: "Local transcription, subtitles, voiceover, and publishing.",
+  description: "Source automation, video creation through Video Editor MCP, and publishing.",
 };
 
 export default function RootLayout({ children }) {

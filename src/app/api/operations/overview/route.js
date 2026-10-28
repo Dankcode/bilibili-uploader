@@ -9,10 +9,8 @@ async function handleGET() {
   try {
     const connections = listConnections();
     const overview = getOperationsOverview();
-    const proof = overview.faceSwapProof;
     const healthServices = [
-      ['faceFusion', 'Face swap proof', proof?.status === 'passed' ? `Validated ${proof.outputProbe?.width || 0}x${proof.outputProbe?.height || 0} output` : 'Run a Face Fusion test before production jobs.'],
-      ['sceneCut', 'Video renderer', 'FFmpeg edit and format pipeline'],
+      ['videoEditor', 'Video Editor MCP', 'Video creation and rendering in video-automation'],
       ['metadata', 'Marketing metadata', 'Transcript analysis and packaging'],
       ['youtube', 'Publishing', 'YouTube delivery connection'],
       ['gmail', 'Gmail tracking', 'Optional non-blocking tracking and inbox sync'],

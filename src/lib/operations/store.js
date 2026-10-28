@@ -440,66 +440,6 @@ export function saveAutomationSettings({ id = '', name = '', settings = {} } = {
   return publicAutomationSetting(db.prepare('SELECT * FROM automation_settings WHERE id = ?').get(settingId));
 }
 
-export function saveFaceSwapProof(proof = {}) {
-  const id = cleanText(proof.id, 100) || randomUUID();
-  const createdAt = cleanText(proof.createdAt, 80) || nowIso();
-  db.prepare(`
-    INSERT INTO face_swap_proofs (
-      id, engine, engine_version, status, source_image_path, target_video_path,
-      output_video_path, duration_ms, input_probe_json, output_probe_json,
-      validation_json, error, created_at, completed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      engine = excluded.engine,
-      engine_version = excluded.engine_version,
-      status = excluded.status,
-      output_video_path = excluded.output_video_path,
-      duration_ms = excluded.duration_ms,
-      input_probe_json = excluded.input_probe_json,
-      output_probe_json = excluded.output_probe_json,
-      validation_json = excluded.validation_json,
-      error = excluded.error,
-      completed_at = excluded.completed_at
-  `).run(
-    id, cleanText(proof.engine, 80) || 'facefusion', cleanText(proof.engineVersion, 80),
-    cleanText(proof.status, 40) || 'running', cleanText(proof.sourceImagePath, 4000),
-    cleanText(proof.targetVideoPath, 4000), cleanText(proof.outputVideoPath, 4000),
-    boundedInt(proof.durationMs), JSON.stringify(proof.inputProbe || {}),
-    JSON.stringify(proof.outputProbe || {}), JSON.stringify(proof.validation || {}),
-    cleanText(proof.error, 4000), createdAt, cleanText(proof.completedAt, 80),
-  );
-  return id;
-}
-
-export function failRunningFaceSwapProofs(error = 'Proof run was interrupted') {
-  const completedAt = nowIso();
-  return db.prepare(`
-    UPDATE face_swap_proofs
-    SET status = 'failed', error = ?, completed_at = ?
-    WHERE status = 'running'
-  `).run(cleanText(error, 4000), completedAt).changes;
-}
-
-export function getLatestFaceSwapProof() {
-  const row = db.prepare('SELECT * FROM face_swap_proofs ORDER BY created_at DESC LIMIT 1').get();
-  if (!row) return null;
-  return {
-    id: row.id,
-    engine: row.engine,
-    engineVersion: row.engine_version,
-    status: row.status,
-    sourceImagePath: row.source_image_path,
-    targetVideoPath: row.target_video_path,
-    outputVideoPath: row.output_video_path,
-    durationMs: row.duration_ms,
-    inputProbe: parseJson(row.input_probe_json, {}),
-    outputProbe: parseJson(row.output_probe_json, {}),
-    validation: parseJson(row.validation_json, {}),
-    error: row.error,
-    createdAt: row.created_at,
-    completedAt: row.completed_at,
-  };
-}
 
 export function backfillOperationsCatalog() {
   const insertLegacy = db.prepare(`
@@ -716,7 +656,6 @@ export function getOperationsOverview() {
     recentVideos,
     nextUp,
     batches,
-    faceSwapProof: getLatestFaceSwapProof(),
   };
 }
 

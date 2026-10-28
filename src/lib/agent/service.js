@@ -78,8 +78,8 @@ function context(id) {
   const record = db.prepare('SELECT title, context_summary_json FROM video_records WHERE id = ?').get(job.video_record_id);
   const bvid = job.source_input.match(/BV[0-9A-Za-z]{10}/)?.[0];
   const source = bvid ? db.prepare('SELECT creator_id, source_title, source_description, duration_seconds FROM bilibili_scraped_videos WHERE bvid = ? LIMIT 1').get(bvid) : null;
-  const assets = db.prepare("SELECT kind, meta_json FROM video_assets WHERE job_id = ? AND kind IN ('videoContext', 'ocrContext', 'metadata') ORDER BY id").all(id);
-  const fields = ['transcriptMd', 'contextMd', 'segments', 'correctedSegments', 'onscreenSpans', 'glossary', 'duration', 'titleEn', 'descriptionEn', 'tags'];
+  const assets = db.prepare("SELECT kind, meta_json FROM video_assets WHERE job_id = ? AND kind IN ('videoEditor', 'videoContext', 'ocrContext', 'metadata') ORDER BY id").all(id);
+  const fields = ['editorProjectId', 'editorUrl', 'transcriptSource', 'transcriptEn', 'transcriptMd', 'contextMd', 'segments', 'correctedSegments', 'onscreenSpans', 'glossary', 'duration', 'titleEn', 'descriptionEn', 'tags'];
   const evidence = assets.map((asset) => { const meta = parse(asset.meta_json); return { kind: asset.kind,
     ...Object.fromEntries(fields.filter((field) => meta[field] !== undefined).map((field) => [field, meta[field]])) }; });
   const previousTitles = source ? db.prepare(`SELECT DISTINCT v.title FROM video_records v JOIN video_publications p ON p.video_id = v.id

@@ -1,15 +1,10 @@
+import * as videoEditorProcessor from './processors/videoEditor.js';
 import db from '../db/sqlite';
 import { SOURCES, PROCESSORS, UPLOADERS, NOTIFIERS } from './registry';
 import * as bilibiliSource from './sources/bilibili';
 import * as douyinSource from './sources/douyin';
 import * as localFileSource from './sources/localFile';
-import * as voiceoverProcessor from './processors/voiceover';
-import * as aiEditorProcessor from './processors/aiEditor';
-import * as sceneCutProcessor from './processors/sceneCut';
-import * as faceFusionProcessor from './processors/faceFusion';
 import * as metadataProcessor from './processors/metadata';
-import * as videoContextProcessor from './processors/videoContext';
-import * as ocrContextProcessor from './processors/ocrContext';
 import * as youtubeUploader from './uploaders/youtube';
 import * as gmailNotifier from './notifiers/gmail';
 import { decryptSecret, encryptSecret, hasSecretKey, isEncryptedSecret } from '../security/secrets.js';
@@ -22,16 +17,11 @@ const SERVICES = [
 ];
 
 const ADAPTERS = {
+  videoEditor: videoEditorProcessor,
   localFile: localFileSource,
   bilibili: bilibiliSource,
   douyin: douyinSource,
-  voiceover: voiceoverProcessor,
-  aiEditor: aiEditorProcessor,
-  sceneCut: sceneCutProcessor,
-  faceFusion: faceFusionProcessor,
   metadata: metadataProcessor,
-  videoContext: videoContextProcessor,
-  ocrContext: ocrContextProcessor,
   youtube: youtubeUploader,
   gmail: gmailNotifier,
 };
@@ -155,7 +145,7 @@ export function listConnections() {
     return {
       serviceId: service.id,
       label: service.label,
-      configured: (service.credentialFields || []).length === 0,
+      configured: isConfigured(service, {}),
       enabled: false,
       status: 'untested',
       authState: 'unknown',

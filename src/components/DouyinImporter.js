@@ -5,9 +5,7 @@ import styles from '../app/page.module.css';
 
 export default function DouyinImporter({ onCreated }) {
   const [links, setLinks] = useState('');
-  const [voiceover, setVoiceover] = useState(false);
-  const [aiEditor, setAiEditor] = useState(false);
-  const [prompt, setPrompt] = useState('');
+  const [videoEditor, setVideoEditor] = useState(false);
   const [uploaderId, setUploaderId] = useState('');
   const [status, setStatus] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -18,10 +16,7 @@ export default function DouyinImporter({ onCreated }) {
     setSubmitting(true);
     setStatus('Creating jobs...');
     try {
-      const processorIds = [
-        ...(voiceover ? ['voiceover'] : []),
-        ...(aiEditor ? ['aiEditor'] : []),
-      ];
+      const processorIds = videoEditor ? ['videoEditor'] : [];
       const created = [];
       for (const url of urls) {
         const response = await fetch('/api/control/pipeline/jobs', {
@@ -34,7 +29,7 @@ export default function DouyinImporter({ onCreated }) {
             processorIds,
             uploaderId,
             options: {
-              aiEditor: { prompt },
+              videoEditor: { mode: 'localize' },
               youtube: { privacyStatus: 'private' },
             },
           }),
@@ -69,26 +64,14 @@ export default function DouyinImporter({ onCreated }) {
         />
         <div className={styles.formGrid}>
           <label className={styles.checkRow}>
-            <input type="checkbox" checked={voiceover} onChange={(event) => setVoiceover(event.target.checked)} />
-            English voiceover
-          </label>
-          <label className={styles.checkRow}>
-            <input type="checkbox" checked={aiEditor} onChange={(event) => setAiEditor(event.target.checked)} />
-            AI video editor
+            <input type="checkbox" checked={videoEditor} onChange={(event) => setVideoEditor(event.target.checked)} />
+            Process with Video Editor MCP
           </label>
           <select className={styles.select} value={uploaderId} onChange={(event) => setUploaderId(event.target.value)}>
             <option value="">Download only</option>
             <option value="youtube">YouTube private upload</option>
           </select>
         </div>
-        {aiEditor && (
-          <input
-            className={styles.input}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="AI editor prompt"
-          />
-        )}
         <div className={styles.operationRow}>
           <button className={styles.buttonPrimary} onClick={createJobs} disabled={submitting}>
             {submitting ? 'Creating...' : 'Create Jobs'}

@@ -82,7 +82,7 @@ test('the run preflight refuses the chain instead of reporting it ready', async 
   const preflight = await diagnostics.runPreflight({
     sourceId: 'localFile',
     sourceInput: realVideo,
-    processorIds: ['sceneCut'],
+    processorIds: ['videoEditor'],
     uploaderId: 'youtube',
   });
   assert.equal(preflight.ready, false, 'preflight must not green-light an impossible upload');
@@ -118,12 +118,12 @@ test('a queued workflow can be edited before any step begins without changing ch
     youtubeAuthorizationId: authorization.id, scheduledFor: '2099-01-01T00:00:00.000Z',
   });
   const updated = pipeline.updateQueuedJob(job.id, {
-    processorIds: ['sceneCut'], uploaderId: 'youtube', youtubeAuthorizationId: authorization.id,
+    processorIds: ['videoEditor'], uploaderId: 'youtube', youtubeAuthorizationId: authorization.id,
     priority: 12, scheduledFor: '2099-01-02T00:00:00.000Z',
   });
   assert.equal(updated.status, 'queued');
   const stored = pipeline.listJobs({ limit: 100 }).find((item) => item.id === job.id);
-  assert.deepEqual(stored.processorIds, ['sceneCut']);
+  assert.deepEqual(stored.processorIds, ['videoEditor']);
   assert.equal(stored.priority, 12);
   assert.equal(stored.youtubeAuthorization.id, authorization.id);
 });

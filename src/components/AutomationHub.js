@@ -5,7 +5,6 @@ import {
   Check, ChevronRight, FileVideo, LoaderCircle, Play, Search, UploadCloud, X,
 } from 'lucide-react';
 import DouyinImporter from './DouyinImporter';
-import FaceSwapProof from './FaceSwapProof';
 import GenerateStudio from './GenerateStudio';
 import PipelineDashboard from './PipelineDashboard';
 import PublishTarget from './PublishTarget';
@@ -44,17 +43,10 @@ const DEFAULT_YOUTUBE_OPTIONS = {
   madeForKids: false, embeddable: true, notifySubscribers: false, uploadMethod: 'api',
 };
 
-const DEFAULT_STEPS = {
-  sceneCut: true, faceFusion: false, videoContext: true, ocrContext: false,
-  voiceover: true, metadata: true, publish: true,
-};
+const DEFAULT_STEPS = { videoEditor: true, metadata: true, publish: true };
 
 const STEP_ORDER = [
-  { id: 'sceneCut', label: 'Edit and format' },
-  { id: 'faceFusion', label: 'Face swap' },
-  { id: 'videoContext', label: 'Video context (transcript + frames)', default: true },
-  { id: 'ocrContext', label: 'On-screen text OCR', requires: 'videoContext' },
-  { id: 'voiceover', label: 'English voiceover' },
+  { id: 'videoEditor', label: 'Create video with Video Editor MCP' },
   { id: 'metadata', label: 'Marketing metadata' },
   { id: 'publish', label: 'Publish to YouTube' },
 ];
@@ -109,7 +101,7 @@ function canAutomateScrapedVideo(item) {
   return Boolean(item.selected) && !item.isUploaded && (!item.isLongVideo || item.longVideoEnabled);
 }
 
-export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAuthorizations = [] }) {
+export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) {
   const [tab, setTab] = useState('planner');
   const [plannerStep, setPlannerStep] = useState('sources');
   const [sourceTab, setSourceTab] = useState('generate');
@@ -125,11 +117,8 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
   const [designatedDate, setDesignatedDate] = useState(defaultDesignatedDate);
   const [scheduleEveryDays, setScheduleEveryDays] = useState(1);
   const [youtubeOptions, setYoutubeOptions] = useState(DEFAULT_YOUTUBE_OPTIONS);
-  const [aspectRatio, setAspectRatio] = useState('source');
-  const [faceSource, setFaceSource] = useState('');
+  const [editorMode, setEditorMode] = useState('localize');
   const [steps, setSteps] = useState(DEFAULT_STEPS);
-  const [ocrRegion, setOcrRegion] = useState('full');
-  const [visionStatus, setVisionStatus] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -151,19 +140,12 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
   const [savingAutomationSettings, setSavingAutomationSettings] = useState(false);
   const fileInput = useRef(null);
 
-  useEffect(() => { if (openProofKey) setTab('proof'); }, [openProofKey]);
   useEffect(() => { setLocalAuthorizations(youtubeAuthorizations); }, [youtubeAuthorizations]);
   useEffect(() => {
     fetch('/api/control/pipeline/presets', { cache: 'no-store' })
       .then((response) => response.json())
       .then((payload) => setPresets(payload.presets || []))
       .catch(() => setPresets([]));
-  }, []);
-  useEffect(() => {
-    fetch('/api/control/studio/context', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then(setVisionStatus)
-      .catch(() => setVisionStatus(null));
   }, []);
   useEffect(() => {
     fetch('/api/control/operations/automation-settings?limit=20', { cache: 'no-store' })
@@ -176,15 +158,15 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
   }, [sourceType]);
 
   function choosePreset(nextId) {
-    setPresetId(nextId);
     const template = presets.find((preset) => preset.id === nextId)?.template || {};
+    if ((template.processorIds || []).some((id) => !['videoEditor', 'metadata'].includes(id))) {
+      setError('This preset uses removed local video processors. Update it to use Video Editor MCP before running it.');
+      return;
+    }
+    setPresetId(nextId);
     const processors = new Set(template.processorIds || []);
     setSteps({
-      sceneCut: processors.has('sceneCut'),
-      faceFusion: processors.has('faceFusion'),
-      videoContext: processors.has('videoContext'),
-      ocrContext: processors.has('ocrContext'),
-      voiceover: processors.has('voiceover'),
+      videoEditor: processors.has('videoEditor'),
       metadata: processors.has('metadata'),
       publish: Boolean(template.uploaderId),
     });
@@ -193,8 +175,6 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
   function toggleStep(id, checked) {
     setSteps((current) => {
       const next = { ...current, [id]: checked };
-      if (id === 'videoContext' && !checked) next.ocrContext = false;
-      if (id === 'ocrContext' && checked) next.videoContext = true;
       return next;
     });
   }
@@ -202,13 +182,17 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
   function automationSettingsPayload() {
     return {
       sourceType, presetId, batchName, campaign, language, designatedDate, scheduleEveryDays,
-      steps: { ...steps }, aspectRatio, faceSource, ocrRegion,
+      steps: { ...steps }, editorMode,
       youtubeOptions: { ...youtubeOptions }, youtubeAuthorizationId,
     };
   }
 
   function applyAutomationSettings(setting) {
     const saved = setting?.settings || {};
+    if (['sceneCut', 'faceFusion', 'videoContext', 'ocrContext', 'voiceover', 'aiEditor'].some((id) => saved.steps?.[id])) {
+      setError('This setting uses removed local video processors. Choose Video Editor MCP and save an updated automation setting.');
+      return;
+    }
     const allowedSourceTypes = new Set(['bilibili', 'localFile', 'douyin']);
     setSourceType(allowedSourceTypes.has(saved.sourceType) ? saved.sourceType : 'bilibili');
     setPresetId(saved.presetId || 'edit-and-publish');
@@ -217,10 +201,8 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
     setLanguage(saved.language || 'auto');
     setDesignatedDate(saved.designatedDate || defaultDesignatedDate());
     setScheduleEveryDays(Math.max(1, Number(saved.scheduleEveryDays) || 1));
-    setSteps({ ...DEFAULT_STEPS, ...(saved.steps || {}) });
-    setAspectRatio(saved.aspectRatio || 'source');
-    setFaceSource(saved.faceSource || '');
-    setOcrRegion(saved.ocrRegion || 'full');
+    setSteps(Object.fromEntries(Object.keys(DEFAULT_STEPS).map((key) => [key, saved.steps?.[key] ?? (key === 'videoEditor' ? false : DEFAULT_STEPS[key])])));
+    setEditorMode(saved.editorMode || 'localize');
     setYoutubeOptions({ ...DEFAULT_YOUTUBE_OPTIONS, ...(saved.youtubeOptions || {}) });
     setYoutubeAuthorizationId(saved.youtubeAuthorizationId || '');
     setSavedAutomationSettingId(setting.id);
@@ -446,7 +428,6 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
     setNotice('');
     setError('');
     if (!sourceItems.length) return setError('Add at least one video source.');
-    if (steps.faceFusion && !faceSource.trim()) return setError('A face source image path is required for face swap.');
     const studioUpload = youtubeOptions.uploadMethod === 'studio';
     if (steps.publish && !studioUpload && !youtubeAuthorizationId) return setError('Choose an authorized YouTube channel before queueing this upload.');
     setSubmitting(true);
@@ -471,11 +452,7 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
             priority: 0,
             scheduledFor: scheduleForItem(item, index),
             options: {
-              sceneCut: { aspectRatio, encodingPreset: 'medium', crf: 20 },
-              faceFusion: { sourcePaths: faceSource.trim(), outputVideoQuality: 90 },
-              videoContext: { sourceLanguage: language, quality: 'balanced', intervalSeconds: 20, visionMode: 'always' },
-              ocrContext: { region: ocrRegion, denseSampling: true, denseInterval: 1, applyCorrections: 'auto' },
-              voiceover: { sourceLanguage: language, burnSubtitles: true },
+              videoEditor: { mode: editorMode, direction: language === 'en' ? 'en-to-zh' : 'zh-to-en' },
               metadata: {
                 reviewMetadata: false, title: item.title, description: item.description || '',
                 tags: item.tags || [], generationFields: item.generationFields,
@@ -506,7 +483,7 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
   return (
     <section className={styles.automationView}>
       {(plannerStep === 'automation' || tab !== 'planner') && <div className={styles.segmentedTabs} role="tablist" aria-label="Automation tools">
-        {[['planner', 'Create automation'], ['runs', 'Automation runs'], ['proof', 'Proof'], ['sources', 'Source tools']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? styles.segmentActive : ''} onClick={() => setTab(id)}>{label}</button>)}
+        {[['planner', 'Create automation'], ['runs', 'Automation runs'], ['sources', 'Source tools']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? styles.segmentActive : ''} onClick={() => setTab(id)}>{label}</button>)}
       </div>}
 
       {(notice || error) && <div className={error ? styles.inlineError : styles.inlineNotice}>{error || notice}</div>}
@@ -592,15 +569,9 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
             <div className={styles.formGridTwo}>
               <label className={styles.formField}><span>Workflow preset</span><select value={presetId} onChange={(event) => choosePreset(event.target.value)}>{presets.map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}</select></label>
               <label className={styles.formField}><span>Source language</span><select value={language} onChange={(event) => setLanguage(event.target.value)}><option value="auto">Auto detect</option><option value="en">English</option><option value="zh">Chinese</option></select></label>
-              <label className={styles.formField}><span>Output format</span><select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}><option value="source">Keep source</option><option value="16:9">16:9 · 1280x720</option><option value="9:16">9:16 · 720x1280</option><option value="1:1">1:1 · 1080x1080</option></select></label>
-              {steps.faceFusion && <label className={styles.formField}><span>Face source image path</span><input value={faceSource} onChange={(event) => setFaceSource(event.target.value)} placeholder="/absolute/path/face.jpg" /></label>}
-              {steps.ocrContext ? <label className={styles.formField}><span>OCR region</span><select value={ocrRegion} onChange={(event) => setOcrRegion(event.target.value)}><option value="full">Full frame</option><option value="bottom">Bottom · burned-in subtitles</option><option value="top">Top · titles</option></select></label> : null}
+              <label className={styles.formField}><span>Video processing</span><select value={editorMode} onChange={(event) => setEditorMode(event.target.value)}><option value="localize">Translate and render</option><option value="render">Render source video</option></select></label>
             </div>
-            {steps.videoContext ? <div className={styles.contextHealthLine}>
-              <span>Image recognition</span>
-              <strong>{visionStatus?.chain?.map((item) => item.label).join(' → ') || 'Gemini → Codex CLI → Kimi'}</strong>
-              <em>{visionStatus?.configured ? 'ready' : 'configure in Connections'}</em>
-            </div> : null}
+            {steps.videoEditor && <p className={styles.muted}>Video creation runs in video-automation. Configure models and edit projects there; finished videos return here for publishing.</p>}
           </section>}
         </div>
 
@@ -651,7 +622,6 @@ export default function AutomationHub({ openProofKey = 0, onQueued, youtubeAutho
       </form>}
 
       {tab === 'runs' && <PipelineDashboard />}
-      {tab === 'proof' && <FaceSwapProof />}
       {tab === 'sources' && <div className={styles.sourceTools}>
         <div className={styles.segmentedTabs} role="tablist" aria-label="Source tools"><button type="button" className={sourceTab === 'generate' ? styles.segmentActive : ''} onClick={() => setSourceTab('generate')}>Single video</button><button type="button" className={sourceTab === 'douyin' ? styles.segmentActive : ''} onClick={() => setSourceTab('douyin')}>Douyin import</button></div>
         {sourceTab === 'generate' ? <GenerateStudio youtubeAuthorizations={localAuthorizations} onAuthorizationAdded={(authorization) => setLocalAuthorizations((current) => [...current.filter((item) => item.id !== authorization.id), authorization])} /> : <DouyinImporter onCreated={() => setTab('runs')} />}

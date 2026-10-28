@@ -1,7 +1,7 @@
 import { accessSync, constants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { commandExists, runSubprocess } from '../context/subprocess.js';
+import { commandExists, runSubprocess } from '../runtime/subprocess.js';
 
 export const DEFAULT_CODEX_MODEL = 'gpt-6.1-sol';
 

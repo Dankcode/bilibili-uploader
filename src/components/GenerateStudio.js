@@ -26,8 +26,7 @@ const STATUS_COLOR = {
 
 // The optional, ordered processor chain for a generate run.
 const CHAIN = [
-  { id: 'voiceover', label: 'AI Voiceover', hint: 'transcribe → translate → Kimi re-script → TTS' },
-  { id: 'faceFusion', label: 'Face Fusion', hint: 'automated targeted face swap' },
+  { id: 'videoEditor', label: 'Video Editor MCP', hint: 'translate and render in video-automation' },
   { id: 'metadata', label: 'Auto Metadata', hint: 'title, description, and tags from the transcript' },
 ];
 
@@ -35,9 +34,7 @@ export default function GenerateStudio({ defaultSourceInput = '', youtubeAuthori
   const [connections, setConnections] = useState([]);
   const [sourceId, setSourceId] = useState('bilibili');
   const [sourceInput, setSourceInput] = useState(defaultSourceInput);
-  const [steps, setSteps] = useState({ voiceover: true, faceFusion: false, metadata: true });
-  const [sttBackend, setSttBackend] = useState('openaiWhisper');
-  const [sttQuality, setSttQuality] = useState('fast');
+  const [steps, setSteps] = useState({ videoEditor: true, metadata: true });
   const [publish, setPublish] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [activeJobId, setActiveJobId] = useState(null);
@@ -59,9 +56,6 @@ export default function GenerateStudio({ defaultSourceInput = '', youtubeAuthori
     if (res.ok) {
       const rows = data.checklist || [];
       setConnections(rows);
-      const voiceover = rows.find((row) => row.id === 'voiceover');
-      setSttBackend(voiceover?.defaults?.sttBackend || 'openaiWhisper');
-      setSttQuality(voiceover?.defaults?.sttQuality || 'fast');
     }
   };
 
@@ -77,6 +71,10 @@ export default function GenerateStudio({ defaultSourceInput = '', youtubeAuthori
 
   const applyPreset = (preset) => {
     if (!preset) return;
+    if ((preset.template?.processorIds || []).some((id) => !CHAIN.some((item) => item.id === id))) {
+      setError('This preset uses removed local video processors. Update it to use Video Editor MCP before running it.');
+      return;
+    }
     const selected = new Set(preset.template?.processorIds || []);
     setSteps(Object.fromEntries(CHAIN.map((item) => [item.id, selected.has(item.id)])));
     setPublish(Boolean(preset.template?.uploaderId));
@@ -108,7 +106,6 @@ export default function GenerateStudio({ defaultSourceInput = '', youtubeAuthori
     const defaults = selectedPreset?.template?.options || {};
     return {
       ...defaults,
-      ...(steps.voiceover ? { voiceover: { ...(defaults.voiceover || {}), sttBackend, sttQuality } } : {}),
       ...(steps.metadata ? { metadata: { ...(defaults.metadata || {}) } } : {}),
       ...(publish ? { youtube: { privacyStatus: 'private', ...(defaults.youtube || {}) } } : {}),
     };
@@ -156,7 +153,7 @@ export default function GenerateStudio({ defaultSourceInput = '', youtubeAuthori
   };
 
   // Re-checking is required whenever the chain changes.
-  useEffect(() => { setPreflight(null); setSourcePreview(null); }, [sourceId, sourceInput, steps.voiceover, steps.faceFusion, steps.metadata, publish, youtubeAuthorizationId, sttBackend, sttQuality, presetId]);
+  useEffect(() => { setPreflight(null); setSourcePreview(null); }, [sourceId, sourceInput, steps.videoEditor, steps.metadata, publish, youtubeAuthorizationId, presetId]);
 
   const generate = async () => {
     setError('');
@@ -254,23 +251,6 @@ export default function GenerateStudio({ defaultSourceInput = '', youtubeAuthori
               </label>
             </div>
             {publish && <PublishTarget authorizations={youtubeAuthorizations} value={youtubeAuthorizationId} onChange={setYoutubeAuthorizationId} durationSeconds={sourcePreview?.durationSeconds || 0} />}
-
-            {steps.voiceover && (
-              <>
-                <label className={styles.fieldLabel}>Speech-to-text engine</label>
-                <div className={styles.viewTabs}>
-                  <button className={`${styles.viewTab} ${sttBackend === 'openaiWhisper' ? styles.activeViewTab : ''}`} onClick={() => setSttBackend('openaiWhisper')}>API Whisper</button>
-                  <button className={`${styles.viewTab} ${sttBackend === 'localWhisper' ? styles.activeViewTab : ''}`} onClick={() => setSttBackend('localWhisper')}>Local Whisper</button>
-                </div>
-                {sttBackend === 'localWhisper' && (
-                  <div className={styles.viewTabs}>
-                    {['fast', 'balanced', 'best'].map((quality) => (
-                      <button key={quality} className={`${styles.viewTab} ${sttQuality === quality ? styles.activeViewTab : ''}`} onClick={() => setSttQuality(quality)}>{quality}</button>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
 
             {/* Preflight — inspect & test every step before full automation */}
             <div className={styles.preflightHead}>

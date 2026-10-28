@@ -2,88 +2,20 @@ import { randomUUID } from 'crypto';
 import db from '../db/sqlite';
 
 const BUILT_IN_PRESETS = [
-  {
-    id: 'face-swap-proof',
-    name: 'Face swap proof',
-    template: {
-      processorIds: ['faceFusion'],
-      uploaderId: '',
-      options: { faceFusion: { outputVideoQuality: 90 } },
-    },
-  },
-  {
-    id: 'edit-and-publish',
-    name: 'Edit and publish',
-    template: {
-      processorIds: ['sceneCut', 'videoContext', 'voiceover', 'metadata'],
-      uploaderId: 'youtube',
-      options: {
-        sceneCut: { encodingPreset: 'medium', crf: 20 },
-        videoContext: { visionMode: 'always', intervalSeconds: 20 },
-        voiceover: { burnSubtitles: true },
-        metadata: { reviewMetadata: false },
-        youtube: { privacyStatus: 'private' },
-      },
-    },
-  },
-  {
-    id: 'studio-full-auto',
-    name: 'Studio Full Auto',
-    template: {
-      processorIds: ['videoContext', 'ocrContext', 'voiceover', 'metadata'],
-      uploaderId: 'youtube',
-      options: {
-        videoContext: { visionMode: 'always', intervalSeconds: 20 },
-        ocrContext: { region: 'full', applyCorrections: 'auto' },
-        voiceover: { burnSubtitles: true },
-        metadata: { reviewMetadata: false },
-        youtube: { privacyStatus: 'private' },
-      },
-    },
-  },
-  {
-    id: 'dub-only',
-    name: 'Dub only',
-    template: {
-      processorIds: ['videoContext', 'voiceover'],
-      uploaderId: '',
-      options: { videoContext: { visionMode: 'always', intervalSeconds: 20 }, voiceover: { burnSubtitles: false } },
-    },
-  },
-  {
-    id: 'upload-only',
-    name: 'Upload only',
-    template: {
-      processorIds: [],
-      uploaderId: 'youtube',
-      options: { youtube: { privacyStatus: 'private' } },
-    },
-  },
-  {
-    id: 'subtitle-max-accuracy',
-    name: 'Subtitle max accuracy',
-    template: {
-      processorIds: ['videoContext', 'ocrContext', 'voiceover'],
-      uploaderId: '',
-      options: {
-        videoContext: { quality: 'best', intervalSeconds: 10, visionMode: 'always' },
-        ocrContext: { denseSampling: true, retranscribe: true, applyCorrections: 'review' },
-        voiceover: { burnSubtitles: true },
-      },
-    },
-  },
-  {
-    id: 'hardcoded-subs-extract',
-    name: 'Hardcoded subtitles extract',
-    template: {
-      processorIds: ['videoContext', 'ocrContext'],
-      uploaderId: '',
-      options: {
-        videoContext: { visionMode: 'off' },
-        ocrContext: { region: 'bottom', denseInterval: 0.5, denseSampling: true, applyCorrections: 'off' },
-      },
-    },
-  },
+  { id: 'edit-and-publish', name: 'Create and publish', template: {
+    processorIds: ['videoEditor', 'metadata'], uploaderId: 'youtube',
+    options: { videoEditor: { mode: 'localize' }, metadata: { reviewMetadata: false }, youtube: { privacyStatus: 'private' } },
+  } },
+  { id: 'studio-full-auto', name: 'Video Editor automation', template: {
+    processorIds: ['videoEditor', 'metadata'], uploaderId: 'youtube',
+    options: { videoEditor: { mode: 'localize' }, metadata: { reviewMetadata: false }, youtube: { privacyStatus: 'private' } },
+  } },
+  { id: 'create-only', name: 'Create video only', template: {
+    processorIds: ['videoEditor'], uploaderId: '', options: { videoEditor: { mode: 'localize' } },
+  } },
+  { id: 'upload-only', name: 'Upload only', template: {
+    processorIds: [], uploaderId: 'youtube', options: { youtube: { privacyStatus: 'private' } },
+  } },
 ];
 
 function parseJson(value, fallback = {}) {
@@ -103,6 +35,7 @@ function publicPreset(row) {
 }
 
 export function ensureBuiltInPresets() {
+  db.prepare("DELETE FROM pipeline_presets WHERE built_in = 1 AND id NOT IN ('edit-and-publish', 'studio-full-auto', 'create-only', 'upload-only')").run();
   const now = new Date().toISOString();
   const statement = db.prepare(`
     INSERT INTO pipeline_presets (id, name, template_json, built_in, created_at, updated_at)

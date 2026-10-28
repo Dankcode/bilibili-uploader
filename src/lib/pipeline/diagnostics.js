@@ -3,28 +3,20 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import db from '../db/sqlite';
-import { getLocalWhisperStatus } from '../studio/localWhisper';
 import { getCredentials, listConnections, probeService } from './connections';
 import { getUsageSummary } from './usage';
 import { hasProvider } from '../ai/getEnglish.js';
 const execFileAsync = promisify(execFile);
 const STEP_LABELS = {
   localFile: 'Local file source', bilibili: 'Bilibili source', douyin: 'Douyin source',
-  voiceover: 'AI Voiceover', aiEditor: 'AI Editor', sceneCut: 'Scene Cut', faceFusion: 'Face Fusion',
-  metadata: 'AI Metadata',
-  videoContext: 'Video Context', ocrContext: 'On-screen Text OCR',
+  videoEditor: 'Video Editor MCP', metadata: 'AI Metadata',
   youtube: 'YouTube upload',
 };
 const STEP_FIX = {
   bilibili: 'Paste a Bilibili URL into an automation. Cookies are gathered automatically when needed; restricted sources require an existing Bilibili browser sign-in.',
   douyin: 'Start the Douyin sidecar and set its URL/cookie in Settings ▸ douyin.',
-  voiceover: 'In Settings ▸ voiceover set the Whisper key + your TTS backend (ElevenLabs / CosyVoice / Qwen3), then Test.',
-  faceFusion: 'Run scripts/install_facefusion.sh, set facefusionDir + a source face image in Settings ▸ faceFusion, then Test.',
-  aiEditor: 'Set and Test the HuggingFace editor endpoint in Settings ▸ aiEditor.',
-  sceneCut: 'No external service — this runs locally with ffmpeg.',
-  metadata: 'Configure Kimi, OpenAI, or Gemini for the metadata processor, then Test.',
-  videoContext: 'Configure local/API Whisper and at least one of Gemini, Codex CLI, or Kimi Vision.',
-  ocrContext: 'Install rapidocr_onnxruntime with pip install -r requirements.txt and keep python3 available.',
+  videoEditor: 'Start video-automation and test its MCP URL in Connections. Configure processing models in that app.',
+  metadata: 'Configure a text provider for publishing metadata, then Test.',
   youtube: 'Configure the Python OAuth uploader and register an authorized YouTube account.',
 };
 
@@ -68,7 +60,7 @@ async function checkCommand(id, label, command, args, fixHint) {
 }
 
 function checkDisk() {
-  const workDir = path.join(process.cwd(), process.env.VIDEO_WORK_DIR || 'video-work');
+  const workDir = path.resolve(process.cwd(), process.env.VIDEO_WORK_DIR || 'video-work');
   fs.mkdirSync(workDir, { recursive: true });
   if (typeof fs.statfsSync !== 'function') {
     return warn('disk_space', 'Video work disk', 'Unable to inspect free space in this Node runtime', 'Keep at least 5GB free for downloads and ffmpeg output.');
@@ -82,7 +74,7 @@ function checkDisk() {
 function checkDbOpen() {
   const required = [
     'video_jobs', 'video_job_steps', 'video_assets', 'service_connections',
-    'studio_projects', 'api_usage', 'pipeline_presets', 'app_settings',
+    'api_usage', 'pipeline_presets', 'app_settings',
   ];
   const existing = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name));
   const missing = required.filter((table) => !existing.has(table));
@@ -119,24 +111,8 @@ function checkAiKey() {
   return ok('ai_key', 'AI metadata key', `${configured.join(', ')} configured`);
 }
 
-function checkLocalWhisper() {
-  const credentials = getCredentials('voiceover');
-  const selected = credentials.sttBackend === 'localWhisper';
-  const status = getLocalWhisperStatus(credentials.sttQuality || 'fast');
-  if (status.ready) {
-    const detail = `${status.model.label}: ${status.model.cached ? 'cached' : 'downloads on first run'}`;
-    return ok('local_whisper', 'Local Whisper', detail);
-  }
-  const missing = Object.entries(status.checks).filter(([, ready]) => !ready).map(([name]) => name).join(', ');
-  const detail = `Missing: ${missing}`;
-  return selected
-    ? fail('local_whisper', 'Local Whisper', detail, 'Install ffmpeg or enable model downloads, then retry the selected local STT backend.')
-    : warn('local_whisper', 'Local Whisper', detail, 'Optional while API Whisper is selected.');
-}
-
 function checkQuota() {
-  const credentials = getCredentials('voiceover');
-  const cap = Number(credentials.maxDailySeconds) || 21600;
+  const cap = 21600;
   const rows = getUsageSummary(undefined, cap);
   if (!rows.length) return ok('quota', 'Daily API quota', 'No metered use today');
   const highest = rows.reduce((current, row) => row.ratio > current.ratio ? row : current, rows[0]);
@@ -155,7 +131,6 @@ export async function runDiagnostics() {
     ['ffmpeg', 'ffmpeg', () => checkCommand('ffmpeg', 'ffmpeg', 'ffmpeg', ['-version'], 'Install ffmpeg and make sure it is on PATH.')],
     ['python', 'Python uploader runtime', () => checkCommand('python', 'Python uploader runtime', 'python3', ['--version'], 'Install Python 3.10+ and keep python3 on PATH.')],
     ['disk_space', 'Video work disk', () => checkDisk()],
-    ['local_whisper', 'Local Whisper', () => checkLocalWhisper()],
     ['quota', 'Daily API quota', () => checkQuota()],
     ['ai_key', 'AI metadata key', () => checkAiKey()],
   ];
@@ -241,12 +216,7 @@ export async function runPreflight(plan = {}) {
   ];
 
   // System checks the run depends on (media processing needs ffmpeg + disk).
-  const needsFfmpeg = processorIds.some((id) => ['videoContext', 'ocrContext', 'voiceover', 'faceFusion', 'sceneCut'].includes(id));
-  const system = [];
-  if (needsFfmpeg) {
-    system.push(await settle('ffmpeg', 'ffmpeg (media processing)', () => checkCommand('ffmpeg', 'ffmpeg (media processing)', 'ffmpeg', ['-version'], 'Install ffmpeg and keep it on PATH.')));
-  }
-  system.push(settleSync(checkDisk));
+  const system = [settleSync(checkDisk)];
 
   const steps = await Promise.all(order.map(async ({ role, id }) => {
     const label = STEP_LABELS[id] || id;
@@ -288,8 +258,8 @@ export function classifyError(error, { serviceId = '', stepId = '' } = {}) {
     || match(/enoent.*ff(?:mpeg|probe)|ff(?:mpeg|probe).*enoent/, 'tool_missing', 'Reinstall the media tools, then refresh Health.', { type: 'goto', view: 'diagnostics', target: 'ffmpeg' })
     || match(/enospc|no space left/, 'disk_full', 'Free space in video-work, then retry this job.', { type: 'goto', view: 'overview', target: 'retention' })
     || match(/\b429\b|quota|resource_exhausted|daily cap/, 'provider_limit', 'Wait for the limit to reset or switch the provider.', { type: 'goto', view: 'connections', target: serviceId || stepId })
-    || match(/whisper|model load|model.*unavailable/, 'local_model_unavailable', 'Re-run the local Whisper install, then refresh Health.', { type: 'goto', view: 'diagnostics', target: 'local_whisper' })
-    || match(/context revision mismatch|stale artifact/, 'stale_artifact', 'Re-run Timed screenshots before Kimi context.', { type: 'goto', view: 'studio', target: 'context' })
+    || match(/whisper|model load|model.*unavailable/, 'local_model_unavailable', 'Check the processing model in video-automation, then test Video Editor MCP.', { type: 'goto', view: 'connections', target: 'videoEditor' })
+    || match(/context revision mismatch|stale artifact/, 'stale_artifact', 'Refresh the project in video-automation and retry.', { type: 'goto', view: 'connections', target: 'videoEditor' })
     || { severity: 'error', category: 'unexpected', detail, nextStep: 'Review this check and retry after resolving the reported issue.', action: { type: 'goto', view: 'diagnostics', target: serviceId || stepId || 'unknown' } }
   );
 }

@@ -4,10 +4,7 @@ import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import styles from '../../app/page.module.css';
 
-const PROCESSORS = [
-  ['sceneCut', 'Edit and format'], ['faceFusion', 'Face swap'], ['videoContext', 'Transcript + frames'],
-  ['ocrContext', 'On-screen text OCR'], ['voiceover', 'English voiceover'], ['metadata', 'Marketing metadata'],
-];
+const PROCESSORS = [['videoEditor', 'Video Editor MCP'], ['metadata', 'Marketing metadata']];
 
 function localTime(value) {
   return value ? String(value).slice(0, 16) : '';

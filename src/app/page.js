@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BarChart3, Clapperboard, Library, Menu, PanelLeftClose, PanelLeftOpen, PlugZap,
+  BarChart3, Library, Menu, PanelLeftClose, PanelLeftOpen, PlugZap,
   Stethoscope, Workflow, X, LayoutDashboard, Inbox, Server, Send,
 } from 'lucide-react';
 import AutomationHub from '@/components/AutomationHub';
-import EditorWorkspace from '@/components/EditorWorkspace';
 import OperationsOverview from '@/components/OperationsOverview';
 import ServiceConnections from '@/components/ServiceConnections';
 import Troubleshooter from '@/components/Troubleshooter';
@@ -26,7 +25,6 @@ const NAV_GROUPS = [
       ['library', 'Manage Automated Tasks', Library, 'Review, edit, and track every saved automation task.'],
       ['automation', 'Create New Automations', Workflow, 'Choose sources, set the cadence, and create a new automated run.'],
       ['publish', 'Publish', Send, 'Upload budgets, held uploads, and upload receipts.'],
-      ['editor', 'Editor', Clapperboard, 'Edit video timelines, subtitles, and final publishing metadata.'],
       ['analytics', 'Analytics', BarChart3, 'Review performance for videos that have been published.'],
       ['mail', 'Mail', Inbox, 'Review platform notices and Gmail tracking events.'],
     ],
@@ -47,7 +45,6 @@ const VIEW_META = {
   library: ['Manage Automated Tasks', 'Saved tasks and their run history'],
   automation: ['Create New Automations', 'Sources, cadence, and AI publishing setup'],
   publish: ['Publish', 'Budgets, release queue, and upload receipts'],
-  editor: ['Video editor', 'Timeline and subtitles'],
   analytics: ['Analytics', 'Platform performance'],
   mail: ['Mail', 'Tracking inbox'],
   connections: ['Connections', 'Accounts and provider credentials'],
@@ -61,11 +58,9 @@ export default function Dashboard() {
   const [overviewPayload, setOverviewPayload] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [overviewError, setOverviewError] = useState('');
-  const [channels, setChannels] = useState([]);
   const [youtubeAuthorizations, setYoutubeAuthorizations] = useState([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [proofKey, setProofKey] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [processVideoId, setProcessVideoId] = useState('');
 
@@ -101,10 +96,6 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/control/operations/channels', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Could not load channels')))
-      .then((payload) => setChannels(payload.channels || []))
-      .catch(() => setChannels([]));
     loadYoutubeAuthorizations();
     loadOverview();
     const interval = setInterval(loadOverview, 8000);
@@ -112,8 +103,6 @@ export default function Dashboard() {
   }, [loadOverview, loadYoutubeAuthorizations]);
 
   function navigate(view, target = '') {
-    if (view === 'automation' && target === 'proof') setProofKey(Date.now());
-    if (view === 'editor') loadYoutubeAuthorizations();
     setActiveView(view);
     setMobileNavOpen(false);
   }
@@ -163,8 +152,7 @@ export default function Dashboard() {
         <main className={styles.opsContent}>
           {activeView === 'overview' && <OperationsOverview payload={overviewPayload} loading={overviewLoading} error={overviewError} onRefresh={refreshWorkspace} onNavigate={navigate} onOpenProcess={setProcessVideoId} />}
           {activeView === 'library' && <VideoLibrary refreshKey={refreshKey} />}
-          {activeView === 'automation' && <AutomationHub openProofKey={proofKey} onQueued={refreshWorkspace} youtubeAuthorizations={youtubeAuthorizations} />}
-          {activeView === 'editor' && <EditorWorkspace channels={channels} youtubeAuthorizations={youtubeAuthorizations} onPublished={() => navigate('analytics')} onJobQueued={() => { refreshWorkspace(); navigate('automation'); }} />}
+          {activeView === 'automation' && <AutomationHub onQueued={refreshWorkspace} youtubeAuthorizations={youtubeAuthorizations} />}
           {activeView === 'analytics' && <VideoAnalytics refreshKey={refreshKey} />}
           {activeView === 'mail' && <MailCenter />}
           {activeView === 'connections' && <ServiceConnections section="accounts" />}

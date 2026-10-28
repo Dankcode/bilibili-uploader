@@ -21,11 +21,9 @@ export default function nextConfig(phase) {
     // Renamed from experimental.serverComponentsExternalPackages in Next 15.
     serverExternalPackages: [
       'puppeteer-core',
-      'onnxruntime-node',
       'better-sqlite3',
       'ffmpeg-static',
       '@ffprobe-installer/ffprobe',
-      'fluent-ffmpeg',
     ],
   };
 }

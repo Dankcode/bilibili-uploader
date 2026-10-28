@@ -9,8 +9,8 @@ const CASES = [
   ['spawn ffmpeg ENOENT', 'tool_missing', 'diagnostics'],
   ['ENOSPC: no space left on device', 'disk_full', 'overview'],
   ['HTTP 429 RESOURCE_EXHAUSTED quota', 'provider_limit', 'connections'],
-  ['Whisper model load failure', 'local_model_unavailable', 'diagnostics'],
-  ['context revision mismatch', 'stale_artifact', 'studio'],
+  ['Whisper model load failure', 'local_model_unavailable', 'connections'],
+  ['context revision mismatch', 'stale_artifact', 'connections'],
 ];
 
 test('pipeline errors are classified into a concrete next step', () => {

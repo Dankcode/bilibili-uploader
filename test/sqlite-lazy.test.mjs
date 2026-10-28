@@ -11,15 +11,14 @@ test('importing SQLite never opens state; the first legacy query still initializ
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const dbPath = path.join(directory, 'test.db');
   const moduleUrl = pathToFileURL(path.resolve('src/lib/db/sqlite.js')).href;
-  const sceneUrl = pathToFileURL(path.resolve('src/lib/scenes/store.js')).href;
+  const storeUrl = pathToFileURL(path.resolve('src/lib/operations/store.js')).href;
   const result = spawnSync(process.execPath, ['--import', path.resolve('scripts/register_loader.mjs'), '--input-type=module', '-e', `
     import fs from 'node:fs';
     const { getVideos, closeDB } = await import(${JSON.stringify(moduleUrl)});
-    const { listShows } = await import(${JSON.stringify(sceneUrl)});
+    await import(${JSON.stringify(storeUrl)});
     if (fs.existsSync(process.env.VIDEO_SQLITE_PATH)) throw new Error('Import opened the database');
     if (getVideos().length !== 0) throw new Error('Unexpected fixture state');
     if (!fs.existsSync(process.env.VIDEO_SQLITE_PATH)) throw new Error('Query did not open the database');
-    if (listShows().length !== 0) throw new Error('Scene query did not initialize lazily');
     closeDB();
   `], { env: { ...process.env, VIDEO_SQLITE_PATH: dbPath }, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);

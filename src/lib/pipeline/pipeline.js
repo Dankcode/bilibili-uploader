@@ -1,3 +1,4 @@
+import * as videoEditorProcessor from './processors/videoEditor.js';
 import fs from 'fs';
 import { uploadBlocker } from '../operations/uploadCatalog.js';
 import path from 'path';
@@ -28,13 +29,7 @@ import * as bilibiliSource from './sources/bilibili';
 import * as douyinSource from './sources/douyin';
 import * as localFileSource from './sources/localFile';
 import * as librarySource from './sources/library';
-import * as voiceoverProcessor from './processors/voiceover';
-import * as aiEditorProcessor from './processors/aiEditor';
-import * as sceneCutProcessor from './processors/sceneCut';
-import * as faceFusionProcessor from './processors/faceFusion';
 import * as metadataProcessor from './processors/metadata';
-import * as videoContextProcessor from './processors/videoContext';
-import * as ocrContextProcessor from './processors/ocrContext';
 import * as youtubeUploader from './uploaders/youtube';
 import { isAllowedBilibiliHost, normalizeBilibiliVideoInput } from '../video/bilibiliUrl.js';
 import { emitMailEvent } from '../mail/events.js';
@@ -50,12 +45,7 @@ const SOURCE_ADAPTERS = {
 };
 
 const PROCESSOR_ADAPTERS = {
-  videoContext: videoContextProcessor,
-  ocrContext: ocrContextProcessor,
-  voiceover: voiceoverProcessor,
-  aiEditor: aiEditorProcessor,
-  sceneCut: sceneCutProcessor,
-  faceFusion: faceFusionProcessor,
+  videoEditor: videoEditorProcessor,
   metadata: metadataProcessor,
 };
 
@@ -328,7 +318,7 @@ function getLatestLocalAsset(jobId) {
   const asset = db.prepare(`
     SELECT file_path, meta_json FROM video_assets
     WHERE job_id = ? AND kind IN (
-      'original', 'voiceover', 'faceFusion', 'metadata', 'aiEditor', 'sceneCut',
+      'videoEditor', 'original', 'voiceover', 'faceFusion', 'metadata', 'aiEditor', 'sceneCut',
       'videoContext', 'ocrContext'
     )
     ORDER BY id DESC
@@ -534,13 +524,17 @@ export function updateQueuedJob(jobId, patch = {}) {
 
 async function runStep(job, step, currentFilePath, currentMeta) {
   const [role, id] = step.step.split(':');
+  if (role === 'processor' && !getProcessor(id)) {
+    throw new Error(`Processor "${id}" moved to Video Editor MCP. Edit this workflow to use videoEditor before retrying.`);
+  }
   const credentials = getCredentials(id);
   const options = parseJson(job.options_json, {});
   const onProgress = (progress, note = '') => {
+    if (cancelSignals.get(job.id)?.canceled || db.prepare('SELECT cancel_requested FROM video_jobs WHERE id = ?').get(job.id)?.cancel_requested) throw new Error('Job canceled');
     setStepProgress(step.id, progress, note);
     db.prepare('UPDATE video_jobs SET heartbeat_at = ?, updated_at = ? WHERE id = ?').run(nowIso(), nowIso(), job.id);
   };
-  const workDir = path.join(process.cwd(), process.env.VIDEO_WORK_DIR || 'video-work', String(job.id));
+  const workDir = path.join(path.resolve(process.cwd(), process.env.VIDEO_WORK_DIR || 'video-work'), String(job.id));
   fs.mkdirSync(workDir, { recursive: true });
 
   const stepStartedAtMs = Date.now();
@@ -579,17 +573,13 @@ async function runStep(job, step, currentFilePath, currentMeta) {
   } else if (role === 'processor') {
     const adapter = PROCESSOR_ADAPTERS[id];
     if (!adapter) throw new Error(`Processor adapter unavailable: ${id}`);
-    result = await adapter.process(currentFilePath, options[id] || {}, onProgress, credentials, currentMeta);
+    result = await adapter.process(currentFilePath, options[id] || {}, onProgress, credentials, currentMeta, { workDir, jobId: job.id });
     if (!result?.outputPath) throw new Error(`Processor ${id} did not return outputPath`);
     const previousFilePath = currentFilePath;
     const mediaChanged = path.resolve(result.outputPath) !== path.resolve(previousFilePath);
     const validation = mediaChanged
       ? await validateVideoOutput(result.outputPath, {
         expectedInputPath: previousFilePath,
-        preserveDuration: ['aiEditor', 'faceFusion', 'voiceover'].includes(id)
-          && !(id === 'faceFusion' && Number(options[id]?.trimFrameEnd)),
-        preserveDimensions: ['aiEditor', 'faceFusion', 'voiceover'].includes(id),
-        requireChanged: id === 'faceFusion',
       })
       : null;
     const processorArtifacts = { ...(result.artifacts || {}), ...(validation ? { validation } : {}) };
@@ -605,14 +595,12 @@ async function runStep(job, step, currentFilePath, currentMeta) {
       if (artifact?.kind && artifact?.path) saveAsset(job.id, artifact.kind, artifact.path, artifact.meta || {});
     }
     if (result.metrics) setStepStatus(step.id, 'running', { metrics: result.metrics });
-    if (job.video_record_id && ['videoContext', 'ocrContext'].includes(id)) {
+    if (job.video_record_id && id === 'videoEditor') {
       const previous = db.prepare('SELECT context_summary_json FROM video_records WHERE id = ?').get(job.video_record_id);
       const summary = {
         ...parseJson(previous?.context_summary_json, {}),
-        segmentCount: result.artifacts?.segmentCount ?? result.metrics?.segmentCount,
-        frameCount: result.artifacts?.frameCount ?? result.metrics?.frameCount,
-        correctionCount: result.artifacts?.correctionCount ?? result.metrics?.correctionCount,
-        glossaryTerms: (result.artifacts?.glossary || []).map((item) => item.term).slice(0, 40),
+        editorProjectId: result.artifacts?.editorProjectId,
+        editorUrl: result.artifacts?.editorUrl,
       };
       db.prepare('UPDATE video_records SET context_summary_json = ?, updated_at = ? WHERE id = ?')
         .run(JSON.stringify(summary), nowIso(), job.video_record_id);

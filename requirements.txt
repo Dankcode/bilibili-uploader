@@ -1,7 +1,6 @@
 Pillow
 requests
 openai
-moviepy
 selenium
 webdriver-manager
 pyautogui
@@ -11,7 +10,6 @@ bs4
 google-api-python-client
 google-auth
 google-auth-oauthlib
-rapidocr_onnxruntime
 opencv-python
 numpy
 mss

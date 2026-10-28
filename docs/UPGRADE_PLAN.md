@@ -1,3 +1,5 @@
+> Historical: built-in editing/processing moved to video-automation. See [Video Editor MCP](VIDEO_GENERATION.md) for the current integration.
+
 # Upgrade Plan — Whisper.cpp + LingoLoop integration (July 9, 2026)
 
 **PLAN ONLY — no code in this pass.** Every item lists the exact functions to add and files to delete.

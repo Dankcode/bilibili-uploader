@@ -1,3 +1,5 @@
+> Historical: built-in editing/processing moved to video-automation. See [Video Editor MCP](VIDEO_GENERATION.md) for the current integration.
+
 # Automation Context + Process View — Implementation Plan
 
 Status: **plan only, nothing built yet.**

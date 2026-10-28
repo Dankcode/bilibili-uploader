@@ -60,11 +60,3 @@ test('every adapter exposes the contract the registry calls', async () => {
     assert.equal(typeof module.testConnection, 'function', `${relative} must export testConnection`);
   }
 });
-
-test('videoContext resolves credentials without touching a shadowed global', async () => {
-  const videoContext = await import(path.join(repoRoot, 'src/lib/pipeline/processors/videoContext.js'));
-  // Before the fix this threw synchronously inside resolveCredentials().
-  const result = await videoContext.testConnection({ sttBackend: 'localWhisper' });
-  assert.equal(typeof result, 'object');
-  assert.ok('ok' in result, 'testConnection must report readiness rather than throw');
-});

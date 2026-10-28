@@ -6,7 +6,7 @@
  * flows through three adapter slots:
  *
  *   SOURCE (import) ──► PROCESSOR chain (0..n, ordered) ──► UPLOADER (publish)
- *   bilibili, douyin     voiceover, aiEditor, sceneCut       youtube (more later)
+ *   bilibili, douyin     videoEditor, metadata       youtube (more later)
  *
  * A pipeline job is pure data { sourceId, sourceInput, processorIds[],
  * uploaderId, options } persisted in config/bilibili.db (lib/pipeline/pipeline.js).
@@ -75,97 +75,14 @@ export const SOURCES = [
 
 export const PROCESSORS = [
   {
-    id: 'videoContext',
-    label: 'Video Context Builder (transcript + synchronized frames)',
+    id: 'videoEditor',
+    label: 'Video creation (Video Editor MCP)',
     credentialFields: [
-      { key: 'sttBackend', label: 'STT Backend', type: 'text', required: false, placeholder: 'localWhisper | openaiWhisper' },
-      { key: 'sttQuality', label: 'Local STT Quality', type: 'text', required: false, placeholder: 'fast | balanced | best' },
-      { key: 'transcribeApiKey', label: 'Whisper API Key', type: 'secret', required: false },
-      { key: 'transcribeBaseUrl', label: 'Whisper Base URL', type: 'text', required: false },
-      { key: 'transcribeModel', label: 'Whisper Model', type: 'text', required: false },
-      { key: 'visionBackend', label: 'Vision Backend', type: 'text', required: false, placeholder: 'gemini | codex | kimiVision' },
-      { key: 'visionFallback', label: 'Vision Fallback Order', type: 'text', required: false, placeholder: 'gemini,codex,kimiVision' },
-      { key: 'geminiApiKey', label: 'Gemini API Key', type: 'secret', required: false },
-      { key: 'geminiVisionModel', label: 'Gemini Vision Model', type: 'text', required: false, placeholder: 'gemini-2.0-flash' },
-      { key: 'codexBin', label: 'Codex CLI Binary', type: 'text', required: false, placeholder: 'codex' },
-      { key: 'codexModel', label: 'Codex Model', type: 'text', required: false },
+      { key: 'endpoint', label: 'Video Editor MCP URL', type: 'text', required: false, placeholder: 'http://127.0.0.1:4560/mcp', pattern: '^https?://[^\\s]+$', hint: 'Use the video-automation MCP endpoint, including /mcp.' },
+      { key: 'apiKey', label: 'Video Editor bearer token', type: 'secret', required: false },
+      { key: 'timeoutMs', label: 'Processing timeout (milliseconds)', type: 'text', required: false, placeholder: '21600000' },
     ],
-    adapterPath: 'src/lib/pipeline/processors/videoContext.js',
-  },
-  {
-    id: 'ocrContext',
-    label: 'On-screen Text OCR (local, dense sampling)',
-    credentialFields: [
-      { key: 'ocrBackend', label: 'OCR Backend', type: 'text', required: false, placeholder: 'rapidocr' },
-      { key: 'pythonBin', label: 'Python Binary', type: 'text', required: false },
-      { key: 'ocrLangs', label: 'OCR Languages', type: 'text', required: false, placeholder: 'ch,en' },
-    ],
-    adapterPath: 'src/lib/pipeline/processors/ocrContext.js',
-  },
-  {
-    id: 'voiceover',
-    label: 'AI Voiceover (Whisper → translate → Kimi re-script → TTS)',
-    // Automated dub: transcribe → translate (+transliterate) → Kimi re-script →
-    // ElevenLabs OR CosyVoice(local) TTS → ffmpeg duck+overlay. Server-side.
-    // Only the fields for the chosen tts/translation backend need filling.
-    credentialFields: [
-      // -- transcription --
-      { key: 'sttBackend', label: 'STT Backend', type: 'text', required: false, placeholder: 'openaiWhisper | localWhisper' },
-      { key: 'sttQuality', label: 'Local STT Quality', type: 'text', required: false, placeholder: 'fast | balanced | best' },
-      { key: 'transcribeApiKey', label: 'Whisper API Key (OpenAI-compatible)', type: 'secret', required: false },
-      { key: 'transcribeBaseUrl', label: 'Whisper Base URL', type: 'text', required: false, placeholder: 'https://api.openai.com/v1 (or Groq / self-hosted)' },
-      { key: 'transcribeModel', label: 'Whisper Model', type: 'text', required: false, placeholder: 'whisper-1' },
-      // -- translation + re-scripting --
-      ...TEXT_PROVIDER_FIELDS,
-      { key: 'kimiApiKey', label: 'Kimi API Key', type: 'secret', required: false },
-      { key: 'kimiModel', label: 'Kimi Model', type: 'text', required: false },
-      { key: 'translationBackend', label: 'Translation Backend', type: 'text', required: false, placeholder: 'aiProvider | liveTranslation | googleFree | gemini' },
-      { key: 'geminiApiKey', label: 'Gemini API Key', type: 'secret', required: false },
-      { key: 'geminiModel', label: 'Gemini Model', type: 'text', required: false, placeholder: 'gemini-1.5-flash' },
-      { key: 'geminiRefine', label: 'Gemini Refine (on/off)', type: 'text', required: false, placeholder: 'off' },
-      { key: 'rescript', label: 'Kimi Re-script (on/off)', type: 'text', required: false, placeholder: 'on' },
-      { key: 'rescriptStyle', label: 'Re-script Voice/Style', type: 'text', required: false, placeholder: 'e.g. calm, documentary narrator' },
-      // -- tts selection --
-      { key: 'ttsBackend', label: 'TTS Backend', type: 'text', required: false, placeholder: 'elevenlabs | cosyvoice | qwen3' },
-      // -- elevenlabs --
-      { key: 'elevenApiKey', label: 'ElevenLabs API Key', type: 'secret', required: false },
-      { key: 'voiceId', label: 'ElevenLabs Voice ID', type: 'text', required: false },
-      { key: 'modelId', label: 'ElevenLabs Model', type: 'text', required: false, placeholder: 'eleven_multilingual_v2' },
-      // -- cosyvoice (Alibaba, local) --
-      { key: 'cosyEndpoint', label: 'CosyVoice Endpoint (local)', type: 'text', required: false, placeholder: 'http://127.0.0.1:50000' },
-      { key: 'cosyMode', label: 'CosyVoice Mode', type: 'text', required: false, placeholder: 'zero_shot | sft | cross_lingual | instruct' },
-      { key: 'cosySpeakerId', label: 'CosyVoice Speaker (sft)', type: 'text', required: false },
-      { key: 'cosyPromptWav', label: 'CosyVoice Reference WAV path (zero_shot)', type: 'text', required: false },
-      { key: 'cosyPromptText', label: 'CosyVoice Reference Transcript', type: 'text', required: false },
-      // -- qwen3-tts (Alibaba: DashScope cloud OR local server) --
-      { key: 'qwenApiKey', label: 'Qwen3-TTS DashScope API Key', type: 'secret', required: false },
-      { key: 'qwenVoice', label: 'Qwen3-TTS Voice', type: 'text', required: false, placeholder: 'Cherry / Ethan / Serena …' },
-      { key: 'qwenModel', label: 'Qwen3-TTS Model', type: 'text', required: false, placeholder: 'qwen3-tts-flash' },
-      { key: 'qwenBaseUrl', label: 'DashScope Base URL', type: 'text', required: false, placeholder: 'https://dashscope-intl.aliyuncs.com for intl' },
-      { key: 'qwenLocalEndpoint', label: 'Qwen3-TTS Local Server (optional)', type: 'text', required: false, placeholder: 'http://127.0.0.1:8000' },
-      { key: 'maxDailySeconds', label: 'Daily API Cap (seconds)', type: 'text', required: false, placeholder: '21600' },
-    ],
-    adapterPath: 'src/lib/pipeline/processors/voiceover.js',
-  },
-  {
-    id: 'faceFusion',
-    label: 'FaceFusion (automated targeted face swap)',
-    // Wraps the FaceFusion headless CLI. Install the isolated runtime once.
-    credentialFields: [
-      { key: 'facefusionDir', label: 'FaceFusion Repo Path', type: 'text', placeholder: '/path/to/facefusion', pattern: '^/[^\\n\\r]*$', example: '/Users/name/facefusion', hint: 'Use an absolute FaceFusion folder path without a trailing newline.' },
-      { key: 'sourcePaths', label: 'Replacement Face Image(s) — ; separated', type: 'text', pattern: '^/[^\\n\\r]*(?:;\\s*/[^\\n\\r]*)*$', example: '/Users/name/faces/host.jpg', hint: 'Use one or more absolute image paths separated by semicolons.' },
-      { key: 'pythonBin', label: 'Python Binary', type: 'text', required: false, placeholder: '/path/to/facefusion/.venv/bin/python', pattern: '^/[^\\n\\r]*$', example: '/Users/name/facefusion/.venv/bin/python', hint: 'Use an absolute Python executable path without a trailing newline.' },
-      { key: 'executionProviders', label: 'Execution Provider', type: 'text', required: false, placeholder: 'auto | cpu | coreml | cuda' },
-      { key: 'downloadProviders', label: 'Model Download Providers', type: 'text', required: false, placeholder: 'huggingface github' },
-      { key: 'faceSwapperModel', label: 'Face Swapper Model', type: 'text', required: false, placeholder: 'inswapper_128_fp16' },
-      { key: 'faceEnhancer', label: 'Face Enhancer (on/off)', type: 'text', required: false, placeholder: 'off' },
-      { key: 'faceSelectorMode', label: 'Face Selector Mode', type: 'text', required: false, placeholder: 'reference | one | many' },
-      { key: 'faceSelectorGender', label: 'Target Gender (optional)', type: 'text', required: false, placeholder: 'male | female' },
-      { key: 'referenceFacePosition', label: 'Reference Face Position', type: 'text', required: false, placeholder: '0' },
-      { key: 'referenceFaceDistance', label: 'Reference Face Distance', type: 'text', required: false, placeholder: '0.6' },
-      { key: 'referenceFrameNumber', label: 'Reference Frame Number', type: 'text', required: false, placeholder: '0' },
-    ],
-    adapterPath: 'src/lib/pipeline/processors/faceFusion.js',
+    adapterPath: 'src/lib/pipeline/processors/videoEditor.js',
   },
   {
     id: 'metadata',
@@ -179,23 +96,6 @@ export const PROCESSORS = [
       { key: 'geminiModel', label: 'Gemini Model', type: 'text', required: false, placeholder: 'gemini-2.0-flash' },
     ],
     adapterPath: 'src/lib/pipeline/processors/metadata.js',
-  },
-  {
-    id: 'aiEditor',
-    label: 'AI Video Editor (HuggingFace LAN)',
-    credentialFields: [
-      { key: 'endpoint', label: 'HF Editor URL (LAN)', type: 'text', placeholder: 'http://192.168.x.x:7860', pattern: '^https?://[^\\s/]+(?::\\d+)?(?:/.*)?$', example: 'http://192.168.1.20:7860', hint: 'Use a complete HTTP URL, including its protocol and port.' },
-      { key: 'defaultModel', label: 'Default Model', type: 'text', placeholder: 'e.g. Lightricks/LTX-Video' },
-      { key: 'apiKey', label: 'API Key (optional)', type: 'secret' },
-    ],
-    adapterPath: 'src/lib/pipeline/processors/aiEditor.js',
-  },
-  {
-    id: 'sceneCut',
-    label: 'Scene Snippet Cutter',
-    // fluent-ffmpeg (already a dep) cut+concat driven by SceneScript beats.
-    credentialFields: [],
-    adapterPath: 'src/lib/pipeline/processors/sceneCut.js',
   },
 ];
 
@@ -232,13 +132,9 @@ export function getSource(id) { return SOURCES.find((s) => s.id === id) || null;
 export function getProcessor(id) { return PROCESSORS.find((p) => p.id === id) || null; }
 export function getUploader(id) { return UPLOADERS.find((u) => u.id === id) || null; }
 
-export const PROCESSOR_ORDER = [
-  'sceneCut', 'faceFusion', 'videoContext', 'ocrContext', 'voiceover', 'metadata', 'aiEditor',
-];
+export const PROCESSOR_ORDER = ['videoEditor', 'metadata'];
 
-export const PROCESSOR_REQUIRES = {
-  ocrContext: ['videoContext'],
-};
+export const PROCESSOR_REQUIRES = {};
 
 export function validateProcessorChain(processorIds = []) {
   const ids = Array.isArray(processorIds) ? processorIds.map(String) : [];
@@ -247,7 +143,7 @@ export function validateProcessorChain(processorIds = []) {
   let lastOrder = -1;
   for (const id of ids) {
     if (!getProcessor(id)) {
-      errors.push(`Unknown processor "${id}".`);
+      errors.push(`Unknown processor "${id}". Video processing moved to videoEditor (Video Editor MCP); update this workflow.`);
       continue;
     }
     if (seen.has(id)) errors.push(`Processor "${id}" appears more than once.`);
@@ -267,8 +163,7 @@ export function validateProcessorChain(processorIds = []) {
 }
 
 /**
- * Settings-CRM checklist rows for every adapter + scraper sites (scenes/scraper.js
- * SCRAPER_SITES appended by the caller). Merged with service_connections rows
+ * Settings checklist rows for every adapter. Merged with service_connections rows
  * (lib/pipeline/connections.js). View model:
  *   [{ id, role, label, configured, tested, enabled, authState, checkedAt,
  *      lastError }]

@@ -12,8 +12,7 @@ const execFileAsync = promisify(execFile);
  */
 const mergeVideoAudio = async (videoPath, audioPath, outputPath) => {
   try {
-    if (!ffmpegPath) throw new Error('Bundled FFmpeg binary is unavailable');
-    const { stdout, stderr } = await execFileAsync(ffmpegPath, [
+    const { stdout, stderr } = await execFileAsync(process.env.FFMPEG_PATH || ffmpegPath || 'ffmpeg', [
       '-i', videoPath,
       '-i', audioPath,
       '-c', 'copy',
