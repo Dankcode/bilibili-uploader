@@ -61,6 +61,7 @@ export default function Dashboard() {
   const [youtubeAuthorizations, setYoutubeAuthorizations] = useState([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [systemExpanded, setSystemExpanded] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [processVideoId, setProcessVideoId] = useState('');
 
@@ -104,6 +105,7 @@ export default function Dashboard() {
 
   function navigate(view, target = '') {
     setActiveView(view);
+    if (NAV_GROUPS[1].items.some(([id]) => id === view)) setSystemExpanded(true);
     setMobileNavOpen(false);
   }
 
@@ -129,8 +131,8 @@ export default function Dashboard() {
 
         <nav className={styles.opsNav} aria-label="Primary navigation">
           {NAV_GROUPS.map((group) => <div className={styles.opsNavGroup} key={group.label}>
-            {!sidebarCollapsed && <span>{group.label}</span>}
-            {group.items.map(([id, label, Icon, hint]) => <button type="button" key={id} className={activeView === id ? styles.opsNavActive : ''} onClick={() => navigate(id)} aria-label={`${label}: ${hint}`}><Icon size={17} /><span>{label}</span><small className={styles.navHint} role="tooltip">{hint}</small>{id === 'library' && counts.needsReview > 0 && <i>{counts.needsReview}</i>}{id === 'publish' && counts.unconfirmedUploads > 0 && <i>{counts.unconfirmedUploads}</i>}</button>)}
+            {group.label === 'System' ? <button type="button" className={styles.systemNavToggle} onClick={() => setSystemExpanded((value) => !value)} aria-expanded={systemExpanded} aria-label="Toggle system tools"><Server size={17} /><span>System tools {systemExpanded ? '−' : '+'}</span></button> : !sidebarCollapsed && <span>{group.label}</span>}
+            {(group.label !== 'System' || systemExpanded || group.items.some(([id]) => id === activeView)) && group.items.map(([id, label, Icon, hint]) => <button type="button" key={id} className={activeView === id ? styles.opsNavActive : ''} onClick={() => navigate(id)} aria-label={`${label}: ${hint}`}><Icon size={17} /><span>{label}</span><small className={styles.navHint} role="tooltip">{hint}</small>{id === 'library' && counts.needsReview > 0 && <i>{counts.needsReview}</i>}{id === 'publish' && counts.unconfirmedUploads > 0 && <i>{counts.unconfirmedUploads}</i>}</button>)}
           </div>)}
         </nav>
 

@@ -1,6 +1,7 @@
 import * as videoEditorProcessor from './processors/videoEditor.js';
 import fs from 'fs';
 import { uploadBlocker } from '../operations/uploadCatalog.js';
+import { titleContextForVideo } from '../operations/titleContext.js';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import db, { finalizeUpload, logError, updateVideoStatus } from '../db/sqlite';
@@ -9,6 +10,7 @@ import {
   addAutomationBatchItem,
   createAutomationBatch,
   ensureVideoRecord,
+  listCategoryTitleContexts,
   recordPublication,
   recordVideoVersion,
   syncAutomationBatch,
@@ -433,9 +435,14 @@ export function createJobBatch(input = {}) {
     options: input.options,
   });
   const created = [];
+  const categoryContexts = listCategoryTitleContexts();
   const transaction = db.transaction(() => {
     items.forEach((item, index) => {
       const template = preset?.template || {};
+      const options = { ...(template.options || {}), ...(input.defaults?.options || {}), ...(item.options || {}) };
+      if ((item.processorIds || input.defaults?.processorIds || template.processorIds || []).includes('metadata')) {
+        options.metadata = { ...options.metadata, copyPrompt: titleContextForVideo(categoryContexts, options.youtube?.categoryId, options.metadata?.copyPrompt) };
+      }
       const job = insertJob({
         ...template,
         ...input.defaults,
@@ -448,11 +455,7 @@ export function createJobBatch(input = {}) {
           ?? input.defaults?.youtubeAuthorizationId
           ?? template.youtubeAuthorizationId
           ?? '',
-        options: {
-          ...(template.options || {}),
-          ...(input.defaults?.options || {}),
-          ...(item.options || {}),
-        },
+        options,
         presetId: input.presetId || '',
         batchId: batch.id,
       }, { schedule: false });

@@ -405,10 +405,18 @@ function publicAutomationSetting(row) {
   };
 }
 
+export function listCategoryTitleContexts() {
+  const contexts = {};
+  const rows = db.prepare("SELECT id, settings_json FROM automation_settings WHERE id LIKE 'category-title-context:%'").all();
+  for (const row of rows) contexts[row.id.slice('category-title-context:'.length)] = parseJson(row.settings_json, {}).context || '';
+  return contexts;
+}
+
 /** Reusable planner settings; deliberately never changes dispatched jobs. */
 export function listAutomationSettings({ limit = 20 } = {}) {
   return db.prepare(`
     SELECT * FROM automation_settings
+    WHERE id NOT LIKE 'category-title-context:%'
     ORDER BY updated_at DESC
     LIMIT ?
   `).all(boundedInt(limit, 20, 1, 100)).map(publicAutomationSetting);

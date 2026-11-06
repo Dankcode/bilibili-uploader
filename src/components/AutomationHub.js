@@ -138,6 +138,11 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
   const [savedAutomationSettingId, setSavedAutomationSettingId] = useState('');
   const [settingsName, setSettingsName] = useState('Bilibili automation');
   const [savingAutomationSettings, setSavingAutomationSettings] = useState(false);
+  const [categoryContexts, setCategoryContexts] = useState({});
+  const [contextDraft, setContextDraft] = useState('');
+  const [contextSaving, setContextSaving] = useState(false);
+  const [contextLoaded, setContextLoaded] = useState(false);
+  const categoryKey = youtubeOptions.categoryId || 'default';
   const fileInput = useRef(null);
 
   useEffect(() => { setLocalAuthorizations(youtubeAuthorizations); }, [youtubeAuthorizations]);
@@ -153,6 +158,13 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
       .then((payload) => setSavedAutomationSettings(payload.settings || []))
       .catch(() => setSavedAutomationSettings([]));
   }, []);
+  useEffect(() => {
+    fetch('/api/control/operations/category-title-context', { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Could not load category title context')))
+      .then((payload) => { setCategoryContexts(payload.contexts || {}); setContextLoaded(true); })
+      .catch((loadError) => setError(loadError.message));
+  }, []);
+  useEffect(() => { setContextDraft(categoryContexts[categoryKey] || ''); }, [categoryKey, categoryContexts]);
   useEffect(() => {
     if (sourceType === 'bilibili') loadSavedBilibiliReview();
   }, [sourceType]);
@@ -230,6 +242,17 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
     } finally {
       setSavingAutomationSettings(false);
     }
+  }
+
+  async function saveCategoryContext() {
+    setContextSaving(true); setError('');
+    try {
+      const response = await fetch('/api/control/operations/category-title-context', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryId: categoryKey, context: contextDraft }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not save category title context');
+      setCategoryContexts((current) => ({ ...current, [categoryKey]: payload.context }));
+      setNotice('Title context saved for this category and future automated uploads.');
+    } catch (saveError) { setError(saveError.message); } finally { setContextSaving(false); }
   }
 
   const typedSources = useMemo(() => sourceText.split(/\r?\n/).map((value) => value.trim()).filter(Boolean), [sourceText]);
@@ -428,6 +451,8 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
     setNotice('');
     setError('');
     if (!sourceItems.length) return setError('Add at least one video source.');
+    if (!contextLoaded) return setError('Category title context has not loaded. Refresh and try again.');
+    if (contextDraft !== (categoryContexts[categoryKey] || '')) return setError('Save the category title context before queueing.');
     const studioUpload = youtubeOptions.uploadMethod === 'studio';
     if (steps.publish && !studioUpload && !youtubeAuthorizationId) return setError('Choose an authorized YouTube channel before queueing this upload.');
     setSubmitting(true);
@@ -578,7 +603,7 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
         {plannerStep === 'automation' && <aside className={styles.plannerRail}>
           <section className={styles.opsPanel}>
             <div className={styles.opsPanelHeader}><div><span className={styles.eyebrow}>03 · Automation</span><h2>Settings and delivery</h2></div><button type="button" className={styles.buttonSecondary} onClick={() => setPlannerStep('sources')}>Edit sources</button></div>
-            <div className={styles.savedAutomationSettings}>
+            <details className={styles.savedSettingsDisclosure}><summary>Reusable automation settings</summary><div className={styles.savedAutomationSettings}>
               <label className={styles.formField}><span>Saved automation setting</span><select value={savedAutomationSettingId} onChange={(event) => {
                 const setting = savedAutomationSettings.find((item) => item.id === event.target.value);
                 if (setting) applyAutomationSettings(setting);
@@ -588,6 +613,7 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
               <button type="button" className={styles.buttonSecondary} disabled={savingAutomationSettings} onClick={saveCurrentAutomationSettings}>{savingAutomationSettings ? 'Saving…' : 'Save automation settings'}</button>
               <small className={styles.connectionMeta}>Saved settings are reusable SQL records. Updating one never changes jobs already dispatched.</small>
             </div>
+            </details>
             <label className={styles.formField}><span>Batch name</span><input value={batchName} onChange={(event) => setBatchName(event.target.value)} placeholder="August launch" /></label>
             <label className={styles.formField}><span>Campaign</span><input value={campaign} onChange={(event) => setCampaign(event.target.value)} placeholder="Campaign or series" /></label>
             {steps.publish && <label className={styles.formField}><span>Upload method</span><select value={youtubeOptions.uploadMethod || 'api'} onChange={(event) => setYoutubeOptions((current) => ({ ...current, uploadMethod: event.target.value }))}>
@@ -598,10 +624,14 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
             </label>}
             {steps.publish && youtubeOptions.uploadMethod !== 'studio' && <PublishTarget authorizations={localAuthorizations} value={youtubeAuthorizationId} onChange={setYoutubeAuthorizationId} durationSeconds={Math.max(0, ...sourceItems.map((item) => Number(item.durationSeconds) || 0))} />}
             {steps.publish && <div className={styles.youtubeOptions}>
-              <div><span className={styles.eyebrow}>YouTube delivery</span><p>Tags are intentionally blank: the AI metadata step creates them from each row’s copy brief.</p></div>
+              <div><span className={styles.eyebrow}>YouTube delivery</span></div>
               <div className={styles.formGridTwo}>
                 <label className={styles.formField}><span>Visibility</span><select value={youtubeOptions.privacyStatus} onChange={(event) => setYoutubeOptions((current) => ({ ...current, privacyStatus: event.target.value }))}><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></label>
                 <label className={styles.formField}><span>Category</span><select value={youtubeOptions.categoryId} onChange={(event) => setYoutubeOptions((current) => ({ ...current, categoryId: event.target.value }))}><option value="">AI / leave unset</option><option value="22">People & Blogs</option><option value="24">Entertainment</option><option value="27">Education</option><option value="28">Science & Technology</option></select></label>
+              </div>
+              <label className={styles.formField}><span>Title context for this category</span><textarea rows="3" maxLength={4000} value={contextDraft} onChange={(event) => setContextDraft(event.target.value)} placeholder="Describe the audience, title format, recurring series details, or words to avoid." /></label>
+              <div className={styles.categoryContextActions}><small>Used for AI-generated titles in future uploads in this category. Per-video briefs are also included.</small><button type="button" className={styles.buttonSecondary} disabled={!contextLoaded || contextSaving || contextDraft === (categoryContexts[categoryKey] || '')} onClick={saveCategoryContext}>{contextSaving ? 'Saving…' : 'Save context'}</button></div>
+              <details className={styles.advancedDelivery}><summary>More delivery options</summary><div className={styles.formGridTwo}>
                 <label className={styles.formField}><span>Video language</span><select value={youtubeOptions.defaultLanguage} onChange={(event) => setYoutubeOptions((current) => ({ ...current, defaultLanguage: event.target.value }))}><option value="">Unspecified</option><option value="en">English</option><option value="zh">Chinese</option></select></label>
                 <label className={styles.formField}><span>License</span><select value={youtubeOptions.license} onChange={(event) => setYoutubeOptions((current) => ({ ...current, license: event.target.value }))}><option value="youtube">Standard</option><option value="creativeCommon">Creative Commons</option></select></label>
               </div>
@@ -609,7 +639,7 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
                 <label><input type="checkbox" checked={youtubeOptions.madeForKids} onChange={(event) => setYoutubeOptions((current) => ({ ...current, madeForKids: event.target.checked }))} /> Made for kids</label>
                 <label><input type="checkbox" checked={youtubeOptions.embeddable} onChange={(event) => setYoutubeOptions((current) => ({ ...current, embeddable: event.target.checked }))} /> Allow embedding</label>
                 <label><input type="checkbox" checked={youtubeOptions.notifySubscribers} onChange={(event) => setYoutubeOptions((current) => ({ ...current, notifySubscribers: event.target.checked }))} /> Notify subscribers</label>
-              </div>
+              </div></details>
             </div>}
             <div className={styles.batchSummary}>
               <div><span>Videos</span><strong>{sourceItems.length}</strong></div>

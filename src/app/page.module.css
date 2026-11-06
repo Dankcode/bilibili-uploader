@@ -4019,3 +4019,11 @@ details.connectionRow:not([open]) .connectionDetails {
 .releaseResolve p { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); }
 .releaseResolve div { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .releaseResolve input { flex: 1 1 240px; min-width: 0; background: var(--surface-deep); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 8px; }
+
+.savedSettingsDisclosure, .advancedDelivery { border-top: 1px solid var(--border); padding-top: 12px; }
+.savedSettingsDisclosure summary, .advancedDelivery summary { cursor: pointer; color: var(--text-muted); font-size: 12px; font-weight: 600; padding: 4px 0; }
+.savedSettingsDisclosure[open] .savedAutomationSettings, .advancedDelivery[open] > .formGridTwo { margin-top: 12px; }
+.advancedDelivery .youtubeChecks { margin-top: 12px; }
+.categoryContextActions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.categoryContextActions small { color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.categoryContextActions button { flex-shrink: 0; }
