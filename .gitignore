@@ -27,6 +27,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # API keys and secrets
+/config/
 .env
 .env.*
 !.env.example
@@ -38,6 +39,9 @@ client_secret*.json
 *_token.json
 token*.pickle
 *.credentials.json
+*.key
+*.p12
+*.pfx
 credentials*.json
 config/*.json
 config/*.pickle

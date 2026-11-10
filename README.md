@@ -45,8 +45,8 @@ publishing metadata, and destination accounts here.
   `scripts/python/`. Install with `pip install -r requirements.txt`.
 - **FFmpeg / FFprobe** — bundled binaries handle source audio/video merging
   and publishing validation. `FFMPEG_PATH` / `FFPROBE_PATH` override them.
-- **Video Editor MCP** — start video-automation separately on port 4560 for
-  video creation. Upload-only jobs do not need it.
+- **Optional Video Editor MCP** — start video-automation separately on port
+  4560 if you want automated editing. Upload-only jobs do not need it.
 - **Disk** — the diagnostics panel warns below 5 GB free in the work directory.
 - Optional: the Douyin downloader sidecar and an AI text provider for metadata.
 
@@ -246,7 +246,7 @@ processor IDs with `videoEditor` before running an older custom workflow.
 
 ## Video Editor MCP configuration
 
-Start `Documents/GitHub/video-automation` separately. The default endpoint is
+To enable the optional editing step, start `video-automation` separately. The default endpoint is
 `http://127.0.0.1:4560/mcp`. In **Connections → Video creation (Video Editor MCP)**,
 set an alternate endpoint and bearer token if needed, then **Test** and enable it.
 Environment alternatives:
@@ -269,6 +269,9 @@ behavior](docs/VIDEO_GENERATION.md).
 
 Publishing and source settings remain in Connections. See
 [.env.example](./.env.example) for runtime and publishing options.
+
+For the complete setup, including a first private upload and recovery steps, see
+[the edit-and-upload workflow](docs/VIDEO_GENERATION.md#run-an-automatic-edit-and-upload).
 
 ## Runtime topology
 
