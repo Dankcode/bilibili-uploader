@@ -33,7 +33,7 @@ No token, pairing, or insecure-HTTP opt-in flag is needed. For local use, the
 base URL defaults to `http://127.0.0.1:4455`. Point the client at the backend
 beside its SQLite database, not a remote-mode frontend.
 
-The bridge exposes the same twenty operations as `/api/agent/v1/openapi.json`.
+The bridge exposes the same 21 operations as `/api/agent/v1/openapi.json`.
 It does not open SQLite or run the upload worker in the stdio process.
 `npm run mcp:setup` is now a compatibility notice; old credential files are
 preserved but not required for access. Optional legacy bearer headers still
@@ -91,3 +91,11 @@ worker is an MCP client of video-automation for video creation. Use processor
 `videoEditor` with `mode: "localize"` or `mode: "render"`; its endpoint defaults
 to `http://127.0.0.1:4560/mcp`. Model and editing configuration belongs to the
 editor. See [video creation](VIDEO_GENERATION.md) for media handoff and retries.
+
+
+`delete_video_record` removes an idle video from the working catalog. First use
+`search_catalog` to get its `id` and `updatedAt`, then provide `videoId`,
+`ifMatch` and a unique `idempotencyKey`. Cancel queued, running, or review jobs
+and wait for them to stop first. Deletion is logical: the row, media, job and
+publication history remain on disk to preserve delivery and duplicate-upload
+checks. It does not delete any external video or editor project.

@@ -28,12 +28,12 @@ function fixtureJob(status = 'review', uploaderId = '') {
   return job.id;
 }
 
-test('one shared contract has twenty tools, matching REST/OpenAPI, and no approval/SQL/delete capability', () => {
-  assert.equal(operations.length, 20);
+test('one shared contract has 21 tools, matching REST/OpenAPI, and exposes record deletion', () => {
+  assert.equal(operations.length, 21);
   assert.equal(readAgentResource('videops://manifest').humanApprovalRequired, false);
   const spec = openApiDocument();
   for (const op of operations) assert.equal(spec.paths[op.path][op.method.toLowerCase()].operationId, op.name);
-  assert.ok(!operations.some((op) => /approve|sql|delete|runtime/.test(op.name)));
+  assert.ok(!operations.some((op) => /approve|sql|runtime/.test(op.name)));
 });
 
 test('MCP and app routes no longer require operator sign-in; internal proxy target stays local', async () => {
@@ -228,4 +228,25 @@ test('list tools omit logs and credential values; explicit log resource redacts 
   const log = readAgentResource(`videops://job/${id}/log`);
   assert.ok(log.log.includes('[redacted]')); assert.ok(!log.log.includes(process.env.VIDEO_AGENT_TOKEN));
   await assert.rejects(call('list_work', { limit: 100 }), (error) => error.code === 'INVALID_INPUT');
+});
+
+test('catalog deletion is versioned, blocks active jobs, survives backfill, and keeps history', async () => {
+  const job = createJob({ sourceId: 'bilibili', sourceInput: `https://www.bilibili.com/video/${bv(998)}`, processorIds: [], uploaderId: '' });
+  const videoId = job.videoRecordId;
+  const row = () => db.prepare('SELECT * FROM video_records WHERE id = ?').get(videoId);
+  const input = { videoId, ifMatch: row().updated_at, idempotencyKey: 'delete-fixture' };
+  await assert.rejects(call('delete_video_record', { ...input, ifMatch: 'stale' }), (e) => e.code === 'STALE_WRITE');
+  await assert.rejects(call('delete_video_record', input), (e) => e.code === 'PRECONDITION_FAILED');
+  db.prepare("UPDATE video_jobs SET status = 'failed' WHERE id = ?").run(job.id);
+  const result = await call('delete_video_record', input);
+  assert.deepEqual(result, { videoId, deleted: true });
+  assert.deepEqual(await call('delete_video_record', input), result);
+  assert.ok(row().deleted_at);
+  assert.ok(db.prepare('SELECT id FROM video_jobs WHERE id = ?').get(job.id));
+  const found = await call('search_catalog', { query: bv(998) });
+  assert.ok(!found.items.some((item) => item.id === videoId));
+  const { listVideoOperations } = await import('../src/lib/operations/store.js');
+  assert.ok(!listVideoOperations({ query: bv(998) }).videos.some((item) => item.id === videoId));
+  const { retryJob } = await import('../src/lib/pipeline/pipeline.js');
+  assert.throws(() => retryJob(job.id), /deleted/);
 });

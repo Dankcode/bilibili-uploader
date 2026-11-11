@@ -81,15 +81,16 @@ function rowToVideo(row) {
 
 export function getVideoProcessGraph(videoId) {
   backfillOperationsCatalog();
-  const videoRow = db.prepare('SELECT * FROM video_records WHERE id = ?').get(String(videoId));
+  const videoRow = db.prepare("SELECT * FROM video_records WHERE id = ? AND deleted_at = ''").get(String(videoId));
   if (!videoRow) return null;
   const video = rowToVideo(videoRow);
   const job = db.prepare('SELECT * FROM video_jobs WHERE video_record_id = ? ORDER BY created_at DESC, id DESC LIMIT 1').get(video.id);
   const steps = job ? db.prepare('SELECT * FROM video_job_steps WHERE job_id = ? ORDER BY id ASC').all(job.id) : [];
   const assets = job ? db.prepare('SELECT * FROM video_assets WHERE job_id = ? ORDER BY id ASC').all(job.id) : [];
   const graph = job ? graphFromJob({ ...job, steps, assets }) : graphFromPreset(video.presetId, { sourceId: video.sourceType });
-  const versions = db.prepare('SELECT * FROM video_versions WHERE video_id = ? ORDER BY created_at DESC').all(video.id).map((row) => ({
+  const versions = db.prepare('SELECT * FROM video_versions WHERE video_id = ? ORDER BY created_at DESC, id DESC').all(video.id).map((row) => ({
     id: row.id, kind: row.kind, duration: row.duration_seconds, width: row.width, height: row.height,
+    jobId: row.job_id, fps: row.fps, bytes: row.bytes, mimeType: row.mime_type,
     validationStatus: row.validation_status, validation: parseJson(row.validation_json, {}), createdAt: row.created_at,
   }));
   const publicationRow = db.prepare(`
@@ -132,7 +133,7 @@ export function getVideoProcessGraph(videoId) {
     video: {
       id: video.id, title: video.title, campaign: video.campaign, status: video.status,
       sourceType: video.sourceType, sourceRef: video.sourceRef, language: video.language,
-      priority: video.priority, scheduledAt: video.scheduledAt, presetId: video.presetId,
+      priority: video.priority, scheduledAt: video.scheduledAt, presetId: video.presetId, currentVersionId: video.currentVersionId,
     },
     job: jobPublic,
     graph,
@@ -200,9 +201,25 @@ export function ensureVideoRecord(input = {}) {
   return rowToVideo(db.prepare('SELECT * FROM video_records WHERE id = ?').get(id));
 }
 
+// Retain the row and delivery history to prevent backfill and duplicate uploads.
+export function deleteVideoRecord(videoId, expectedVersion) {
+  return db.transaction(() => {
+    const row = db.prepare("SELECT id, updated_at, deleted_at FROM video_records WHERE id = ?").get(String(videoId));
+    const fail = (code, message, status) => { const error = new Error(message); error.code = code; error.status = status; throw error; };
+    if (!row || row.deleted_at) fail('NOT_FOUND', 'Video record not found', 404);
+    if (expectedVersion && row.updated_at !== expectedVersion) fail('STALE_WRITE', 'This record changed. Reload before deleting.', 409);
+    if (db.prepare("SELECT 1 FROM video_jobs WHERE video_record_id = ? AND status IN ('queued', 'running', 'review') LIMIT 1").get(row.id)) {
+      fail('PRECONDITION_FAILED', 'Cancel all active jobs before deleting this record.', 409);
+    }
+    const stamp = new Date(Math.max(Date.now(), (Date.parse(row.updated_at) || 0) + 1)).toISOString();
+    db.prepare('UPDATE video_records SET deleted_at = ?, updated_at = ? WHERE id = ?').run(stamp, stamp, row.id);
+    return { videoId: row.id, deleted: true };
+  }).immediate();
+}
+
 export function updateVideoRecord(videoId, patch = {}) {
   const current = db.prepare('SELECT * FROM video_records WHERE id = ?').get(videoId);
-  if (!current) throw new Error(`Video record not found: ${videoId}`);
+  if (!current || current.deleted_at) throw new Error(`Video record not found: ${videoId}`);
   const metadata = patch.metadata === undefined
     ? parseJson(current.metadata_json, {})
     : { ...parseJson(current.metadata_json, {}), ...(patch.metadata || {}) };
@@ -497,6 +514,7 @@ export function listVideoOperations({ status = '', query = '', limit = 50, offse
   const safeStatus = VIDEO_STATUSES.has(String(status)) ? String(status) : '';
   const search = `%${cleanText(query, 200).replace(/[%_]/g, '\\$&')}%`;
   const where = [
+    "vr.deleted_at = ''",
     safeStatus ? 'vr.status = @status' : '1 = 1',
     query ? "(vr.title LIKE @search ESCAPE '\\' OR vr.source_ref LIKE @search ESCAPE '\\' OR vr.campaign LIKE @search ESCAPE '\\')" : '1 = 1',
   ].join(' AND ');
@@ -605,7 +623,7 @@ export function getOperationsOverview() {
       SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing,
       SUM(CASE WHEN status IN ('review', 'failed') THEN 1 ELSE 0 END) AS needs_review,
       SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) AS published
-    FROM video_records
+    FROM video_records WHERE deleted_at = ''
   `).get();
   const jobCounts = db.prepare(`
     SELECT

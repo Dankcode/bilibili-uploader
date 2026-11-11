@@ -1,7 +1,7 @@
 import { withOperator } from '../../../../lib/agent/auth.js';
 import { NextResponse } from 'next/server';
 import { withVersion } from '../../../../lib/agent/concurrency.js';
-import { listVideoOperations, updateVideoRecord } from '@/lib/operations/store';
+import { deleteVideoRecord, listVideoOperations, updateVideoRecord } from '@/lib/operations/store';
 
 async function handleGET(request) {
   try {
@@ -29,3 +29,14 @@ async function handlePATCH(request) {
 
 export const GET = withOperator(handleGET);
 export const PATCH = withOperator(handlePATCH);
+
+async function handleDELETE(request) {
+  try {
+    const body = await request.json();
+    if (!body.videoId || !body.ifMatch) throw new Error('videoId and ifMatch are required');
+    return NextResponse.json(deleteVideoRecord(body.videoId, body.ifMatch));
+  } catch (error) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: error.status || 400 });
+  }
+}
+export const DELETE = withOperator(handleDELETE);

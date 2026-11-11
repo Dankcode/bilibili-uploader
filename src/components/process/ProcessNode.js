@@ -29,6 +29,7 @@ export default function ProcessNode({ node, index, total, selected, onSelect }) 
       <span className={styles.processNodeRole}>{ROLE[node.role] || node.role}</span>
       <strong>{node.label}</strong>
       <span className={styles.processNodeState}><i>{GLYPH[node.status] || '·'}</i>{node.status}{duration(node) ? ` · ${duration(node)}` : ''}</span>
+      {node.status === 'running' && node.progressNote ? <span className={styles.processNodeNote} title={node.progressNote}>{node.progressNote}</span> : null}
       {metrics.length ? <span className={styles.processNodeMetrics}>{metrics.map(([key, value]) => `${key.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)} ${value}`).join(' · ')}</span> : null}
       {node.status === 'failed' && node.error ? <span className={styles.processNodeError}>{node.error}</span> : null}
       {node.status === 'running' ? <span className={styles.processNodeProgress} role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={pct}><i style={{ width: `${pct}%` }} /></span> : null}

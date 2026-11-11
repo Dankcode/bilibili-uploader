@@ -5,7 +5,7 @@ import Link from 'next/link';
 import LibraryUpload from './LibraryUpload';
 import {
   ChevronLeft, ChevronRight, Edit3, ExternalLink,
-  RefreshCw, RotateCcw, Search, StopCircle, X,
+  RefreshCw, RotateCcw, Search, StopCircle, Trash2, X,
 } from 'lucide-react';
 import styles from '../app/page.module.css';
 
@@ -89,6 +89,22 @@ export default function VideoLibrary({ refreshKey = 0 }) {
     } catch (actionError) {
       setError(actionError.message);
     }
+  }
+
+  async function deleteRecord(video) {
+    if (!window.confirm(`Delete “${video.title}” from the catalog? Media, job and publication history will be retained. Active jobs must be canceled first.`)) return;
+    setNotice(''); setError('');
+    try {
+      const response = await fetch('/api/control/operations/videos', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: video.id, ifMatch: video.updatedAt }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not delete video record');
+      setNotice('Video record deleted from the catalog.');
+      if (data.videos.length === 1 && offset > 0) setOffset(Math.max(0, offset - data.limit));
+      else await load();
+    } catch (deleteError) { setError(deleteError.message); }
   }
 
   async function saveEdit(event) {
@@ -177,6 +193,7 @@ export default function VideoLibrary({ refreshKey = 0 }) {
                     {video.content?.sourceUrl ? <a className={styles.iconButton} href={video.content.sourceUrl} target="_blank" rel="noreferrer" title="Open Bilibili source" aria-label="Open Bilibili source" onClick={(event) => event.stopPropagation()}><ExternalLink size={15} /></a> : null}
                     {video.content?.deliveryUrl ? <a className={styles.iconButton} href={video.content.deliveryUrl} target="_blank" rel="noreferrer" title="Open YouTube delivery" aria-label="Open YouTube delivery" onClick={(event) => event.stopPropagation()}><ExternalLink size={15} /></a> : null}
                     <button type="button" className={styles.iconButton} onClick={(event) => { event.stopPropagation(); setEditing({ ...video, scheduledAt: video.scheduledAt ? video.scheduledAt.slice(0, 16) : '', sourceTitle: video.content?.sourceTitle || video.title, sourceDescription: video.content?.sourceDescription || '', sourceUrl: video.content?.sourceUrl || video.sourceUrl || '', sourceValid: video.content?.sourceValid || '', deliveryTitle: video.content?.deliveryTitle || video.title, deliveryDescription: video.content?.deliveryDescription || '', deliveryTags: (video.metadata?.uploadMetadata?.tags || video.metadata?.tags || []).join(', ') }); }} title="Edit video record" aria-label={`Edit ${video.title}`}><Edit3 size={15} /></button>
+                    <button type="button" className={styles.iconButton} onClick={(event) => { event.stopPropagation(); deleteRecord(video); }} title="Delete video record" aria-label={`Delete ${video.title}`}><Trash2 size={15} /></button>
                   </td>
                 </tr>
               ))}

@@ -7,7 +7,7 @@ export const id = 'library';
 export function savedVideo(videoId) {
   const row = db.prepare(`SELECT r.*, v.file_path, v.duration_seconds, l.chinese_name, l.chinese_description, l.english_name, l.english_description, l.tags AS legacy_tags
     FROM video_records r LEFT JOIN video_versions v ON v.id=r.current_version_id
-    LEFT JOIN videos l ON l.id=r.legacy_video_id WHERE r.id=?`).get(String(videoId));
+    LEFT JOIN videos l ON l.id=r.legacy_video_id WHERE r.id=? AND r.deleted_at=''`).get(String(videoId));
   if (!row) throw new Error('Saved video not found');
   const metadata = JSON.parse(row.metadata_json || '{}');
   metadata.uploadMetadata ||= { titleEn: metadata.deliveryTitle || metadata.titleEn || row.english_name || '', descriptionEn: metadata.deliveryDescription || metadata.descriptionEn || row.english_description || '', tags: metadata.tags || (row.legacy_tags || '').split(',').map((t) => t.trim()).filter(Boolean) };

@@ -596,6 +596,7 @@ export function initDB() {
   addColumnIfMissing('service_connections', 'auth_state', "TEXT DEFAULT 'unknown'");
   addColumnIfMissing('service_connections', 'checked_at', "TEXT DEFAULT ''");
   addColumnIfMissing('video_records', 'context_summary_json', "TEXT DEFAULT '{}'");
+  addColumnIfMissing('video_records', 'deleted_at', "TEXT NOT NULL DEFAULT ''");
   // Per-video delivery planning belongs to the scrape catalog. These are
   // operator/AI-authored preferences only; source facts remain immutable on
   // every re-scrape.

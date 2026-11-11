@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { readSavedUpload, saveUploadMetadata } from '../operations/uploadCatalog.js';
+import { deleteVideoRecord } from '../operations/store.js';
 import { queueLibraryUploads } from '../operations/libraryUpload.js';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import Ajv from 'ajv';
@@ -153,6 +154,10 @@ function planBatch(input, principal) {
 }
 
 function mutate(name, input, principal) {
+  if (name === 'delete_video_record') {
+    try { return deleteVideoRecord(input.videoId, input.ifMatch); }
+    catch (error) { throw new AgentError(error.code || 'PRECONDITION_FAILED', error.message, error.status || 409); }
+  }
   if (name === 'save_upload_metadata') return saveUploadMetadata(input);
   if (name === 'queue_saved_uploads') return { batch: queueLibraryUploads({ ...input, uploadMethod: 'studio' }, { principal }), nextAction: 'wait' };
   if (name === 'claim_youtube_post') return claimYouTubePost(input.postId, input.ifMatch, principal);
@@ -227,13 +232,13 @@ export async function executeOperation(name, input, principal, { scanner = scanB
     const limit = input.limit || 25; const cursor = Number(input.cursor || 0);
     if (name === 'list_work') {
       const states = { needs_metadata: "status = 'review' AND current_step = 'review:metadata'", in_review: "status = 'review'", failed: "status = 'failed'", scheduled: "status = 'queued' AND scheduled_for != ''", running: "status = 'running'" };
-      const rows = db.prepare(`SELECT * FROM video_jobs WHERE id > ? AND ${states[input.state] || '1 = 1'} ORDER BY id LIMIT ?`).all(cursor, limit + 1);
+      const rows = db.prepare(`SELECT * FROM video_jobs WHERE id > ? AND ${states[input.state] || '1 = 1'} AND NOT EXISTS (SELECT 1 FROM video_records v WHERE v.id = video_jobs.video_record_id AND v.deleted_at != '') ORDER BY id LIMIT ?`).all(cursor, limit + 1);
       return { items: rows.slice(0, limit).map(jobProjection), nextCursor: rows.length > limit ? String(rows[limit - 1].id) : null };
     }
     const query = `%${(input.query || '').replace(/[\\%_]/g, '\\$&')}%`;
     const rows = db.prepare(`SELECT v.id, v.title, v.source_type AS sourceId, v.source_ref AS sourceRef, v.status, v.updated_at AS updatedAt,
       EXISTS(SELECT 1 FROM video_publications p WHERE p.video_id = v.id AND p.status IN ('published','submitted','scheduled')) AS isUploaded
-      FROM video_records v WHERE v.title LIKE ? ESCAPE '\\' OR v.source_ref LIKE ? ESCAPE '\\' ORDER BY v.id LIMIT ? OFFSET ?`).all(query, query, limit + 1, cursor);
+      FROM video_records v WHERE v.deleted_at = '' AND (v.title LIKE ? ESCAPE '\\' OR v.source_ref LIKE ? ESCAPE '\\') ORDER BY v.id LIMIT ? OFFSET ?`).all(query, query, limit + 1, cursor);
     return { items: rows.slice(0, limit).map((row) => ({ ...row, isUploaded: Boolean(row.isUploaded || ['published', 'submitted', 'scheduled'].includes(row.status)) })), nextCursor: rows.length > limit ? String(cursor + limit) : null };
   }
   let effectiveInput = input;

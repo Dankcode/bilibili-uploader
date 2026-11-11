@@ -191,6 +191,8 @@ export function validateJobInput(input) {
     : '';
   if (uploadMethod) options.youtube = { ...(options.youtube || {}), uploadMethod };
 
+  const recordId = String(input.videoRecordId || input.video_record_id || '').trim();
+  if (recordId && db.prepare("SELECT 1 FROM video_records WHERE id = ? AND deleted_at != ''").get(recordId)) throw new Error('This video record was deleted.');
   if (!sourceInput) throw new Error('sourceInput is required');
   if (!getSource(sourceId)) throw new Error(`Unknown sourceId "${sourceId}"`);
   const chain = validateProcessorChain(processorIds);
@@ -583,6 +585,10 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     const validation = mediaChanged
       ? await validateVideoOutput(result.outputPath, {
         expectedInputPath: previousFilePath,
+        // The editor's localization/render modes do not request a resize or trim.
+        // Reject accidental downscales (including 1080p to 480p) before publishing.
+        preserveDuration: id === 'videoEditor',
+        preserveDimensions: id === 'videoEditor',
       })
       : null;
     const processorArtifacts = { ...(result.artifacts || {}), ...(validation ? { validation } : {}) };
@@ -956,6 +962,7 @@ export function listJobs(filter = {}) {
 export function retryJob(jobId) {
   const job = db.prepare('SELECT * FROM video_jobs WHERE id = ?').get(jobId);
   if (!job) throw new Error(`Job not found: ${jobId}`);
+  if (job.video_record_id && db.prepare("SELECT 1 FROM video_records WHERE id = ? AND deleted_at != ''").get(job.video_record_id)) throw new Error('This video record was deleted and its jobs cannot be retried.');
   if (!['failed', 'canceled'].includes(job.status)) throw new Error('Only failed or canceled jobs can be retried');
   const attempts = db.prepare('SELECT MAX(attempt) AS attempts FROM video_job_steps WHERE job_id = ?').get(jobId)?.attempts || 1;
   if (attempts >= (job.max_attempts || 3)) throw new Error(`Maximum retry count reached (${job.max_attempts || 3})`);

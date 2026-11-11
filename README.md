@@ -315,8 +315,11 @@ disk; this refactor does not delete user media.
 The configured Video Editor host receives the full source video. Its configured
 models and providers control further processing. Publishing metadata goes to
 the selected text provider; publishing and scraping use their platform APIs.
-Credentials stay in backend configuration. Deleting a local catalog record does
-not delete the editor project or provider-side records.
+Credentials stay in backend configuration. Use the delete action in the video
+library, or the MCP `delete_video_record` tool, to remove an idle record from
+the catalog. This is a logical deletion: the row, media, jobs and publication
+history remain on disk for delivery and duplicate-upload checks. Cancel active
+jobs first. The editor project and provider-side records are unaffected.
 
 ## Development
 
