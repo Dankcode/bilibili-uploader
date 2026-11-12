@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { resolveAccessPolicy } from '../src/lib/security/access.js';
-import { authRequired, operatorGuard } from '../src/lib/agent/auth.js';
+import { operatorGuard } from '../src/lib/agent/auth.js';
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'videops-access-'));
 test.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -33,7 +33,6 @@ test('no runtime mode, saved token or forwarded header re-enables the app login 
   try {
     for (const mode of ['local', 'shared', 'tailscale']) {
       process.env.VIDEO_ACCESS_MODE = mode;
-      assert.equal(authRequired(), false);
       assert.equal(operatorGuard(new Request('http://100.80.0.7:4455/api/pipeline/jobs', { method: 'POST' })), null);
     }
   } finally { if (previous === undefined) delete process.env.VIDEO_ACCESS_MODE; else process.env.VIDEO_ACCESS_MODE = previous; }

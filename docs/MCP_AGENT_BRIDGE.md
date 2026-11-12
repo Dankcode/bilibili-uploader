@@ -33,11 +33,47 @@ No token, pairing, or insecure-HTTP opt-in flag is needed. For local use, the
 base URL defaults to `http://127.0.0.1:4455`. Point the client at the backend
 beside its SQLite database, not a remote-mode frontend.
 
-The bridge exposes the same 21 operations as `/api/agent/v1/openapi.json`.
+The bridge exposes the same 24 operations as `/api/agent/v1/openapi.json`.
 It does not open SQLite or run the upload worker in the stdio process.
-`npm run mcp:setup` is now a compatibility notice; old credential files are
-preserved but not required for access. Optional legacy bearer headers still
-work, without granting a different role.
+Optional legacy bearer headers still work, without granting a different role.
+
+## Tools at a glance
+
+| Area | Read | Write |
+|---|---|---|
+| Jobs | `list_work`, `get_job`, `get_video_context`, `check_preconditions` | `propose_metadata`, `retry_job`, `cancel_job` |
+| Library records | `search_catalog`, `get_saved_upload` | `update_video_record`, `save_upload_metadata`, `queue_saved_uploads`, `delete_video_record` |
+| Bilibili checklist | `list_creator_videos`, `plan_batch` (dry run) | `scan_creator`, `select_creator_videos`, `queue_batch` |
+| YouTube posts | `list_youtube_posts`, `get_youtube_post` | `save_youtube_post`, `claim_youtube_post`, `record_youtube_post` |
+| Settings | resource `videops://title-contexts` | `save_title_context` |
+
+Resources: `videops://manifest`, `videops://presets`, `videops://health`,
+`videops://title-contexts`, and the template `videops://job/{id}/log`.
+
+Every write needs a unique `idempotencyKey`; repeating a call with the same key
+and arguments replays the first result instead of acting twice. Edits to an
+existing item also need `ifMatch` (the item's `updatedAt`); a mismatch returns
+`STALE_WRITE`, so reload and retry. Errors always have a typed `code`:
+`INVALID_INPUT` (fix the arguments; `details` lists each problem),
+`NOT_FOUND`, `STALE_WRITE`, `PRECONDITION_FAILED` (with the app's own reason),
+`NEEDS_CHOICE`, or `RETRYABLE` (backend busy or unreachable).
+
+## Adding a tool
+
+1. Declare it in `src/lib/agent/contract.js` with `operation(...)`: name,
+   JSON Schema, method and path. Writes must include `...write`.
+2. Add its handler to `readHandlers` or `writeHandlers` in
+   `src/lib/agent/service.js`. Call the same `src/lib` function the console
+   route uses, so the app and the MCP validate identically. Write handlers run
+   inside the audited, idempotent transaction and must be synchronous.
+3. Nothing else: the REST route, OpenAPI document and stdio MCP server are
+   generated from the contract. Importing `service.js` fails if a contract
+   operation has no handler, or the wrong kind.
+4. Add a test to `test/agent-bridge-tools.test.mjs` and update the tool count
+   in `test/agent-bridge.test.mjs`.
+
+Deliberately not exposed: runtime/connection settings, raw SQL, and editing a
+record's status or publication history (these protect duplicate-upload checks).
 
 ## Upload workflow
 
@@ -65,6 +101,19 @@ checks, not authorization prompts. YouTube/Google sign-in, API quota, browser
 verification and platform upload limits are external requirements and are not
 bypassed. An MCP host may independently have its own tool-permission settings.
 
+## Editing and deleting records
+
+`update_video_record` edits the Library fields: title, campaign, language,
+priority and planned schedule. Get `id` and `updatedAt` from `search_catalog`
+and pass `updatedAt` as `ifMatch`.
+
+`delete_video_record` removes an idle video from the working catalog. First use
+`search_catalog` to get its `id` and `updatedAt`, then provide `videoId`,
+`ifMatch` and a unique `idempotencyKey`. Cancel queued, running, or review jobs
+and wait for them to stop first. Deletion is logical: the row, media, job and
+publication history remain on disk to preserve delivery and duplicate-upload
+checks. It does not delete any external video or editor project.
+
 ## Deployment boundary
 
 Anyone who can reach this service has full workspace and publishing authority.
@@ -91,11 +140,3 @@ worker is an MCP client of video-automation for video creation. Use processor
 `videoEditor` with `mode: "localize"` or `mode: "render"`; its endpoint defaults
 to `http://127.0.0.1:4560/mcp`. Model and editing configuration belongs to the
 editor. See [video creation](VIDEO_GENERATION.md) for media handoff and retries.
-
-
-`delete_video_record` removes an idle video from the working catalog. First use
-`search_catalog` to get its `id` and `updatedAt`, then provide `videoId`,
-`ifMatch` and a unique `idempotencyKey`. Cancel queued, running, or review jobs
-and wait for them to stop first. Deletion is logical: the row, media, job and
-publication history remain on disk to preserve delivery and duplicate-upload
-checks. It does not delete any external video or editor project.

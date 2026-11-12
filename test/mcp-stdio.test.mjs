@@ -28,7 +28,7 @@ test('stdio MCP handshake, tools and resources work without any agent/operator t
     assert.equal(invalid.isError, true); assert.equal(requests.length, 1);
     await client.callTool({ name: 'queue_batch', arguments: { planToken: 'signed-plan-fixture', idempotencyKey: 'request-once' } });
     assert.equal(requests[1].key, 'request-once'); assert.equal(requests[1].body.planToken, 'signed-plan-fixture');
-    assert.equal((await client.listResources()).resources.length, 3);
+    assert.equal((await client.listResources()).resources.length, 4);
     assert.equal((await client.listResourceTemplates()).resourceTemplates[0].uriTemplate, 'videops://job/{id}/log');
     const health = await client.readResource({ uri: 'videops://health' });
     assert.equal(JSON.parse(health.contents[0].text).bridgeTest, true);
@@ -36,4 +36,38 @@ test('stdio MCP handshake, tools and resources work without any agent/operator t
     assert.match(requests[0].url, /^\/api\/agent\/v1\/work\?/);
     assert.equal(stderr.includes('SQLite'), false);
   } finally { await client.close(); await new Promise((resolve) => backend.close(resolve)); }
+});
+
+test('stdio MCP explains invalid arguments, non-JSON backends and failed resource reads', async () => {
+  const backend = http.createServer((request, response) => {
+    if (request.url.startsWith('/api/agent/v1/resource')) { response.writeHead(404, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Unknown resource' } })); return; }
+    response.writeHead(500, { 'Content-Type': 'text/html' }); response.end('<html>Internal Server Error</html>');
+  });
+  await new Promise((resolve, reject) => { backend.once('error', reject); backend.listen(0, '127.0.0.1', resolve); });
+  const transport = new StdioClientTransport({ command: process.execPath, args: ['scripts/mcp/server.mjs'],
+    env: { PATH: process.env.PATH, VIDEO_AGENT_BASE_URL: `http://127.0.0.1:${backend.address().port}` }, stderr: 'pipe' });
+  const client = new Client({ name: 'videops-test', version: '1.0.0' });
+  try {
+    await client.connect(transport);
+    const invalid = JSON.parse((await client.callTool({ name: 'list_work', arguments: { limit: 26, bogus: 1 } })).content[0].text);
+    assert.equal(invalid.error.code, 'INVALID_INPUT');
+    assert.ok(invalid.error.details.some((line) => /limit/.test(line)));
+    assert.ok(invalid.error.details.some((line) => /bogus/.test(line)));
+    const html = await client.callTool({ name: 'list_work', arguments: {} });
+    assert.equal(html.isError, true);
+    const body = JSON.parse(html.content[0].text);
+    assert.equal(body.error.code, 'RETRYABLE'); assert.match(body.error.message, /non-JSON/);
+    await assert.rejects(client.readResource({ uri: 'videops://nope' }), /NOT_FOUND/);
+  } finally { await client.close(); await new Promise((resolve) => backend.close(resolve)); }
+});
+
+test('stdio MCP reports an unreachable backend as retryable with the URL it tried', async () => {
+  const transport = new StdioClientTransport({ command: process.execPath, args: ['scripts/mcp/server.mjs'],
+    env: { PATH: process.env.PATH, VIDEO_AGENT_BASE_URL: 'http://127.0.0.1:9' }, stderr: 'pipe' });
+  const client = new Client({ name: 'videops-test', version: '1.0.0' });
+  try {
+    await client.connect(transport);
+    const body = JSON.parse((await client.callTool({ name: 'check_preconditions', arguments: {} })).content[0].text);
+    assert.equal(body.error.code, 'RETRYABLE'); assert.match(body.error.message, /127\.0\.0\.1:9/);
+  } finally { await client.close(); }
 });

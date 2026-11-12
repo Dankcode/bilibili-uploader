@@ -83,7 +83,8 @@ test('SQL metadata and personality flow through MCP to immediately executable GU
   assert.equal(queued.nextAction, 'wait');
   assert.equal(options.metadata.title, args.title);
   assert.equal(options.metadata.style, args.personality);
-  assert.equal(options.metadata.copyPrompt, args.context);
+  // No category guidance is saved, so only the labelled per-video guidance is passed on.
+  assert.equal(options.metadata.copyPrompt, `Video-specific guidance: ${args.context}`);
   assert.deepEqual(options.metadata.generationFields, []);
   assert.equal(options.youtube.uploadMethod, 'studio');
 });

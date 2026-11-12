@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "mcp": "node scripts/mcp/server.mjs",
-    "mcp:setup": "node scripts/mcp/setup.mjs",
     "dev": "node scripts/run_server.mjs dev",
     "dev:web": "node scripts/run_server.mjs dev --web-only",
     "dev:local": "node scripts/run_server.mjs dev --local",

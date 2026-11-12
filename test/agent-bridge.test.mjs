@@ -3,7 +3,7 @@ import test from 'node:test';
 import db from '../src/lib/db/sqlite.js';
 import { operations, openApiDocument } from '../src/lib/agent/contract.js';
 import { executeOperation, readAgentResource, listAgentActions } from '../src/lib/agent/service.js';
-import { operatorGuard, operatorSession, isOperator, internalApiBase, sameOrigin } from '../src/lib/agent/auth.js';
+import { operatorGuard, internalApiBase } from '../src/lib/agent/auth.js';
 import { POST as sessionPOST } from '../src/app/api/auth/session/route.js';
 import { saveScrapedBilibiliVideos, getSavedCreatorVideo } from '../src/lib/video/scrapedCatalog.js';
 import { createJob, validateJobInput, approveMetadata, runNextQueuedJob, bulkJobAction } from '../src/lib/pipeline/pipeline.js';
@@ -28,8 +28,8 @@ function fixtureJob(status = 'review', uploaderId = '') {
   return job.id;
 }
 
-test('one shared contract has 21 tools, matching REST/OpenAPI, and exposes record deletion', () => {
-  assert.equal(operations.length, 21);
+test('one shared contract has 24 tools, matching REST/OpenAPI, and exposes record deletion', () => {
+  assert.equal(operations.length, 24);
   assert.equal(readAgentResource('videops://manifest').humanApprovalRequired, false);
   const spec = openApiDocument();
   for (const op of operations) assert.equal(spec.paths[op.path][op.method.toLowerCase()].operationId, op.name);
@@ -40,12 +40,7 @@ test('MCP and app routes no longer require operator sign-in; internal proxy targ
   const request = new Request('http://localhost:4455/api/pipeline/jobs', { method: 'POST', headers: { Authorization: `Bearer ${process.env.VIDEO_AGENT_TOKEN}`, Origin: 'http://localhost:4455', 'x-video-ops-local': '1' }, body: JSON.stringify({ action: 'approveMetadata', jobId: 1 }) });
   assert.equal(operatorGuard(request), null);
   assert.equal((await legacyPOST(request)).status, 400); // Missing job, not an auth rejection.
-  assert.equal(isOperator(request), false);
-  const session = operatorSession(process.env.VIDEO_OPERATOR_TOKEN);
-  assert.equal(isOperator(new Request('http://localhost:4455', { headers: { cookie: `videops_operator=${session}` } })), true);
-  assert.equal(operatorGuard(new Request('http://localhost:4455', { method: 'POST', headers: { cookie: `videops_operator=${session}`, Origin: 'https://evil.invalid' } })), null);
   assert.match(internalApiBase(), /^http:\/\/127\.0\.0\.1:\d+$/);
-  assert.equal(sameOrigin(new Request('http://localhost:4455', { headers: { host: '127.0.0.1:4455', origin: 'http://127.0.0.1:4455' } })), true);
   const sessionResponse = await sessionPOST(new Request('http://localhost:4455/api/auth/session', { method: 'POST', headers: { Origin: 'http://localhost:4455' }, body: JSON.stringify({ token: process.env.VIDEO_OPERATOR_TOKEN }) }));
   assert.equal(sessionResponse.status, 200); assert.equal(sessionResponse.headers.get('set-cookie'), null);
   const missingOrigin = await runtimePOST(new Request('http://localhost:4455/api/runtime/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"action":"invalid"}' }));

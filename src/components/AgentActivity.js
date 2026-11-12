@@ -3,19 +3,19 @@ import { useCallback, useEffect, useState } from 'react';
 import styles from '../app/page.module.css';
 export default function AgentActivity() {
   const [items, setItems] = useState([]); const [next, setNext] = useState(null);
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [enabled, setEnabled] = useState(false);
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const load = useCallback(async (cursor = '') => {
     setBusy(true); setError('');
     try {
       const response = await fetch(`/api/control/operations/agent-actions?cursor=${cursor || '0'}`, { cache: 'no-store' });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Unable to load activity');
-      setItems((previous) => cursor ? [...previous, ...data.items] : data.items); setNext(data.nextCursor); setEnabled(data.enabled);
+      setItems((previous) => cursor ? [...previous, ...data.items] : data.items); setNext(data.nextCursor);
     } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
   return <section aria-label="MCP agent activity" className={styles.panelBody} style={{ maxWidth: 1000 }}>
     <div className={styles.cardHeader}><h2>MCP agent activity</h2><button className={styles.buttonSecondary} onClick={() => load()} disabled={busy}>Refresh activity</button></div>
-    <p>{enabled ? 'Bridge configured. Agents stage work; operators approve publishing.' : 'Bridge not configured. Run npm run mcp:setup on the backend, then connect your MCP client.'}</p>
+    <p>Every change an MCP client makes through the agent bridge is recorded here. See docs/MCP_AGENT_BRIDGE.md to connect a client.</p>
     {error && <p role="alert">{error}</p>}
     {!items.length && !busy && <p>No agent changes recorded yet.</p>}
     {items.map((item) => <article key={item.id} style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}>

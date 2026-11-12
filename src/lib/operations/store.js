@@ -429,6 +429,16 @@ export function listCategoryTitleContexts() {
   return contexts;
 }
 
+/** Shared by the console route and the MCP bridge so both validate identically. */
+export function saveCategoryTitleContext(categoryId, context) {
+  const key = String(categoryId || 'default');
+  if (!/^(default|\d{1,10})$/.test(key) || typeof context !== 'string' || context.length > 4000) {
+    throw Object.assign(new Error('Invalid category or title context (maximum 4,000 characters).'), { code: 'INVALID_INPUT', status: 400 });
+  }
+  saveAutomationSettings({ id: `category-title-context:${key}`, name: 'Category title context', settings: { context } });
+  return { categoryId: key, context };
+}
+
 /** Reusable planner settings; deliberately never changes dispatched jobs. */
 export function listAutomationSettings({ limit = 20 } = {}) {
   return db.prepare(`

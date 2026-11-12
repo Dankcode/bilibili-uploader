@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { readSavedUpload, saveUploadMetadata } from '../operations/uploadCatalog.js';
-import { deleteVideoRecord } from '../operations/store.js';
+import { deleteVideoRecord, updateVideoRecord, listCategoryTitleContexts, saveCategoryTitleContext } from '../operations/store.js';
+import { withVersion } from './concurrency.js';
 import { queueLibraryUploads } from '../operations/libraryUpload.js';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import Ajv from 'ajv';
@@ -14,11 +15,28 @@ import { getUsageSummary } from '../pipeline/usage.js';
 import { listYouTubeAuthorizations, getJobYouTubeAuthorization, publicYouTubeAuthorization } from '../youtube/authorizations.js';
 import { getSavedCreatorVideo, pageSavedCreatorVideos, saveScrapedBilibiliVideos, updateScrapedBilibiliVideo } from '../video/scrapedCatalog.js';
 import { normalizeBilibiliSpaceUrl, scanBilibiliCreatorPage } from '../video/scraper.js';
-import { listYouTubePosts, getYouTubePost, claimYouTubePost, recordYouTubePost } from '../youtube/posts.js';
+import { listYouTubePosts, getYouTubePost, saveYouTubePost, claimYouTubePost, recordYouTubePost } from '../youtube/posts.js';
 import { naturalText } from '../ai/editorial.js';
 
 export class AgentError extends Error {
   constructor(code, message, status = 400, details) { super(message); Object.assign(this, { code, status, details }); }
+}
+const CODES = { 400: 'INVALID_INPUT', 404: 'NOT_FOUND', 409: 'STALE_WRITE', 413: 'INVALID_INPUT', 503: 'RETRYABLE' };
+// Domain modules (store, posts, uploads, pipeline) throw plain Errors whose
+// messages are written for the owner. Pass them through with a typed code so an
+// MCP client can tell "fix your input" from "reload" from "retry later".
+// Database/driver errors stay generic so SQL never reaches a tool result.
+export function toAgentError(error) {
+  if (error instanceof AgentError) return error;
+  if (/^SQLITE_/.test(String(error?.code || '')) || error?.name === 'SqliteError' || error instanceof TypeError || error instanceof ReferenceError) {
+    console.error('[Agent bridge]', error);
+    return new AgentError('PRECONDITION_FAILED', 'Operation could not be completed; inspect the server log and recheck preconditions', 409);
+  }
+  const message = String(error?.message || 'Operation failed');
+  const status = Number(error?.status) || (/not found/i.test(message) ? 404 : /changed|reload/i.test(message) ? 409 : 409);
+  const code = typeof error?.code === 'string' && /^[A-Z_]+$/.test(error.code) ? error.code
+    : status === 409 && !/changed|reload/i.test(message) ? 'PRECONDITION_FAILED' : CODES[status] || 'PRECONDITION_FAILED';
+  return new AgentError(code, sanitize(message), status);
 }
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validators = new Map(operations.map((op) => [op.name, ajv.compile(op.inputSchema)]));
@@ -153,66 +171,133 @@ function planBatch(input, principal) {
     expiresAt: new Date(plan.expiresAt).toISOString(), humanApprovalRequired: false, planToken: blockers.length ? null : signPlan(plan) };
 }
 
-function mutate(name, input, principal) {
-  if (name === 'delete_video_record') {
-    try { return deleteVideoRecord(input.videoId, input.ifMatch); }
-    catch (error) { throw new AgentError(error.code || 'PRECONDITION_FAILED', error.message, error.status || 409); }
+// ---------------------------------------------------------------------------
+// Tool handlers. One entry per operation in contract.js, keyed by tool name.
+// To add an MCP tool: declare it in contract.js, then add its handler here.
+// Read handlers run outside a transaction; write handlers run inside the
+// idempotent, audited transaction in executeOperation and must be synchronous.
+// ---------------------------------------------------------------------------
+function listWork(input) {
+  const limit = input.limit || 25; const cursor = Number(input.cursor || 0);
+  const states = { needs_metadata: "status = 'review' AND current_step = 'review:metadata'", in_review: "status = 'review'", failed: "status = 'failed'", scheduled: "status = 'queued' AND scheduled_for != ''", running: "status = 'running'" };
+  const rows = db.prepare(`SELECT * FROM video_jobs WHERE id > ? AND ${states[input.state] || '1 = 1'} AND NOT EXISTS (SELECT 1 FROM video_records v WHERE v.id = video_jobs.video_record_id AND v.deleted_at != '') ORDER BY id LIMIT ?`).all(cursor, limit + 1);
+  return { items: rows.slice(0, limit).map(jobProjection), nextCursor: rows.length > limit ? String(rows[limit - 1].id) : null };
+}
+function searchCatalog(input) {
+  const limit = input.limit || 25; const cursor = Number(input.cursor || 0);
+  const query = `%${(input.query || '').replace(/[\\%_]/g, '\\$&')}%`;
+  const rows = db.prepare(`SELECT v.id, v.title, v.source_type AS sourceId, v.source_ref AS sourceRef, v.status, v.updated_at AS updatedAt,
+    EXISTS(SELECT 1 FROM video_publications p WHERE p.video_id = v.id AND p.status IN ('published','submitted','scheduled')) AS isUploaded
+    FROM video_records v WHERE v.deleted_at = '' AND (v.title LIKE ? ESCAPE '\\' OR v.source_ref LIKE ? ESCAPE '\\') ORDER BY v.id LIMIT ? OFFSET ?`).all(query, query, limit + 1, cursor);
+  return { items: rows.slice(0, limit).map((row) => ({ ...row, isUploaded: Boolean(row.isUploaded || ['published', 'submitted', 'scheduled'].includes(row.status)) })), nextCursor: rows.length > limit ? String(cursor + limit) : null };
+}
+
+const readHandlers = {
+  get_saved_upload: (input) => readSavedUpload(input.videoId),
+  list_youtube_posts: (input) => ({ posts: listYouTubePosts(input.status || '') }),
+  get_youtube_post: (input) => getYouTubePost(input.postId),
+  list_work: listWork,
+  get_job: (input) => sanitize(getJob(input.jobId)),
+  get_video_context: (input) => context(input.jobId),
+  check_preconditions: () => sanitize(preconditions()),
+  search_catalog: searchCatalog,
+  list_creator_videos: (input) => pageSavedCreatorVideos(input),
+  plan_batch: (input, principal) => planBatch(input, principal),
+};
+
+// Picks only the editable catalog fields the Library console exposes.
+const RECORD_FIELDS = ['title', 'campaign', 'language', 'priority', 'scheduledAt'];
+function updateRecord(input) {
+  const patch = Object.fromEntries(RECORD_FIELDS.filter((field) => input[field] !== undefined).map((field) => [field, input[field]]));
+  if (!Object.keys(patch).length) throw new AgentError('INVALID_INPUT', `Provide at least one of: ${RECORD_FIELDS.join(', ')}`);
+  const before = db.prepare("SELECT updated_at FROM video_records WHERE id = ? AND deleted_at = ''").get(input.videoId);
+  if (!before) throw new AgentError('NOT_FOUND', 'Video record not found', 404);
+  return withVersion('video_records', 'id = ?', [input.videoId], input.ifMatch, () => {
+    updateVideoRecord(input.videoId, patch);
+    // Guarantee a new version even when two edits land in the same millisecond.
+    const updatedAt = timestamp(before.updated_at);
+    db.prepare('UPDATE video_records SET updated_at = ? WHERE id = ?').run(updatedAt, input.videoId);
+    const row = db.prepare('SELECT id, title, campaign, language, priority, scheduled_at, status FROM video_records WHERE id = ?').get(input.videoId);
+    return { videoId: row.id, title: row.title, campaign: row.campaign, language: row.language, priority: row.priority, scheduledAt: row.scheduled_at, status: row.status, updatedAt };
+  });
+}
+function selectCreatorVideos(input) {
+  if (new Set(input.videos.map((video) => video.bvid)).size !== input.videos.length) throw new AgentError('INVALID_INPUT', 'Duplicate BV IDs in selection');
+  for (const row of input.videos) {
+    const video = savedVideo(input.creatorId, row.bvid, row.ifMatch);
+    if (row.selected && (video.isUploaded || !video.longVideoEnabled)) throw new AgentError('PRECONDITION_FAILED', `${row.bvid}: uploaded or long-video selection is disabled`, 409);
   }
-  if (name === 'save_upload_metadata') return saveUploadMetadata(input);
-  if (name === 'queue_saved_uploads') return { batch: queueLibraryUploads({ ...input, uploadMethod: 'studio' }, { principal }), nextAction: 'wait' };
-  if (name === 'claim_youtube_post') return claimYouTubePost(input.postId, input.ifMatch, principal);
-  if (name === 'record_youtube_post') return recordYouTubePost(input.postId, input.ifMatch, input, principal);
-  if (name === 'queue_batch') {
-    const plan = readPlan(input.planToken, principal);
-    for (const version of plan.versions) {
-      const video = savedVideo(plan.creatorId, version.bvid, version.updatedAt);
-      const blocker = publicationBlocker(video);
-      if (blocker) throw new AgentError('PRECONDITION_FAILED', `${version.bvid}: ${blocker}`, 409);
-    }
-    // Revalidate live channel authorization and pipeline IDs; the signed payload is exact.
-    for (const item of plan.batch.items) validateJobInput(item);
-    return { batch: createJobBatch(plan.batch), nextAction: 'wait' };
+  const items = input.videos.map((row) => {
+    const video = updateScrapedBilibiliVideo({ creatorId: input.creatorId, bvid: row.bvid, selected: row.selected });
+    const updatedAt = timestamp(row.ifMatch);
+    db.prepare('UPDATE bilibili_scraped_videos SET updated_at = ? WHERE creator_id = ? AND bvid = ?').run(updatedAt, input.creatorId, row.bvid);
+    return { bvid: video.bvid, selected: video.selected, updatedAt };
+  });
+  return { changed: items.length, items };
+}
+function queueBatch(input, principal) {
+  const plan = readPlan(input.planToken, principal);
+  for (const version of plan.versions) {
+    const video = savedVideo(plan.creatorId, version.bvid, version.updatedAt);
+    const blocker = publicationBlocker(video);
+    if (blocker) throw new AgentError('PRECONDITION_FAILED', `${version.bvid}: ${blocker}`, 409);
   }
-  if (name === 'select_creator_videos') {
-    if (new Set(input.videos.map((video) => video.bvid)).size !== input.videos.length) throw new AgentError('INVALID_INPUT', 'Duplicate BV IDs in selection');
-    for (const row of input.videos) {
-      const video = savedVideo(input.creatorId, row.bvid, row.ifMatch);
-      if (row.selected && (video.isUploaded || !video.longVideoEnabled)) throw new AgentError('PRECONDITION_FAILED', `${row.bvid}: uploaded or long-video selection is disabled`, 409);
-    }
-    const items = input.videos.map((row) => {
-      const video = updateScrapedBilibiliVideo({ creatorId: input.creatorId, bvid: row.bvid, selected: row.selected });
-      const updatedAt = timestamp(row.ifMatch);
-      db.prepare('UPDATE bilibili_scraped_videos SET updated_at = ? WHERE creator_id = ? AND bvid = ?').run(updatedAt, input.creatorId, row.bvid);
-      return { bvid: video.bvid, selected: video.selected, updatedAt };
-    });
-    return { changed: items.length, items };
-  }
-  const job = requireJob(input.jobId, input.ifMatch);
-  if (name === 'propose_metadata') {
-    input = { ...input, title: naturalText(input.title), description: naturalText(input.description), tags: input.tags.map(naturalText) };
-    if (job.status !== 'review' || job.current_step !== 'review:metadata') throw new AgentError('PRECONDITION_FAILED', 'Job is not waiting for metadata review', 409);
-    const asset = db.prepare("SELECT * FROM video_assets WHERE job_id = ? AND kind = 'metadata' ORDER BY id DESC LIMIT 1").get(job.id);
-    if (!asset) throw new AgentError('PRECONDITION_FAILED', 'Metadata asset is not ready', 409);
-    if (!input.title.trim() || !input.description.trim() || input.tags.some((tag) => !tag.trim()) || input.tags.join(',').length > 500) throw new AgentError('INVALID_INPUT', 'Nonempty title, description and tags (at most 500 characters total) are required');
-    db.prepare('UPDATE video_assets SET meta_json = ? WHERE id = ?').run(JSON.stringify({ ...parse(asset.meta_json), titleEn: input.title.trim(), descriptionEn: input.description.trim(), tags: input.tags.map((tag) => tag.trim()),
-      metadataReviewRequired: false, agentDraftedAt: timestamp(), agentDraftedBy: principal }), asset.id);
-    approveMetadata(job.id, {}, principal);
+  // Revalidate live channel authorization and pipeline IDs; the signed payload is exact.
+  for (const item of plan.batch.items) validateJobInput(item);
+  return { batch: createJobBatch(plan.batch), nextAction: 'wait' };
+}
+// Job writes share the version check and the updated_at bump.
+function jobWrite(action) {
+  return (input, principal) => {
+    const job = requireJob(input.jobId, input.ifMatch);
+    action(job, input, principal);
     db.prepare('UPDATE video_jobs SET updated_at = ? WHERE id = ?').run(timestamp(job.updated_at), job.id);
-  } else if (name === 'retry_job') {
-    if (db.prepare("SELECT id FROM video_publications WHERE job_id = ? AND status = 'published' LIMIT 1").get(job.id)) throw new AgentError('PRECONDITION_FAILED', 'This job already published a video; an operator must investigate before retrying', 409);
-    if (job.uploader_id) {
-      const options = parse(job.options_json);
-      options.metadata = { ...options.metadata, reviewMetadata: false };
-      db.prepare('UPDATE video_jobs SET agent_principal = ?, options_json = ? WHERE id = ?').run(principal, JSON.stringify(options), job.id);
-    }
-    try {
-      if (job.status === 'review' && job.current_step === 'review:metadata') approveMetadata(job.id, {}, principal);
-      else if (job.status === 'review' && job.current_step === 'review:corrections') approveCorrections(job.id);
-      else retryJob(job.id);
-    } catch (error) { throw new AgentError('PRECONDITION_FAILED', error.message, 409); }
-  } else if (name === 'cancel_job') cancelJob(job.id);
-  if (name !== 'propose_metadata') db.prepare('UPDATE video_jobs SET updated_at = ? WHERE id = ?').run(timestamp(job.updated_at), job.id);
-  return getJob(job.id);
+    return getJob(job.id);
+  };
+}
+function proposeMetadata(job, raw, principal) {
+  const input = { ...raw, title: naturalText(raw.title), description: naturalText(raw.description), tags: raw.tags.map(naturalText) };
+  if (job.status !== 'review' || job.current_step !== 'review:metadata') throw new AgentError('PRECONDITION_FAILED', 'Job is not waiting for metadata review', 409);
+  const asset = db.prepare("SELECT * FROM video_assets WHERE job_id = ? AND kind = 'metadata' ORDER BY id DESC LIMIT 1").get(job.id);
+  if (!asset) throw new AgentError('PRECONDITION_FAILED', 'Metadata asset is not ready', 409);
+  if (!input.title.trim() || !input.description.trim() || input.tags.some((tag) => !tag.trim()) || input.tags.join(',').length > 500) throw new AgentError('INVALID_INPUT', 'Nonempty title, description and tags (at most 500 characters total) are required');
+  db.prepare('UPDATE video_assets SET meta_json = ? WHERE id = ?').run(JSON.stringify({ ...parse(asset.meta_json), titleEn: input.title.trim(), descriptionEn: input.description.trim(), tags: input.tags.map((tag) => tag.trim()),
+    metadataReviewRequired: false, agentDraftedAt: timestamp(), agentDraftedBy: principal }), asset.id);
+  approveMetadata(job.id, {}, principal);
+}
+function retry(job, input, principal) {
+  if (db.prepare("SELECT id FROM video_publications WHERE job_id = ? AND status = 'published' LIMIT 1").get(job.id)) throw new AgentError('PRECONDITION_FAILED', 'This job already published a video; an operator must investigate before retrying', 409);
+  if (job.uploader_id) {
+    const options = parse(job.options_json);
+    options.metadata = { ...options.metadata, reviewMetadata: false };
+    db.prepare('UPDATE video_jobs SET agent_principal = ?, options_json = ? WHERE id = ?').run(principal, JSON.stringify(options), job.id);
+  }
+  if (job.status === 'review' && job.current_step === 'review:metadata') approveMetadata(job.id, {}, principal);
+  else if (job.status === 'review' && job.current_step === 'review:corrections') approveCorrections(job.id);
+  else retryJob(job.id);
+}
+
+const writeHandlers = {
+  save_upload_metadata: (input) => saveUploadMetadata(input),
+  queue_saved_uploads: (input, principal) => ({ batch: queueLibraryUploads({ ...input, uploadMethod: 'studio' }, { principal }), nextAction: 'wait' }),
+  save_youtube_post: (input) => saveYouTubePost({ id: input.postId, ifMatch: input.ifMatch, channelId: input.channelId, text: input.text, scheduledFor: input.scheduledFor, videoId: input.videoId }),
+  claim_youtube_post: (input, principal) => claimYouTubePost(input.postId, input.ifMatch, principal),
+  record_youtube_post: (input, principal) => recordYouTubePost(input.postId, input.ifMatch, input, principal),
+  save_title_context: (input) => saveCategoryTitleContext(input.categoryId, input.context),
+  delete_video_record: (input) => deleteVideoRecord(input.videoId, input.ifMatch),
+  update_video_record: updateRecord,
+  select_creator_videos: selectCreatorVideos,
+  queue_batch: queueBatch,
+  propose_metadata: jobWrite(proposeMetadata),
+  retry_job: jobWrite(retry),
+  cancel_job: jobWrite((job) => cancelJob(job.id)),
+  // scan_creator awaits the network, so executeOperation handles it separately.
+};
+
+// Fail at import time, not at call time, if contract.js and the handlers drift.
+for (const op of operations) {
+  const isRead = op.name in readHandlers; const isWrite = op.name in writeHandlers || op.name === 'scan_creator';
+  if (isRead === isWrite || isRead !== op.annotations.readOnlyHint) throw new Error(`Agent operation ${op.name} needs exactly one ${op.annotations.readOnlyHint ? 'read' : 'write'} handler`);
 }
 
 export async function executeOperation(name, input, principal, { scanner = scanBilibiliCreatorPage } = {}) {
@@ -221,25 +306,7 @@ export async function executeOperation(name, input, principal, { scanner = scanB
   const validate = validators.get(name);
   if (!validate(input)) throw new AgentError('INVALID_INPUT', 'Invalid operation arguments', 400, validate.errors);
   if (op.annotations.readOnlyHint) {
-    if (name === 'get_saved_upload') return readSavedUpload(input.videoId);
-    if (name === 'list_youtube_posts') return { posts: listYouTubePosts(input.status || '') };
-    if (name === 'get_youtube_post') return getYouTubePost(input.postId);
-    if (name === 'get_job') return sanitize(getJob(input.jobId));
-    if (name === 'get_video_context') return context(input.jobId);
-    if (name === 'check_preconditions') return sanitize(preconditions());
-    if (name === 'plan_batch') return planBatch(input, principal);
-    if (name === 'list_creator_videos') return pageSavedCreatorVideos(input);
-    const limit = input.limit || 25; const cursor = Number(input.cursor || 0);
-    if (name === 'list_work') {
-      const states = { needs_metadata: "status = 'review' AND current_step = 'review:metadata'", in_review: "status = 'review'", failed: "status = 'failed'", scheduled: "status = 'queued' AND scheduled_for != ''", running: "status = 'running'" };
-      const rows = db.prepare(`SELECT * FROM video_jobs WHERE id > ? AND ${states[input.state] || '1 = 1'} AND NOT EXISTS (SELECT 1 FROM video_records v WHERE v.id = video_jobs.video_record_id AND v.deleted_at != '') ORDER BY id LIMIT ?`).all(cursor, limit + 1);
-      return { items: rows.slice(0, limit).map(jobProjection), nextCursor: rows.length > limit ? String(rows[limit - 1].id) : null };
-    }
-    const query = `%${(input.query || '').replace(/[\\%_]/g, '\\$&')}%`;
-    const rows = db.prepare(`SELECT v.id, v.title, v.source_type AS sourceId, v.source_ref AS sourceRef, v.status, v.updated_at AS updatedAt,
-      EXISTS(SELECT 1 FROM video_publications p WHERE p.video_id = v.id AND p.status IN ('published','submitted','scheduled')) AS isUploaded
-      FROM video_records v WHERE v.deleted_at = '' AND (v.title LIKE ? ESCAPE '\\' OR v.source_ref LIKE ? ESCAPE '\\') ORDER BY v.id LIMIT ? OFFSET ?`).all(query, query, limit + 1, cursor);
-    return { items: rows.slice(0, limit).map((row) => ({ ...row, isUploaded: Boolean(row.isUploaded || ['published', 'submitted', 'scheduled'].includes(row.status)) })), nextCursor: rows.length > limit ? String(cursor + limit) : null };
+    try { return readHandlers[name](input, principal); } catch (error) { throw toAgentError(error); }
   }
   let effectiveInput = input;
   const key = `request:${input.idempotencyKey}`;
@@ -296,11 +363,14 @@ export async function executeOperation(name, input, principal, { scanner = scanB
     }
     return db.transaction(() => {
       const existing = existingResult(); if (existing) return existing.replay;
-      const result = mutate(name, input, principal);
+      const result = writeHandlers[name](input, principal);
       db.prepare('INSERT INTO agent_idempotency (principal, key, tool, request_hash, response_json, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(principal, key, name, digest, JSON.stringify(result), timestamp());
       audit(principal, name, input, result); return result;
     }).immediate();
-  } catch (error) { audit(principal, name, input, { error: { code: error.code || 'PRECONDITION_FAILED', message: error.message } }); throw error; }
+  } catch (failure) {
+    const error = toAgentError(failure);
+    audit(principal, name, input, { error: { code: error.code, message: error.message } }); throw error;
+  }
 }
 
 export function readAgentResource(uri) {
@@ -309,6 +379,7 @@ export function readAgentResource(uri) {
     const project = ({ id, label, inputKinds, optionFields }) => ({ id, label, inputKinds, optionFields: optionFields || [] });
     return { sources: SOURCES.map(project), processors: PROCESSORS.map(project), uploaders: UPLOADERS.map(project), humanApprovalRequired: false };
   }
+  if (uri === 'videops://title-contexts') return { contexts: listCategoryTitleContexts(), note: 'Keys are Bilibili category IDs; "default" applies to all other categories.' };
   if (uri === 'videops://presets') return db.prepare('SELECT id, name, template_json, updated_at FROM pipeline_presets ORDER BY name').all().map((row) => ({ id: row.id, name: row.name, template: sanitize(parse(row.template_json)), updatedAt: row.updated_at }));
   const match = uri.match(/^videops:\/\/job\/(\d+)\/log$/);
   if (match) {

@@ -31,7 +31,7 @@ GenerateStudio and all tabs are wired into `page.js`.
 | B8 | Both puppeteer + playwright shipped (~600 MB) | `lib/video/scraper.js`, `pipeline/registry.js` | Port scraper to Playwright, drop puppeteer dep |
 | B9 | `runWithRetry(4, 600000)` sleeps 10 min in-process | `WorkflowService.js` L52 | Move retry to pipeline job-level retry state; migrate `processSpecificVideo` to `createJob()` presets, then delete the duplicated flow |
 | N1 | Orphaned legacy Postgres layer — zero imports anywhere | `lib/db/getAllData.js`, `getDataArray.js`, `getCurrentStatus.js`, `updateData.js`, `getUsernames.js` | **Delete all five** + `@vercel/postgres` dep |
-| N2 | Dead deps in `package.json` | `pinia` (a Vue store!), `mongoose`, `next-connect`, `node-fetch`, `@notionhq/client`, `cors`, `zustand`, `react-hook-form`, `fs-extra`, `nanoid`, `lodash`, `ffmpeg@0.0.4`, `os`, `path`, `readline`, `@ffmpeg/ffmpeg`, `@ffmpeg/util` | Remove (verify `pg` too — grep found no use) |
+| N2 | Dead deps in `package.json` | `pinia` (a Vue store!), `mongoose`, `next-connect`, `node-fetch`, `@notionhq/client`, `cors`, `zustand`, `react-hook-form`, `fs-extra`, `nanoid`, `lodash`, `ffmpeg@0.0.4`, `os`, `path`, `readline`, `@ffmpeg/ffmpeg`, `@ffmpeg/util` | **Done.** All removed from `package.json` and the lockfile (mongoose in `a353425`); re-verified 2026-11-12 — no imports remain |
 | N3 | LingoLoop's translator silently returns input on failure | (applies to the port, §3) | Port with loud failure — house rule: never silent fallback |
 
 ### Prevention
