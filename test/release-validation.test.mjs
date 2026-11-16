@@ -105,3 +105,31 @@ test('release checkout ignores dirty auth patches, compiled output and private h
   assert.equal(report.checks.test.exitCode, 8);
   assert.equal(report.eligibleForDeployment, false);
 });
+
+test('upgrade preparation copies a clean shallow candidate without ignored host state', (t) => {
+  const { root, releaseDirectory: origin } = fixture(t);
+  const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  git(origin, 'init', '--initial-branch=main');
+  fs.writeFileSync(path.join(origin, '.gitignore'), '.env\n.next/\n');
+  fs.writeFileSync(path.join(origin, 'app.js'), 'committed\n');
+  git(origin, 'add', '.');
+  git(origin, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'Fixture');
+  const revision = git(origin, 'rev-parse', 'HEAD');
+  const candidate = path.join(root, 'candidate');
+  git(root, 'clone', '--quiet', '--depth=1', `file://${origin}`, candidate);
+  fs.writeFileSync(path.join(candidate, '.env'), 'private');
+  fs.mkdirSync(path.join(candidate, '.next'));
+  const releases = path.join(root, 'releases');
+  const script = new URL('../scripts/prepare_upgrade.sh', import.meta.url).pathname;
+  const output = execFileSync(script, [candidate, revision, releases], { encoding: 'utf8' });
+  const release = output.match(/^Release copy: (.+)$/m)[1];
+  assert.equal(git(release, 'rev-parse', 'HEAD'), revision);
+  assert.equal(git(release, 'rev-parse', '--is-shallow-repository'), 'true');
+  assert.equal(git(release, 'status', '--porcelain'), '');
+  assert.equal(fs.readFileSync(path.join(release, 'app.js'), 'utf8'), 'committed\n');
+  assert.equal(fs.existsSync(path.join(release, '.env')), false);
+  assert.equal(fs.existsSync(path.join(release, '.next')), false);
+  fs.writeFileSync(path.join(candidate, 'app.js'), 'changed\n');
+  assert.throws(() => execFileSync(script, [candidate, revision, releases], { stdio: 'pipe' }));
+  assert.equal(fs.readdirSync(releases).length, 1);
+});

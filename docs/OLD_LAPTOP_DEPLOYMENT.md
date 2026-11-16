@@ -29,6 +29,23 @@ Do not run `prepare_host.mjs` on an existing installation.
 
 ## 2. Validate clean, intended source
 
+To prepare a separate source copy from an intact candidate (including a shallow
+checkout) without using a Git bundle, run the executable from a checkout that
+contains it:
+
+```sh
+./scripts/prepare_upgrade.sh "$HOME/.hermes/kanban/workspaces/t_720b80f0/candidate" \
+  464a2009a812e745fd2270479ca465e5103e2ab2 \
+  "$HOME/apps/bilibili-uploader-releases"
+```
+
+The script prints the new release path, exact revision and shallow status. It
+requires a clean candidate and copies committed source and Git metadata, leaving
+ignored runtime state and build output behind. It does not build, deploy, stop
+services or start a worker. Use the printed path in the handoff; a failed run's
+directory is not a validated release. Check retained pyGUI and SQL paths and
+review the cutover and rollback procedure before changing services.
+
 Use a clean host-local clone of `Dankcode/bilibili-uploader` main. Fetch/verify
 the intended commit explicitly; for this consolidation it is `cad55d9`.
 Do not transfer uncommitted patches, Mac dependencies, old `.next` output,
