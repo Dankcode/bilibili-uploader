@@ -43,7 +43,7 @@ async function fixture(t, overrides = {}) {
           case 'autopilot': data = { job: { id: 'job_localize' } }; break;
           case 'render': data = { job: { id: 'job_render' } }; break;
           case 'cancel_job': data = { ok: true }; break;
-          case 'get_job': data = { id: params.arguments.jobId, status: state.jobStatusFor ? state.jobStatusFor(params.arguments.jobId) : state.jobStatus, progress: .5, error: state.jobError,
+          case 'get_job': data = { id: params.arguments.jobId, status: state.jobStatusFor ? state.jobStatusFor(params.arguments.jobId) : state.jobStatus, progress: .5, error: state.jobErrorFor ? state.jobErrorFor(params.arguments.jobId) : state.jobError,
             result: params.arguments.jobId === 'job_render' ? { id: 'exp_final', path: state.renderedPath, summary: { audio: 'copied', regions: 1, subtitleEvents: 0, screenTextEvents: 3 } }
               : state.results?.[params.arguments.jobId] || { provider: 'llm' } }; break;
           case 'get_transcript': data = params.arguments.offset ? { total: 2, cues: [{ sourceText: '第二', translatedText: 'Second' }] }
@@ -257,8 +257,11 @@ test('a failed editor stage is resubmitted on retry while finished stages are re
   let failSpeech = true;
   const original = f.state.results.job_speech;
   Object.defineProperty(f.state.results, 'job_speech', { get: () => (failSpeech ? undefined : original), configurable: true });
-  f.state.jobStatusFor = (id) => (id === 'job_speech' && failSpeech ? 'failed' : 'done');
-  await assert.rejects(editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory }), /job_speech: failed/);
+  f.state.jobStatusFor = (id) => (id === 'job_speech' && failSpeech ? 'interrupted' : 'done');
+  // A failed/interrupted job record carries its own error text, as video-automation's do.
+  f.state.jobError = undefined;
+  f.state.jobErrorFor = (id) => (id === 'job_speech' && failSpeech ? 'Server restarted while this job was running' : undefined);
+  await assert.rejects(editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory }), /job_speech: Server restarted/);
   failSpeech = false;
   await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory });
   const count = (name) => f.calls.filter((call) => call.name === name).length;

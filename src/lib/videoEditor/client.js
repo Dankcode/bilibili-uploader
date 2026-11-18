@@ -25,7 +25,11 @@ export async function withEditor(credentials, action) {
       const content = result.content?.find((item) => item.type === 'text')?.text;
       let data;
       try { data = JSON.parse(content || '{}'); } catch { throw new Error(`Video editor ${name} returned invalid JSON.`); }
-      if (result.isError || data.error) throw new Error(data.error?.message || content || `Video editor ${name} failed.`);
+      // video-automation signals a failed call with isError. A successful
+      // get_job can still carry the job's own `error` text (a failed or
+      // interrupted job); that is data for the caller, not a failed call.
+      const callFailed = result.isError || (data.error && typeof data.error === 'object' && !data.status);
+      if (callFailed) throw new Error(data.error?.message || content || `Video editor ${name} failed.`);
       return data;
     };
     return await action({ client, call, ...config });
