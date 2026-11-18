@@ -6,6 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { withEditor } from '../../videoEditor/client.js';
+import { agentInputRequired } from '../agentInput.js';
 
 export const id = 'videoEditor';
 const REQUIRED_TOOLS = ['get_status', 'create_project', 'get_project', 'autopilot', 'render', 'get_job', 'cancel_job', 'get_transcript'];
@@ -123,7 +124,8 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
         clean.overlayProfile && !caps.overlayReconstruction && 'overlay reconstruction (local Python/OpenCV)',
         clean.transcribe && !caps.speech && 'speech-to-text (Whisper)',
         clean.screenText && !caps.screenTextOverlays && 'on-screen text reading (local OCR)',
-        (clean.transcribe || clean.screenText) && !textModel(status) && 'a translation model',
+        (clean.transcribe || clean.screenText) && clean.translator === 'model' && !textModel(status) && 'a translation model',
+        (clean.transcribe || clean.screenText) && clean.translator === 'agent' && !caps.agentTranslation && 'agent translation (request_translation; update video-automation)',
       ].filter(Boolean);
       if (missing.length) throw new Error(`Video editor cannot run the clean workflow: missing ${missing.join(', ')}.`);
       if (clean.overlayProfile) {
@@ -163,16 +165,30 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
       if (clean.overlayProfile) {
         report.overlay = await waitFor('overlay', 'reconstruct_overlay', { projectId: project.id, profile: clean.overlayProfile }, 5, 25, 'Removing watermark');
       }
-      if (clean.transcribe) {
-        report.speech = await waitFor('speech', 'transcribe', { projectId: project.id, allowNoSpeech: true }, 25, 50, 'Transcribing speech');
-        if (Number(report.speech?.cues) > 0) report.speechTranslation = await waitFor('speechTranslation', 'translate', { projectId: project.id, scope: 'transcript' }, 50, 58, 'Translating speech');
+      // A transcript saved for this source (any earlier project) is reused as-is:
+      // no transcription, OCR or translation round-trip.
+      const reference = clean.libraryReference || libraryReference(currentMeta);
+      if (reference && clean.reuseLibrary && !state.library) {
+        const saved = await call('get_transcript_library', { reference }).catch(() => ({ found: false }));
+        state.library = saved.found ? { reference, ...(await call('apply_transcript_library', { projectId: project.id, reference })) } : { reference, applied: false };
+        await save();
       }
-      if (clean.screenText) {
-        report.screenText = await waitFor('screenText', 'translate_screen_text', { projectId: project.id, intervalMs: clean.screenTextIntervalMs }, 58, 72, 'Translating on-screen text');
+      report.library = state.library || null;
+      const reused = Boolean(state.library?.speechCues || state.library?.screenLines);
+      if (clean.transcribe && !reused) {
+        report.speech = await waitFor('speech', 'transcribe', { projectId: project.id, allowNoSpeech: true }, 25, 45, 'Transcribing speech');
+        if (clean.translator === 'model' && Number(report.speech?.cues) > 0) report.speechTranslation = await waitFor('speechTranslation', 'translate', { projectId: project.id, scope: 'transcript' }, 45, 50, 'Translating speech');
+      }
+      if (clean.screenText && !reused) {
+        report.screenText = await waitFor('screenText', 'translate_screen_text', { projectId: project.id, intervalMs: clean.screenTextIntervalMs, translate: clean.translator === 'model' }, 50, 66, clean.translator === 'model' ? 'Translating on-screen text' : 'Reading on-screen text');
+      }
+      if (clean.translator === 'agent') {
+        report.translation = await agentTranslation({ call, state, save, projectId: project.id, workDir, onProgress });
       }
     }
     const renderFrom = clean ? 72 : 65;
-    const rendered = await waitFor('render', 'render', { projectId: project.id, quality }, renderFrom, 95, clean ? 'Rendering' : '');
+    const layers = clean ? { subtitles: clean.captions === 'burn' } : undefined;
+    const rendered = await waitFor('render', 'render', { projectId: project.id, quality, ...(layers ? { layers } : {}) }, renderFrom, 95, clean ? 'Rendering' : '');
     const relative = rendered?.path;
     if (typeof relative !== 'string' || !relative.startsWith('renders/') || relative.split('/').some((part) => part === '..' || part === '.') || relative.includes('\\')) {
       throw new Error('Video editor returned an invalid render path.');
@@ -195,9 +211,34 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
       page = await call('get_transcript', { projectId: project.id, limit: 500, offset: cues.length });
       cues.push(...(page.cues || []));
     } while (page.cues?.length && cues.length < page.total);
+    const artifactFiles = [];
+    let captions = null;
+    if (clean && clean.captions === 'youtube') {
+      captions = await submit('captions', () => call('export_captions', { projectId: project.id, language: 'target' }));
+      if (captions?.path) {
+        const local = path.join(workDir, `${path.basename(outputPath, '.mp4')}.${captions.language || 'en'}.srt`);
+        await downloadEditorFile(apiUrl, headers, captions.path, local);
+        captions = { ...captions, localPath: local };
+        artifactFiles.push({ kind: 'captions', path: local, meta: { language: captions.language, format: 'srt', cues: captions.cues, sha256: captions.sha256, purpose: 'YouTube timed caption track (Upload file → With timing)' } });
+      }
+    }
+    if (clean) {
+      const reference = clean.libraryReference || libraryReference(currentMeta);
+      if (reference && !state.librarySaved) {
+        try {
+          state.librarySaved = await call('save_transcript_library', { projectId: project.id, reference });
+          await save();
+        } catch (error) {
+          state.librarySaved = { error: error.message };
+        }
+      }
+      report.librarySaved = state.librarySaved || null;
+      if (state.librarySaved?.dir) artifactFiles.push({ kind: 'transcriptLibrary', path: state.librarySaved.dir, meta: { reference: state.librarySaved.reference, files: state.librarySaved.files, editorUrl: endpoint.origin } });
+    }
     onProgress(100, 'Video editor output ready');
-    return { outputPath, metrics: clean ? cleanMetrics(summarizeClean(report, rendered)) : undefined, artifacts: {
+    return { outputPath, artifactFiles, metrics: clean ? cleanMetrics(summarizeClean(report, rendered)) : undefined, artifacts: {
       ...(clean ? { editorReport: summarizeClean(report, rendered) } : {}),
+      ...(captions?.localPath ? { captionsPath: captions.localPath, captionsLanguage: captions.language, captionsCues: captions.cues } : {}),
       editorProjectId: project.id, editorUrl: endpoint.origin, editorRenderId: rendered.id,
       transcriptSource: cues.map((cue) => cue.sourceText || '').filter((text) => text.trim()).join('\n'),
       transcriptEn: cues.map((cue) => direction === 'zh-to-en' ? cue.translatedText || '' : cue.sourceText || '').filter((text) => text.trim()).join('\n'),
@@ -225,7 +266,71 @@ export function cleanOptions(options = {}) {
     glossary,
     context: String(options.context || '').slice(0, 6000),
     subtitleLayout: ['dual', 'target', 'source'].includes(options.subtitleLayout) ? options.subtitleLayout : 'target',
+    // agent = one subtitle file goes to the agent and one comes back (job waits
+    // in review:translation); model = the editor's own text model translates.
+    translator: options.translator === 'model' ? 'model' : 'agent',
+    // youtube = spoken subtitles become a timed caption file, not pixels.
+    captions: ['youtube', 'burn', 'none'].includes(options.captions) ? options.captions : 'youtube',
+    libraryReference: /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(String(options.libraryReference || '')) ? String(options.libraryReference) : '',
+    reuseLibrary: options.reuseLibrary !== false,
   };
+}
+
+/** The saved-transcript key for a source: its Bilibili BV id when known. */
+export function libraryReference(meta = {}) {
+  const candidates = [meta.bvid, meta.sourceUrl, meta.canonicalUrl, meta.sourceRef];
+  for (const value of candidates) {
+    const match = String(value || '').match(/BV[0-9A-Za-z]{10}/);
+    if (match) return match[0];
+  }
+  return '';
+}
+
+async function downloadEditorFile(apiUrl, headers, relative, destination) {
+  if (typeof relative !== 'string' || !relative.startsWith('renders/') || relative.split('/').some((part) => part === '..' || part === '.')) throw new Error('Video editor returned an invalid file path.');
+  const response = await fetch(apiUrl(`files/${relative.split('/').map(encodeURIComponent).join('/')}`), { headers, redirect: 'error' });
+  if (!response.ok) throw new Error(`Video editor file download failed (HTTP ${response.status}).`);
+  await fsp.writeFile(destination, Buffer.from(await response.arrayBuffer()));
+  return destination;
+}
+
+export const TRANSLATION_REQUEST_FILE = 'translation-request.srt';
+export const TRANSLATION_RESPONSE_FILE = 'translation-response.srt';
+
+/**
+ * The single agent round-trip: ask the editor for one SRT of everything still
+ * untranslated; if the agent's reply is already in the work folder apply it,
+ * otherwise write the request there and pause the job for the agent.
+ */
+async function agentTranslation({ call, state, save, projectId, workDir, onProgress }) {
+  if (state.translation) return state.translation;
+  onProgress(68, 'Collecting lines for translation');
+  const request = state.translationRequest || await call('request_translation', { projectId });
+  if (!request.cues) {
+    state.translation = { requestId: null, cues: 0, applied: { speech: 0, screen: 0 } };
+    await save();
+    return state.translation;
+  }
+  if (!state.translationRequest) {
+    state.translationRequest = { requestId: request.requestId, cues: request.cues, speech: request.speech, screen: request.screen, instructions: request.instructions, kinds: request.kinds };
+    await save();
+  }
+  const responsePath = path.join(workDir, TRANSLATION_RESPONSE_FILE);
+  if (fs.existsSync(responsePath)) {
+    onProgress(70, 'Applying agent translation');
+    const srt = await fsp.readFile(responsePath, 'utf8');
+    const applied = await call('apply_translation', { projectId, requestId: state.translationRequest.requestId, srt });
+    state.translation = { ...applied, cues: state.translationRequest.cues };
+    await save();
+    return state.translation;
+  }
+  const requestPath = path.join(workDir, TRANSLATION_REQUEST_FILE);
+  await fsp.writeFile(requestPath, request.srt || (await call('request_translation', { projectId })).srt);
+  await fsp.writeFile(path.join(workDir, 'translation-request.json'), JSON.stringify({ ...state.translationRequest, projectId, requestPath, responsePath }, null, 2));
+  throw agentInputRequired('translation', {
+    requestPath, responsePath, ...state.translationRequest,
+    message: `Waiting for the agent to translate ${request.cues} line(s) (${request.speech} speech, ${request.screen} on-screen) as one subtitle file.`,
+  });
 }
 
 /** What each part of the clean workflow did, for the job record and the process view. */
@@ -249,6 +354,8 @@ export function summarizeClean(report = {}, rendered = {}) {
       untranslated: screen.untranslated, uncertain: screen.uncertain, excludedAsWatermark: screen.excluded,
       reviewed: Boolean(screen.reviewed), coverageNote: screen.coverageNote, ...(screen.translationError ? { translationError: screen.translationError } : {}),
     } : null,
+    translation: report.translation ? { translator: 'agent', requestId: report.translation.requestId || null, cues: report.translation.cues || 0, applied: report.translation.applied || null, missing: report.translation.missing || [], stale: report.translation.stale || [] } : null,
+    library: report.library ? { reference: report.library.reference, reused: Boolean(report.library.speechCues || report.library.screenLines), saved: Boolean(report.librarySaved?.dir) } : null,
     render: { audio: rendered.summary?.audio || '', regions: rendered.summary?.regions ?? null, subtitleEvents: rendered.summary?.subtitleEvents ?? null, screenTextEvents: rendered.summary?.screenTextEvents ?? null },
   };
 }
@@ -267,6 +374,8 @@ export function cleanMetrics(summary) {
   if (screenText) {
     out.onScreenText = `${screenText.lines} line(s) read every ${screenText.intervalMs / 1000}s; ${screenText.translated} translated, ${screenText.untranslated} untranslated, ${screenText.uncertain} uncertain${screenText.reviewed ? '' : '; not reviewed'}`;
   }
+  if (summary?.translation) out.translation = summary.translation.cues ? `agent translated ${(summary.translation.applied?.speech || 0) + (summary.translation.applied?.screen || 0)} line(s) from one subtitle file${summary.translation.missing?.length ? `; ${summary.translation.missing.length} left untranslated` : ''}` : 'nothing to translate';
+  if (summary?.library?.reused) out.transcript = `reused saved transcript ${summary.library.reference}`;
   if (render?.audio) out.audio = render.audio;
   return out;
 }

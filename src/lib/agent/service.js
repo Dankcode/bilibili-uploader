@@ -8,7 +8,7 @@ import Ajv from 'ajv';
 import db from '../db/sqlite.js';
 import { operations } from './contract.js';
 import { bridgeConfig, equalSecret } from './auth.js';
-import { approveCorrections, approveMetadata, createJobBatch, validateJobInput, retryJob, cancelJob } from '../pipeline/pipeline.js';
+import { approveCorrections, approveMetadata, createJobBatch, validateJobInput, retryJob, cancelJob, listAgentRequests, submitAgentTranslation } from '../pipeline/pipeline.js';
 import { SOURCES, PROCESSORS, UPLOADERS, validateProcessorChain } from '../pipeline/registry.js';
 import { getPreset, savePreset } from '../pipeline/presets.js';
 import { listConnections } from '../pipeline/connections.js';
@@ -218,7 +218,22 @@ const readHandlers = {
   search_catalog: searchCatalog,
   list_creator_videos: (input) => pageSavedCreatorVideos(input),
   plan_batch: (input, principal) => planBatch(input, principal),
+  list_agent_requests: () => ({ requests: listAgentRequests(), nextAction: 'get_agent_request' }),
+  get_agent_request: (input) => {
+    const request = listAgentRequests({ includeBody: true }).find((item) => item.jobId === Number(input.jobId));
+    if (!request) throw new AgentError('NOT_FOUND', 'That job is not waiting for the agent', 404);
+    return { ...request, nextAction: 'submit_translation' };
+  },
+  get_job_captions: (input) => jobCaptions(input.jobId),
 };
+
+function jobCaptions(jobId) {
+  const asset = db.prepare("SELECT * FROM video_assets WHERE job_id = ? AND kind = 'captions' ORDER BY id DESC LIMIT 1").get(jobId);
+  const meta = parse(asset?.meta_json);
+  const srt = asset?.file_path && fs.existsSync(asset.file_path) ? fs.readFileSync(asset.file_path, 'utf8') : '';
+  const publications = db.prepare("SELECT remote_id, url, status FROM video_publications WHERE video_id = (SELECT video_record_id FROM video_jobs WHERE id = ?) ORDER BY id DESC").all(jobId);
+  return { jobId: Number(jobId), language: meta.language || '', cues: meta.cues || 0, uploaded: meta.uploaded || null, srt, publications };
+}
 
 // Picks only the editable catalog fields the Library console exposes.
 const RECORD_FIELDS = ['title', 'campaign', 'language', 'priority', 'scheduledAt'];
@@ -318,6 +333,7 @@ const writeHandlers = {
   queue_batch: queueBatch,
   propose_metadata: jobWrite(proposeMetadata),
   retry_job: jobWrite(retry),
+  submit_translation: (input, principal) => submitAgentTranslation(input.jobId, input.srt, principal),
   cancel_job: jobWrite((job) => cancelJob(job.id)),
   // scan_creator awaits the network, so executeOperation handles it separately.
 };

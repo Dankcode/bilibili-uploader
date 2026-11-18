@@ -36,6 +36,7 @@ import * as youtubeUploader from './uploaders/youtube';
 import { isAllowedBilibiliHost, normalizeBilibiliVideoInput } from '../video/bilibiliUrl.js';
 import { emitMailEvent } from '../mail/events.js';
 import { DEFERRED_CODE } from '../release/governor.js';
+import { AGENT_INPUT_CODE, notifyAgent } from './agentInput.js';
 import { releaseUpload } from '../release/publish.js';
 import { UPLOAD_METHODS, methodNeedsAuthorization, normalizeUploadMethod } from '../youtube/uploadMethod.js';
 
@@ -819,6 +820,10 @@ export async function runNextQueuedJob() {
     if (job.video_record_id) emitMailEvent({ videoId: job.video_record_id, jobId: job.id, eventKind: 'job.completed', payload: { videoTitle: db.prepare('SELECT title FROM video_records WHERE id=?').get(job.video_record_id)?.title || '' } });
     logJob(job.id, `done in ${Date.now() - jobStartedAtMs} ms`);
   } catch (error) {
+    if (error?.code === AGENT_INPUT_CODE && !(cancelSignals.get(job.id)?.canceled || db.prepare('SELECT cancel_requested FROM video_jobs WHERE id = ?').get(job.id)?.cancel_requested)) {
+      holdForAgent(job, error);
+      return job.id;
+    }
     if (error?.code === DEFERRED_CODE && !(cancelSignals.get(job.id)?.canceled || db.prepare('SELECT cancel_requested FROM video_jobs WHERE id = ?').get(job.id)?.cancel_requested)) {
       deferJob(job, error);
       return job.id;
@@ -887,6 +892,85 @@ function deferJob(job, error) {
   })();
   syncJobCatalog(job, 'queued');
   logJob(job.id, `deferred until ${eligibleAt}: ${reason}`);
+}
+
+/**
+ * Park a job until an agent supplies something only it can (one translated
+ * subtitle file). Like a deferral the running step goes back to 'pending'
+ * without spending a retry; unlike one, the job waits in review:<kind> for
+ * submit_translation instead of a clock. Other jobs keep running meanwhile.
+ */
+function holdForAgent(job, error) {
+  const kind = error.kind || 'translation';
+  const detail = error.detail || {};
+  const at = nowIso();
+  db.transaction(() => {
+    const activeStep = db.prepare("SELECT id FROM video_job_steps WHERE job_id = ? AND status = 'running' ORDER BY id DESC LIMIT 1").get(job.id);
+    if (activeStep) {
+      db.prepare(`
+        UPDATE video_job_steps
+        SET status = 'pending', progress = 0, progress_note = ?, started_at = NULL, finished_at = NULL
+        WHERE id = ?
+      `).run(`Waiting for agent ${kind}`, activeStep.id);
+      appendStepLog(activeStep.id, error.message);
+    }
+    saveAsset(job.id, `${kind}Request`, detail.requestPath || '', detail);
+    db.prepare(`
+      UPDATE video_jobs
+      SET status = 'review', current_step = ?, error = '', claimed_at = '', worker_id = '', updated_at = ?
+      WHERE id = ?
+    `).run(`review:${kind}`, at, job.id);
+  })();
+  syncJobCatalog(job, 'review');
+  logJob(job.id, `waiting for agent ${kind}: ${error.message}`);
+  notifyAgent({ event: 'agent_input_required', kind, jobId: job.id, videoId: job.video_record_id || '', requestId: detail.requestId || '', cues: detail.cues || 0, speech: detail.speech || 0, screen: detail.screen || 0, mcpTool: 'get_agent_request' })
+    .then((result) => { if (!result.delivered && result.reason !== 'VIDEO_AGENT_CALLBACK_URL is not set') logJob(job.id, `agent callback not delivered: ${result.reason || result.status}`); });
+}
+
+/** Jobs waiting for an agent, with what each one needs. */
+export function listAgentRequests({ includeBody = false } = {}) {
+  const jobs = db.prepare("SELECT * FROM video_jobs WHERE status = 'review' AND current_step LIKE 'review:%' ORDER BY updated_at ASC").all()
+    .filter((job) => job.current_step === 'review:translation');
+  return jobs.map((job) => {
+    const asset = db.prepare("SELECT * FROM video_assets WHERE job_id = ? AND kind = 'translationRequest' ORDER BY id DESC LIMIT 1").get(job.id);
+    const meta = parseJson(asset?.meta_json, {});
+    const title = job.video_record_id ? db.prepare('SELECT title FROM video_records WHERE id = ?').get(job.video_record_id)?.title || '' : '';
+    const srt = includeBody && asset?.file_path && fs.existsSync(asset.file_path) ? fs.readFileSync(asset.file_path, 'utf8') : undefined;
+    return {
+      jobId: job.id, videoId: job.video_record_id || '', title, kind: 'translation', waitingSince: job.updated_at,
+      requestId: meta.requestId || '', cues: meta.cues || 0, speech: meta.speech || 0, screen: meta.screen || 0,
+      instructions: meta.instructions || '', kinds: meta.kinds || [], ...(srt !== undefined ? { srt } : {}),
+    };
+  });
+}
+
+/**
+ * The agent's answer: the translated SRT for a job in review:translation.
+ * Saved next to the request in the job's work folder; the job is requeued and
+ * the editor step resumes from its checkpoint, applying it in one write.
+ */
+export function submitAgentTranslation(jobId, srt, actor = 'agent') {
+  const job = db.prepare('SELECT * FROM video_jobs WHERE id = ?').get(jobId);
+  if (!job) throw new Error(`Job not found: ${jobId}`);
+  if (job.status !== 'review' || job.current_step !== 'review:translation') throw new Error('Only jobs waiting for an agent translation accept one');
+  const text = String(srt || '');
+  if (!text.includes('-->') || text.length > 2_000_000) throw new Error('srt must be the translated subtitle file (SRT), at most 2 MB');
+  const asset = db.prepare("SELECT * FROM video_assets WHERE job_id = ? AND kind = 'translationRequest' ORDER BY id DESC LIMIT 1").get(jobId);
+  const meta = parseJson(asset?.meta_json, {});
+  const workRoot = path.resolve(process.cwd(), process.env.VIDEO_WORK_DIR || 'video-work');
+  const responsePath = path.resolve(meta.responsePath || path.join(workRoot, String(job.id), 'translation-response.srt'));
+  const requestDir = path.dirname(path.resolve(asset?.file_path || responsePath));
+  if (path.dirname(responsePath) !== requestDir || path.basename(responsePath) !== 'translation-response.srt') throw new Error('Refusing to write the translation outside the job work folder');
+  fs.writeFileSync(`${responsePath}.tmp`, text);
+  fs.renameSync(`${responsePath}.tmp`, responsePath);
+  db.prepare('UPDATE video_assets SET meta_json = ? WHERE id = ?').run(JSON.stringify({ ...meta, answeredAt: nowIso(), answeredBy: actor }), asset.id);
+  if (job.agent_principal || actor) db.prepare('INSERT INTO agent_actions (principal, tool, arguments_json, result_json, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(String(actor), 'submit_translation', JSON.stringify({ jobId: Number(jobId), requestId: meta.requestId || '', bytes: text.length }), JSON.stringify({ status: 'queued' }), nowIso());
+  db.prepare("UPDATE video_jobs SET status = 'queued', current_step = '', error = '', updated_at = ? WHERE id = ?").run(nowIso(), jobId);
+  syncJobCatalog(job, 'queued');
+  logJob(job.id, `agent translation received (${text.length} bytes); requeued`);
+  scheduleWorker();
+  return { id: Number(jobId), status: 'queued', requestId: meta.requestId || '' };
 }
 
 export function recoverStaleJobs(maxAgeMs = 15 * 60 * 1000) {
