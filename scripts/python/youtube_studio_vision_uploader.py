@@ -393,7 +393,10 @@ def upload(payload, session):
     if payload['tags'] and matcher.has('show_more_button') and matcher.has('tags_field'):
         if session.find_with_scroll('show_more_button', anchor, attempts=4):
             session.click('show_more_button')
-            if session.find_with_scroll('tags_field', anchor, attempts=4):
+            # Studio added sections (paid promotion, AI use, collaboration,
+            # chapters, places, concepts) between "Show more" and Tags, so
+            # the field can be ~10 scroll steps further down than it was.
+            if session.find_with_scroll('tags_field', anchor, attempts=12):
                 session.click('tags_field')
                 desktop.paste(','.join(payload['tags']) + ',', replace=False)
             else:
