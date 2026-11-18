@@ -116,6 +116,11 @@ class Desktop:
         self.pyautogui.click()
         time.sleep(0.35)
 
+    def park(self, x, y):
+        """Move the pointer without clicking (e.g. off a button whose hover look differs)."""
+        self.pyautogui.moveTo(x, y, duration=0.15)
+        time.sleep(0.3)
+
     def paste(self, text, replace=True):
         self.pyperclip.copy(text or '')
         if self.pyperclip.paste() != (text or ''):
@@ -363,6 +368,12 @@ def upload(payload, session):
 
     session.stage = 'open_upload_dialog'
     event('progress', stage=session.stage, percent=10, note='Opening the upload dialog')
+    # A pointer left over the Create button (e.g. from an earlier attempt)
+    # gives it a hover outline the template does not match; close any open
+    # menu and park the pointer mid-page first.
+    desktop.press('escape')
+    width, height = desktop.logical_size()
+    desktop.park(width // 2, int(height * 0.6))
     session.click('create_button')
     session.click('upload_videos_item')
     session.click('select_files_button')

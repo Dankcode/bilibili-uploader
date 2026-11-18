@@ -221,6 +221,9 @@ class FakeStudio:
     def hotkey(self, *keys):
         return None
 
+    def park(self, x, y):
+        self.parked = (x, y)
+
     def scroll(self, x, y, clicks):
         if self.state == 'details':
             self.scrolled = True
