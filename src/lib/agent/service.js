@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { readSavedUpload, saveUploadMetadata } from '../operations/uploadCatalog.js';
+import { markPublicationReplaced, readSavedUpload, saveUploadMetadata } from '../operations/uploadCatalog.js';
 import { deleteVideoRecord, updateVideoRecord, listCategoryTitleContexts, saveCategoryTitleContext } from '../operations/store.js';
 import { withVersion } from './concurrency.js';
 import { queueLibraryUploads } from '../operations/libraryUpload.js';
@@ -299,6 +299,7 @@ const writeHandlers = {
     const processorIds = preset?.processorIds || ['metadata'];
     return { batch: queueLibraryUploads({ ...input, uploadMethod: 'studio', processorIds, processorOptions: presetStepOptions(preset, processorIds) }, { principal }), nextAction: 'wait' };
   },
+  mark_publication_replaced: (input) => sanitize(markPublicationReplaced(input.remoteId, input.replacementRemoteId)),
   save_pipeline_preset: (input) => {
     const processorIds = input.processorIds.map(String);
     const chain = validateProcessorChain(processorIds);

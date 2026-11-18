@@ -23,13 +23,18 @@ export const operations = [
   operation('save_upload_metadata', 'Save SQL upload metadata', 'Save title, description, tags and generation context on an idle SQL video record. Does not publish or approve a job.', 'POST', '/save-upload-metadata', {
     ...write, videoId: string(100), ifMatch: string(80), title: string(100), description: string(5000),
     tags: { type: 'array', minItems: 1, maxItems: 20, items: string(80) }, personality: { type: 'string', maxLength: 1000 }, context: { type: 'string', maxLength: 5000 },
+    replacesRemoteId: { type: 'string', pattern: '^[A-Za-z0-9_-]{11}$', description: 'Allow saving on a source that is blocked only by this existing upload, which a new version will replace.' },
   }, ['videoId', 'ifMatch', 'title', 'description', 'tags', 'idempotencyKey']),
   operation('queue_saved_uploads', 'Queue SQL videos for GUI upload', 'Upload saved records on the owner\'s behalf using stored media and metadata. Runs without a separate approval; preserves duplicate-delivery receipts.', 'POST', '/queue-saved-uploads', {
     ...write, videoIds: { type: 'array', minItems: 1, maxItems: 100, uniqueItems: true, items: string(100) },
     metadataMode: { enum: ['generate', 'saved'] }, personality: { type: 'string', maxLength: 1000 }, context: { type: 'string', maxLength: 5000 },
     privacyStatus: { enum: ['private', 'unlisted', 'public'] }, startAt: string(80), spacingMinutes: { type: 'number', minimum: 0, maximum: 525600 },
     presetId: { ...string(80), description: 'Saved pipeline preset whose processors (e.g. videoEditor clean mode) run before the upload. Default: metadata only.' },
+    replacesRemoteId: { type: 'string', pattern: '^[A-Za-z0-9_-]{11}$', description: 'Upload a new version of a source that was already uploaded: the YouTube video ID of exactly the existing upload being replaced. One video per call. The old upload is not deleted here.' },
   }, ['videoIds', 'idempotencyKey']),
+  operation('mark_publication_replaced', 'Mark an upload replaced', 'After a replacement upload is published and verified, mark the old YouTube upload as replaced. History is kept; both must be uploads of the same source. Does not delete anything on YouTube.', 'POST', '/mark-publication-replaced', {
+    ...write, remoteId: { type: 'string', pattern: '^[A-Za-z0-9_-]{11}$' }, replacementRemoteId: { type: 'string', pattern: '^[A-Za-z0-9_-]{11}$' },
+  }, ['remoteId', 'replacementRemoteId', 'idempotencyKey']),
   operation('save_pipeline_preset', 'Save pipeline preset', 'Create or replace a named, non-built-in preset: processors in order (e.g. videoEditor then metadata), uploader, and per-step options such as videoEditor {mode: "clean", overlayProfile, glossary, context}. Read presets from the videops://presets resource.', 'POST', '/save-pipeline-preset', {
     ...write, presetId: { type: 'string', pattern: '^[a-zA-Z0-9-]{3,80}$' }, name: string(120),
     processorIds: { type: 'array', maxItems: 10, uniqueItems: true, items: string(80) }, uploaderId: { enum: ['', 'youtube'] },
