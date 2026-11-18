@@ -18,6 +18,7 @@ import { getSavedCreatorVideo, pageSavedCreatorVideos, saveScrapedBilibiliVideos
 import { normalizeBilibiliSpaceUrl, scanBilibiliCreatorPage } from '../video/scraper.js';
 import { listYouTubePosts, getYouTubePost, saveYouTubePost, claimYouTubePost, recordYouTubePost } from '../youtube/posts.js';
 import { naturalText } from '../ai/editorial.js';
+import { methodNeedsAuthorization, normalizeUploadMethod } from '../youtube/uploadMethod.js';
 
 export class AgentError extends Error {
   constructor(code, message, status = 400, details) { super(message); Object.assign(this, { code, status, details }); }
@@ -155,16 +156,23 @@ function planBatch(input, principal) {
   const readiness = preconditions();
   const uploaderId = input.uploaderId ?? 'youtube';
   let authorizationId = input.youtubeAuthorizationId || '';
-  if (uploaderId === 'youtube' && !authorizationId) {
+  const preset = presetTemplate(input.presetId);
+  // The upload account comes with the job, not from a forced choice: the
+  // preset's method wins; with no OAuth channel at all, uploads go through
+  // YouTube Studio as the account signed in on the upload machine.
+  const presetYouTube = preset?.options?.youtube || {};
+  const uploadMethod = normalizeUploadMethod(input.uploadMethod || presetYouTube.uploadMethod || (readiness.channels.length || authorizationId ? '' : 'studio'));
+  const needsChannel = methodNeedsAuthorization(uploadMethod);
+  if (!needsChannel) authorizationId = '';
+  if (uploaderId === 'youtube' && needsChannel && !authorizationId) {
     if (readiness.channels.length > 1) throw new AgentError('NEEDS_CHOICE', 'Choose a YouTube authorization', 409, { options: readiness.channels.map(({ id, channelTitle, channelId }) => ({ id, channelTitle, channelId })) });
     authorizationId = readiness.channels[0]?.id || '';
   }
   const start = input.startAt ? Date.parse(input.startAt) : Date.now();
   if (!Number.isFinite(start)) throw new AgentError('INVALID_INPUT', 'startAt must be an ISO date');
-  const preset = presetTemplate(input.presetId);
   const processorIds = input.processorIds || preset?.processorIds || ['metadata'];
   const blockers = []; const versions = []; const items = [];
-  if (uploaderId === 'youtube' && !authorizationId) blockers.push({ code: 'PRECONDITION_FAILED', message: 'No usable YouTube channel; configure one in Connections' });
+  if (uploaderId === 'youtube' && needsChannel && !authorizationId) blockers.push({ code: 'PRECONDITION_FAILED', message: 'No usable YouTube channel; configure one in Connections' });
   if (readiness.disk.availableBytes !== null && readiness.disk.availableBytes < 1024 * 1024 * 1024) blockers.push({ code: 'PRECONDITION_FAILED', message: 'Less than 1 GiB of free disk space' });
   input.bvids.forEach((bvid, index) => {
     const video = savedVideo(input.creatorId, bvid);
@@ -173,10 +181,10 @@ function planBatch(input, principal) {
     if (blocker) blockers.push({ bvid, code: 'PRECONDITION_FAILED', message: blocker });
     const item = { sourceId: 'bilibili', sourceInput: video.url, sourceDurationSeconds: video.durationSeconds, title: video.title,
       processorIds, uploaderId, youtubeAuthorizationId: authorizationId,
-      scheduledFor: new Date(start + index * (input.everyDays || 1) * 86400000).toISOString(), agentPrincipal: principal,
+      scheduledFor: new Date(start + index * (input.spacingMinutes !== undefined ? input.spacingMinutes * 60000 : (input.everyDays || 1) * 86400000)).toISOString(), agentPrincipal: principal,
       options: { ...presetStepOptions(preset, processorIds), metadata: { ...(preset?.options?.metadata || {}), reviewMetadata: false, title: video.title, description: video.description, tags: video.tags,
         sourceTitle: video.sourceTitle, sourceDescription: video.sourceDescription, sourceUrl: video.url, creatorId: input.creatorId, bvid,
-        generationFields: video.generationFields, copyPrompt: video.copyPrompt }, youtube: video.youtubeOptions } };
+        generationFields: video.generationFields, copyPrompt: video.copyPrompt }, youtube: { ...presetYouTube, ...(video.youtubeOptions || {}), uploadMethod } } };
     items.push(item);
     try { validateJobInput(item); } catch (error) { blockers.push({ bvid, code: 'PRECONDITION_FAILED', message: sanitize(error.message) }); }
   });

@@ -68,6 +68,8 @@ export const operations = [
     creatorId, bvids: { type: 'array', minItems: 1, maxItems: 100, uniqueItems: true, items: bvid }, name: string(200),
     processorIds: { type: 'array', maxItems: 10, uniqueItems: true, items: string(80) }, uploaderId: { enum: ['', 'youtube'] }, youtubeAuthorizationId: string(128),
     startAt: string(80), everyDays: { type: 'integer', minimum: 1, maximum: 365 },
+    spacingMinutes: { type: 'integer', minimum: 0, maximum: 525600, description: 'Minutes between scheduled starts (0 = all now, one after another). Overrides everyDays.' },
+    uploadMethod: { enum: ['studio', 'api', 'pygui'], description: 'Default: the preset\'s method; with no authorized OAuth channel, studio (the account signed in to YouTube Studio on the upload machine).' },
     presetId: { ...string(80), description: 'Saved pipeline preset supplying processors and their options (explicit processorIds still win).' },
   }, ['creatorId', 'bvids']),
   operation('queue_batch', 'Queue upload plan', 'Commit an owner-requested plan once and execute without a human approval pause. Expired or edited plans must be rebuilt.', 'POST', '/queue-batch', { ...write, planToken: string(500000) }, ['planToken', 'idempotencyKey']),

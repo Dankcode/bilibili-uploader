@@ -204,6 +204,17 @@ test('published source rows are omitted from loading and blocked from a plan', a
   assert.equal(plan.planToken, null); assert.ok(plan.blockers.some((blocker) => /uploaded/.test(blocker.message)));
 });
 
+test('a Studio preset plans uploads for the signed-in Studio account without choosing an OAuth channel', async () => {
+  const [video] = seed('107');
+  await call('save_pipeline_preset', { presetId: 'studio-preset', name: 'Studio', processorIds: [], uploaderId: 'youtube', options: { youtube: { uploadMethod: 'studio', privacyStatus: 'private' } }, idempotencyKey: 'studio-preset' });
+  const plan = await call('plan_batch', { creatorId: '107', bvids: [video.bvid], presetId: 'studio-preset', spacingMinutes: 0 });
+  assert.deepEqual(plan.blockers, []);
+  assert.equal(plan.batch.items[0].youtubeAuthorizationId, '');
+  assert.equal(plan.batch.items[0].options.youtube.uploadMethod, 'studio');
+  assert.equal(plan.batch.items[0].options.youtube.privacyStatus, 'private');
+  assert.ok(plan.planToken);
+});
+
 test('ambiguous channels return typed choices and MCP can retry legacy uploads without an approval gate', async () => {
   registerYouTubeAuthorization({ emailAddress: 'agent-two@example.test', channelId: 'UC2234567890123456789012', credentialRef: 'agent-test-fixture-two' });
   const [video] = seed('106');
