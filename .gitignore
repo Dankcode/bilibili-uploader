@@ -67,7 +67,7 @@ compilation_vids/
 video-work/
 __pycache__/
 *.py[cod]
-.venv-gui/
+.venv-gui
 .venv-bilibili/
 .venv-bilibili-cli/
 config/gui-references/
