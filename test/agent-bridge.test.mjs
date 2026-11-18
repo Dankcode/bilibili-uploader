@@ -212,6 +212,7 @@ test('a Studio preset plans uploads for the signed-in Studio account without cho
   assert.equal(plan.batch.items[0].youtubeAuthorizationId, '');
   assert.equal(plan.batch.items[0].options.youtube.uploadMethod, 'studio');
   assert.equal(plan.batch.items[0].options.youtube.privacyStatus, 'private');
+  assert.deepEqual(plan.batch.items[0].options.metadata.generationFields.filter((field) => plan.batch.items[0].options.metadata[field]?.length), [], 'saved fields are not regenerated');
   assert.ok(plan.planToken);
 });
 

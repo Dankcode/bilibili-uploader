@@ -184,7 +184,9 @@ function planBatch(input, principal) {
       scheduledFor: new Date(start + index * (input.spacingMinutes !== undefined ? input.spacingMinutes * 60000 : (input.everyDays || 1) * 86400000)).toISOString(), agentPrincipal: principal,
       options: { ...presetStepOptions(preset, processorIds), metadata: { ...(preset?.options?.metadata || {}), reviewMetadata: false, title: video.title, description: video.description, tags: video.tags,
         sourceTitle: video.sourceTitle, sourceDescription: video.sourceDescription, sourceUrl: video.url, creatorId: input.creatorId, bvid,
-        generationFields: video.generationFields, copyPrompt: video.copyPrompt }, youtube: { ...presetYouTube, ...(video.youtubeOptions || {}), uploadMethod } } };
+        // Saved English title/description/tags are used as written; only missing
+        // fields are left for the metadata step to generate.
+        generationFields: ['title', 'description', 'tags'].filter((field) => !(Array.isArray(video[field]) ? video[field].length : String(video[field] || '').trim())), copyPrompt: video.copyPrompt }, youtube: { ...presetYouTube, ...(video.youtubeOptions || {}), uploadMethod } } };
     items.push(item);
     try { validateJobInput(item); } catch (error) { blockers.push({ bvid, code: 'PRECONDITION_FAILED', message: sanitize(error.message) }); }
   });
