@@ -30,6 +30,7 @@ The final stdout line of a successful run is the watch URL.
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -82,6 +83,10 @@ class StudioError(Exception):
 
 # --------------------------------------------------------------------------- desktop
 
+# GTK/portal file chooser opened by Firefox or Chrome for <input type=file>.
+FILE_DIALOG_TITLE = r'^(File Upload|Open File|Open Files)\b'
+
+
 class Desktop:
     """Screen capture + input. Imported lazily so --check on a saved
     screenshot works on a headless machine."""
@@ -120,6 +125,34 @@ class Desktop:
         """Move the pointer without clicking (e.g. off a button whose hover look differs)."""
         self.pyautogui.moveTo(x, y, duration=0.15)
         time.sleep(0.3)
+
+    def wait_file_dialog(self, timeout=30.0):
+        """Wait until the browser's native file picker is the focused window.
+
+        Keys sent before it opens land in the browser itself (on Linux,
+        Ctrl+L + path navigates the Studio tab to the local file), so the
+        caller must not type until this returns True. Only Linux/X11 can
+        check; elsewhere fall back to the old fixed delay."""
+        if not sys.platform.startswith('linux') or not shutil.which('xdotool'):
+            time.sleep(1.5)
+            return True
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                ids = subprocess.run(['xdotool', 'search', '--name', FILE_DIALOG_TITLE],
+                                     capture_output=True, text=True, timeout=5).stdout.split()
+                if ids:
+                    subprocess.run(['xdotool', 'windowactivate', '--sync', ids[-1]],
+                                   capture_output=True, timeout=5)
+                    active = subprocess.run(['xdotool', 'getactivewindow', 'getwindowname'],
+                                            capture_output=True, text=True, timeout=5).stdout
+                    if re.search(FILE_DIALOG_TITLE, active):
+                        time.sleep(0.5)
+                        return True
+            except (OSError, subprocess.SubprocessError):
+                pass
+            time.sleep(0.5)
+        return False
 
     def paste(self, text, replace=True):
         self.pyperclip.copy(text or '')
@@ -294,7 +327,6 @@ class Session:
 # --------------------------------------------------------------------------- upload flow
 
 def choose_file(desktop, video_path):
-    time.sleep(1.5)
     if sys.platform == 'darwin':
         desktop.hotkey('command', 'shift', 'g')
         time.sleep(0.8)
@@ -368,10 +400,11 @@ def upload(payload, session):
 
     session.stage = 'open_upload_dialog'
     event('progress', stage=session.stage, percent=10, note='Opening the upload dialog')
-    # A pointer left over the Create button (e.g. from an earlier attempt)
-    # gives it a hover outline the template does not match; close any open
-    # menu and park the pointer mid-page first.
-    desktop.press('escape')
+    # Create must look idle to match its template: a pointer over it (hover)
+    # or keyboard focus on it (e.g. after a menu closed) adds an outline.
+    # Clicking the plain dashboard heading closes any menu and clears focus;
+    # then park the pointer mid-page.
+    session.click('dashboard_ready')
     width, height = desktop.logical_size()
     desktop.park(width // 2, int(height * 0.6))
     session.click('create_button')
@@ -380,6 +413,10 @@ def upload(payload, session):
 
     session.stage = 'choose_file'
     event('progress', stage=session.stage, percent=15, note='Selecting the file')
+    if not desktop.wait_file_dialog(timeout=max(STEP_TIMEOUT, 30)):
+        # Nothing has been typed yet, so no file can have been sent.
+        shot = session.save_screenshot('file-dialog-not-open')
+        session.fail(f'The file picker did not open (screenshot: {shot})')
     session.sent = True
     choose_file(desktop, video_path)
     if not session.wait_for('details_title_field', timeout=max(STEP_TIMEOUT, 90), required=False):

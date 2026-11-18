@@ -224,6 +224,9 @@ class FakeStudio:
     def park(self, x, y):
         self.parked = (x, y)
 
+    def wait_file_dialog(self, timeout=30.0):
+        return self.file_dialog_open
+
     def scroll(self, x, y, clicks):
         if self.state == 'details':
             self.scrolled = True
@@ -476,6 +479,16 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(caught.exception.deferrable)
         self.assertFalse(caught.exception.sent)
         self.assertEqual(caught.exception.code, uploader.EXIT_STOPPED)
+
+    def test_file_picker_that_never_opens_types_nothing_and_is_not_sent(self):
+        fake = FakeStudio()
+        fake.wait_file_dialog = lambda timeout=30.0: False
+        with self.assertRaises(uploader.StudioError) as caught:
+            uploader.upload(payload(), self.session(fake))
+        self.assertFalse(caught.exception.sent)
+        self.assertEqual(caught.exception.stage, 'choose_file')
+        self.assertIn('file picker did not open', str(caught.exception))
+        self.assertFalse(fake.path_pasted)
 
     def test_failure_after_the_file_is_submitted_reports_sent_with_a_screenshot(self):
         fake = FakeStudio(upload_polls=10 ** 9)
