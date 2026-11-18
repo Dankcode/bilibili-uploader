@@ -5,7 +5,7 @@ import { titleContextForVideo } from '../operations/titleContext.js';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import db, { finalizeUpload, logError, updateVideoStatus } from '../db/sqlite';
-import { compareToSource, probeVideo, validateVideoOutput } from '../media/validation';
+import { compareFilesToSource, probeVideo, validateVideoOutput } from '../media/validation';
 import {
   addAutomationBatchItem,
   createAutomationBatch,
@@ -640,8 +640,8 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     const source = db.prepare("SELECT file_path FROM video_assets WHERE job_id = ? AND kind = 'original' ORDER BY id DESC LIMIT 1").get(job.id);
     if (source?.file_path && currentFilePath && path.resolve(source.file_path) !== path.resolve(currentFilePath) && fs.existsSync(source.file_path)) {
       const [sourceProbe, outputProbe] = await Promise.all([probeVideo(source.file_path), probeVideo(currentFilePath)]);
-      const comparison = compareToSource(sourceProbe, outputProbe);
-      appendStepLog(step.id, `Pre-publish check against source: ${comparison.ok ? 'size, duration, frame rate and audio preserved' : comparison.differences.join('; ')} (duration Δ ${comparison.durationDeltaSeconds}s, tolerance ${comparison.durationToleranceSeconds}s)`);
+      const comparison = await compareFilesToSource(source.file_path, currentFilePath, sourceProbe, outputProbe);
+      appendStepLog(step.id, `Pre-publish check against source: ${comparison.ok ? 'size, duration, frame rate and audio preserved' : comparison.differences.join('; ')} (duration Δ ${comparison.durationDeltaSeconds}s, tolerance ${comparison.durationToleranceSeconds}s)${comparison.note ? `. ${comparison.note}` : ''}`);
       if (!comparison.ok && !options[id]?.allowSourceChange) {
         throw new Error(`Refusing to publish: the output no longer matches its source (${comparison.differences.join('; ')}). Fix the edit, or set allowSourceChange for an intended change.`);
       }

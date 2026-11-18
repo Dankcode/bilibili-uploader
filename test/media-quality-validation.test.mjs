@@ -51,3 +51,26 @@ test('video validation rejects half a second of extra video, a frame-rate change
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('a stream-copied cut with hidden pre-roll packets passes when the frames shown are identical', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'media-preroll-'));
+  try {
+    const long = path.join(dir, 'long.mp4');
+    await run(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=320x240:r=30:d=8', '-f', 'lavfi', '-i', 'sine=d=8', '-c:v', 'libx264', '-g', '60', '-bf', '2', '-c:a', 'aac', '-shortest', '-y', long]);
+    // Cut between keyframes with stream copy: the clip keeps discard-flagged packets before its start.
+    const clip = path.join(dir, 'clip.mp4');
+    await run(ffmpeg, ['-v', 'error', '-ss', '2.5', '-i', long, '-t', '4', '-c', 'copy', '-y', clip]);
+    // Re-encode what plays.
+    const edited = path.join(dir, 'edited.mp4');
+    await run(ffmpeg, ['-v', 'error', '-i', clip, '-c:v', 'libx264', '-preset', 'ultrafast', '-fps_mode', 'passthrough', '-c:a', 'copy', '-y', edited]);
+    const result = await validateVideoOutput(edited, { expectedInputPath: clip, preserveDuration: true, preserveDimensions: true });
+    assert.equal(result.comparison.ok, true);
+    if (result.comparison.decodedFrames) {
+      // The nominal durations differed, so the frame check ran and found the same frames.
+      assert.equal(result.comparison.decodedFrames.input, result.comparison.decodedFrames.output);
+      assert.match(result.comparison.note, /decode to \d+ frames/);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
