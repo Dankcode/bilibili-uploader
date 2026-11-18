@@ -106,6 +106,37 @@ export function compareToSource(input, output) {
   };
 }
 
+/** Frames a player actually shows (decodes the stream; packets marked discard are skipped). */
+export async function countDecodedFrames(filePath) {
+  const { stdout } = await execFileAsync(process.env.FFPROBE_PATH || ffprobeInstaller.path, [
+    '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', path.resolve(filePath),
+  ], { timeout: 30 * 60 * 1000, maxBuffer: 1024 * 1024 });
+  const frames = Number(String(stdout).trim().split(/\s+/)[0]);
+  return Number.isFinite(frames) ? frames : null;
+}
+
+/**
+ * compareToSource plus one deeper check: when only the duration looks
+ * different, count the decoded frames of both files. A stream-copied cut can
+ * carry discarded pre-roll packets that count toward its nominal duration but
+ * are never shown; if both decode to the same frames and the audio lasts as
+ * long, the edit kept the timing and the result says why it passed.
+ */
+export async function compareFilesToSource(inputPath, outputPath, input, output) {
+  const comparison = compareToSource(input, output);
+  // Nominal durations (and the average frame rate derived from them) can be
+  // skewed by never-shown packets; size or audio differences cannot.
+  if (comparison.ok || !comparison.differences.every((item) => /duration|frame rate/.test(item))) return comparison;
+  const [inputFrames, outputFrames] = await Promise.all([countDecodedFrames(inputPath), countDecodedFrames(outputPath)]);
+  const frame = input.avgFps > 0 ? 1 / input.avgFps : 1 / 30;
+  const audioSame = !input.audio || (output.audio && Math.abs((output.audio.durationSeconds ?? 0) - (input.audio.durationSeconds ?? 0)) <= frame);
+  const result = { ...comparison, decodedFrames: { input: inputFrames, output: outputFrames } };
+  if (inputFrames && inputFrames === outputFrames && audioSame) {
+    return { ...result, ok: true, differences: [], note: `Nominal duration/frame rate differ (${comparison.differences.join('; ')}) but both decode to ${outputFrames} frames and the audio length matches; the source carries packets that are never shown.` };
+  }
+  return { ...result, differences: [...comparison.differences, `decoded frames ${inputFrames} -> ${outputFrames}`] };
+}
+
 export async function validateVideoOutput(filePath, {
   expectedInputPath = '',
   preserveDuration = false,
@@ -128,9 +159,9 @@ export async function validateVideoOutput(filePath, {
     input = await probeVideo(expectedInputPath);
     checks.changedFromInput = input.sha256 !== output.sha256;
     checks.dimensionsPreserved = input.width === output.width && input.height === output.height;
-    comparison = compareToSource(input, output);
+    comparison = preserveDuration ? await compareFilesToSource(expectedInputPath, filePath, input, output) : compareToSource(input, output);
     if (preserveDuration) {
-      checks.durationPreserved = !comparison.differences.some((item) => /duration/.test(item));
+      checks.durationPreserved = !comparison.differences.some((item) => /duration|decoded frames/.test(item));
       checks.frameRatePreserved = !comparison.differences.some((item) => /frame rate/.test(item));
       checks.audioPreserved = !comparison.differences.includes('audio track missing');
     }
