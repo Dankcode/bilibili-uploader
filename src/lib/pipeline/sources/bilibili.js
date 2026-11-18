@@ -117,6 +117,7 @@ export function describeDownload(downloaded, item = {}, baseName = 'bilibili-vid
       sourceUrl: (isBarePath ? '' : downloaded?.canonicalUrl) || item.url || '',
       canonicalUrl: (isBarePath ? '' : downloaded?.canonicalUrl) || '',
       platform: 'bilibili',
+      ...(!isBarePath && downloaded?.streamSelection ? { streamSelection: downloaded.streamSelection } : {}),
     },
   };
 }

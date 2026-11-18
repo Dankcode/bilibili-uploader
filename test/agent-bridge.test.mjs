@@ -29,7 +29,7 @@ function fixtureJob(status = 'review', uploaderId = '') {
 }
 
 test('one shared contract has 24 tools, matching REST/OpenAPI, and exposes record deletion', () => {
-  assert.equal(operations.length, 24);
+  assert.equal(operations.length, 25);
   assert.equal(readAgentResource('videops://manifest').humanApprovalRequired, false);
   const spec = openApiDocument();
   for (const op of operations) assert.equal(spec.paths[op.path][op.method.toLowerCase()].operationId, op.name);

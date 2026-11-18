@@ -37,7 +37,7 @@ export function queueLibraryUploads(input = {}, { principal = '' } = {}) {
       return { videoRecordId: id, title: video.title, sourceId, agentPrincipal: principal,
         sourceDurationSeconds: video.row.duration_seconds || 0,
         sourceInput: local ? id : (video.row.source_url || video.row.source_ref),
-        processorIds: ['metadata'], uploaderId: 'youtube',
+        processorIds: Array.isArray(input.processorIds) && input.processorIds.length ? input.processorIds.map(String) : ['metadata'], uploaderId: 'youtube',
         youtubeAuthorizationId: input.youtubeAuthorizationId || '', uploadMethod: input.uploadMethod || 'studio',
         scheduledFor: input.startAt || spacing ? new Date(start + index * spacing * 60000).toISOString() : '',
         options: { metadata: { sourceTitle: video.title, sourceDescription: video.description,
@@ -46,7 +46,8 @@ export function queueLibraryUploads(input = {}, { principal = '' } = {}) {
           generationFields: useSaved ? [] : ['title', 'description', 'tags'],
           title: saved.titleEn || '', description: saved.descriptionEn || '', tags: saved.tags || [],
           reviewMetadata: principal ? false : Boolean(input.reviewMetadata) },
-          youtube: { uploadMethod: input.uploadMethod || 'studio', privacyStatus } } };
+          youtube: { uploadMethod: input.uploadMethod || 'studio', privacyStatus },
+          ...(input.processorOptions && typeof input.processorOptions === 'object' ? input.processorOptions : {}) } };
     });
     return createJobBatch({ name: input.name || 'Library uploads', items });
   })();

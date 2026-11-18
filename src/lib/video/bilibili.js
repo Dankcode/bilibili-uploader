@@ -386,11 +386,39 @@ export function normalizeBilibiliInfo(videoData, playData, canonicalUrl, metadat
     Number(b.id || 0) - Number(a.id || 0)
     || Number(/^avc/i.test(b.codecs || '')) - Number(/^avc/i.test(a.codecs || ''))
     || Number(b.bandwidth || 0) - Number(a.bandwidth || 0));
-  const videoUrl = videos.map(streamUrl).find(Boolean);
-  const audioUrl = [...(dash?.audio || [])]
-    .sort((a, b) => Number(b.bandwidth || 0) - Number(a.bandwidth || 0)).map(streamUrl).find(Boolean);
+  const chosen = videos.find((stream) => streamUrl(stream));
+  const videoUrl = streamUrl(chosen);
+  const audios = [...(dash?.audio || [])].sort((a, b) => Number(b.bandwidth || 0) - Number(a.bandwidth || 0));
+  const audio = audios.find((stream) => streamUrl(stream));
+  const audioUrl = streamUrl(audio);
   if (!videoUrl || !audioUrl) throw new Error('Bilibili did not provide DASH audio/video streams');
-  return { ...info, videoUrl, audioUrl };
+  return { ...info, videoUrl, audioUrl, streamSelection: describeStreamSelection(playData, chosen, audio, videos) };
+}
+
+const streamSummary = (stream) => ({
+  qualityId: Number(stream?.id) || 0, width: Number(stream?.width) || 0, height: Number(stream?.height) || 0,
+  codecs: String(stream?.codecs || ''), frameRate: String(stream?.frameRate || stream?.frame_rate || ''), bandwidth: Number(stream?.bandwidth) || 0,
+});
+
+/**
+ * What Bilibili offered for this request and what was picked. This is
+ * evidence for "highest available to this account", not a claim about the
+ * upload's original master: the offer depends on sign-in and membership.
+ */
+export function describeStreamSelection(playData, chosen, audio, videos = []) {
+  const accepted = Array.isArray(playData?.accept_quality) ? playData.accept_quality.map(Number) : [];
+  const descriptions = Array.isArray(playData?.accept_description) ? playData.accept_description.map(String) : [];
+  const offered = [...new Map(videos.map((stream) => [Number(stream.id), streamSummary(stream)])).values()];
+  const best = offered.reduce((max, stream) => Math.max(max, stream.qualityId), 0);
+  return {
+    selected: streamSummary(chosen),
+    audio: { bandwidth: Number(audio?.bandwidth) || 0, codecs: String(audio?.codecs || ''), qualityId: Number(audio?.id) || 0 },
+    offeredQualities: offered.map((stream) => ({ qualityId: stream.qualityId, width: stream.width, height: stream.height })),
+    listedQualities: accepted.map((id, index) => ({ qualityId: id, label: descriptions[index] || '' })),
+    // Qualities the player lists but did not return streams for (e.g. member-only 1080P+).
+    unavailableQualities: accepted.filter((id) => id > best).map((id) => ({ qualityId: id, label: descriptions[accepted.indexOf(id)] || '' })),
+    highestOffered: Number(chosen?.id) === best,
+  };
 }
 
 /**
@@ -437,7 +465,9 @@ export async function parseBilibiliVideoInfo(bilibiliUrl, sessData, { metadataOn
       beforeRedirect: guardRedirect,
     });
     const wbi = navPayload?.data?.wbi_img;
-    const params = signWbiParams({ bvid, cid, qn: 80, fnval: 4048, fnver: 0, fourk: 1, platform: 'web' }, wbi?.img_url, wbi?.sub_url);
+    // Ask for the top quality; Bilibili answers with the best this session may
+    // have (signed-in non-members usually get 1080P / qn 80) and lists the rest.
+    const params = signWbiParams({ bvid, cid, qn: 127, fnval: 4048, fnver: 0, fourk: 1, platform: 'web' }, wbi?.img_url, wbi?.sub_url);
     const { data: playPayload } = await axios.get(PLAY_URL_API_URL, {
       params,
       headers: apiHeaders(sessData),
@@ -445,7 +475,9 @@ export async function parseBilibiliVideoInfo(bilibiliUrl, sessData, { metadataOn
       beforeRedirect: guardRedirect,
     });
     if (playPayload?.code !== 0 || !playPayload?.data) throw apiError('Bilibili stream lookup', playPayload);
-    return normalizeBilibiliInfo(viewPayload.data, playPayload.data, canonicalUrl);
+    const resolved = normalizeBilibiliInfo(viewPayload.data, playPayload.data, canonicalUrl);
+    resolved.streamSelection = { ...resolved.streamSelection, signedIn: navPayload?.data?.isLogin === true };
+    return resolved;
 
   } catch (error) {
     throw new Error(`Could not resolve Bilibili video: ${error.message}`);
@@ -474,14 +506,38 @@ export async function resolveBilibiliVideoPreview(bilibiliUrl, options = {}) {
  * started from a URL is catalogued, and then published to YouTube, as
  * "https-bilibili.com-video-B2J2aDS".
  */
+/**
+ * Downloads prefer the saved, verified sign-in: anonymous requests succeed
+ * but are capped (often at 480P), so "public first" silently downloads a
+ * lower quality than the account can get. Without a usable session this
+ * falls back to public access and says so in streamSelection.
+ */
+export async function withPreferredBilibiliSession(operation, options = {}, { acquireSession = ensureBilibiliSession } = {}) {
+  let session = { available: false };
+  try { session = await acquireSession(options); } catch { /* public access below */ }
+  if (session.available) {
+    const cookie = sessionCookie(readStorageState(options.storagePath).cookies);
+    if (cookie?.value) {
+      try {
+        return { info: await operation(cookie.value), session: 'signed-in' };
+      } catch (error) {
+        console.warn(`Signed-in Bilibili lookup failed; trying public access: ${error.message}`);
+      }
+    }
+  }
+  return { info: await operation(''), session: 'public' };
+}
+
 export async function processBilibiliUrl(videoName, bilibiliUrl, options = {}) {
   try {
     console.log(`Processing Bilibili URL: ${bilibiliUrl}`);
     const safeUrl = normalizeBilibiliVideoInput(bilibiliUrl);
-    const info = await withAutomaticBilibiliSession((session) => parseBilibiliVideoInfo(safeUrl, session), { ...options, sourceUrl: safeUrl });
-    console.log(`Starting Bilibili download: ${info.title} (as ${videoName})`);
+    const { info, session } = await withPreferredBilibiliSession((sessData) => parseBilibiliVideoInfo(safeUrl, sessData), { ...options, sourceUrl: safeUrl });
+    const selection = { ...(info.streamSelection || {}), session };
+    const picked = selection.selected;
+    console.log(`Starting Bilibili download: ${info.title} (as ${videoName}) — ${session}${picked ? `, qn ${picked.qualityId} ${picked.width}x${picked.height} ${picked.codecs}` : ''}`);
     const filePath = await Downloader(videoName, info.canonicalUrl || bilibiliUrl, info.videoUrl, info.audioUrl, options);
-    return { filePath, title: info.title, description: info.description, canonicalUrl: info.canonicalUrl || bilibiliUrl };
+    return { filePath, title: info.title, description: info.description, canonicalUrl: info.canonicalUrl || bilibiliUrl, streamSelection: selection };
   } catch (error) {
     console.error('Bilibili Process Error:', error.message);
     throw error;

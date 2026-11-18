@@ -3219,6 +3219,17 @@ details.connectionRow:not([open]) .connectionDetails {
 .mediaVersionList time { color: var(--text-faint); font-size: 9px; white-space: nowrap; }
 .mediaCurrentBadge { margin-left: 7px; color: var(--accent-2); font-size: 9px; text-transform: uppercase; }
 .mediaHistoryEmpty { margin: 0; padding: 14px 16px; color: var(--text-faint); font-size: 11px; }
+.mediaEditorReport { display: grid; gap: 3px; margin: 6px 0 0; }
+.mediaEditorReport > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
+.mediaEditorReport dt { color: var(--text-faint); font-size: 10px; }
+.mediaEditorReport dd { margin: 0; color: var(--text); font-size: 10px; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .mediaQualityGrid { grid-template-columns: minmax(0, 1fr); }
+  .mediaHistoryHeader { flex-direction: column; align-items: flex-start; }
+  .mediaVersionList li { grid-template-columns: 10px minmax(0, 1fr); }
+  .mediaVersionList time { grid-column: 2; }
+  .mediaEditorReport > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
 .processEmpty { margin-bottom: var(--sp-3); color: var(--text-faint); font-size: 11px; }
 .processCanvasViewport { min-height: 290px; overflow-x: auto; border: 1px solid var(--border); background-color: var(--surface); background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 24px 24px; outline: none; }
 .processCanvas { display: flex; align-items: center; min-width: max-content; min-height: 288px; padding: var(--sp-5); }

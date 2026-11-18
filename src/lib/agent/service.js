@@ -9,7 +9,8 @@ import db from '../db/sqlite.js';
 import { operations } from './contract.js';
 import { bridgeConfig, equalSecret } from './auth.js';
 import { approveCorrections, approveMetadata, createJobBatch, validateJobInput, retryJob, cancelJob } from '../pipeline/pipeline.js';
-import { SOURCES, PROCESSORS, UPLOADERS } from '../pipeline/registry.js';
+import { SOURCES, PROCESSORS, UPLOADERS, validateProcessorChain } from '../pipeline/registry.js';
+import { getPreset, savePreset } from '../pipeline/presets.js';
 import { listConnections } from '../pipeline/connections.js';
 import { getUsageSummary } from '../pipeline/usage.js';
 import { listYouTubeAuthorizations, getJobYouTubeAuthorization, publicYouTubeAuthorization } from '../youtube/authorizations.js';
@@ -137,6 +138,19 @@ function readPlan(token, principal) {
   if (plan.principal !== principal || plan.expiresAt < Date.now()) throw new AgentError('PRECONDITION_FAILED', 'Plan expired or belongs to another principal; plan again', 409);
   return plan;
 }
+/** A saved preset's template, or null. Unknown ids are an input error, not a silent default. */
+function presetTemplate(presetId) {
+  if (!presetId) return null;
+  const preset = getPreset(presetId);
+  if (!preset) throw new AgentError('NOT_FOUND', `Pipeline preset ${presetId} does not exist`, 404);
+  return preset.template || {};
+}
+/** Options for the preset's processors other than metadata/uploader, which callers set per item. */
+function presetStepOptions(preset, processorIds) {
+  const out = {};
+  for (const id of processorIds) if (id !== 'metadata' && preset?.options?.[id]) out[id] = preset.options[id];
+  return out;
+}
 function planBatch(input, principal) {
   const readiness = preconditions();
   const uploaderId = input.uploaderId ?? 'youtube';
@@ -147,7 +161,8 @@ function planBatch(input, principal) {
   }
   const start = input.startAt ? Date.parse(input.startAt) : Date.now();
   if (!Number.isFinite(start)) throw new AgentError('INVALID_INPUT', 'startAt must be an ISO date');
-  const processorIds = input.processorIds || ['metadata'];
+  const preset = presetTemplate(input.presetId);
+  const processorIds = input.processorIds || preset?.processorIds || ['metadata'];
   const blockers = []; const versions = []; const items = [];
   if (uploaderId === 'youtube' && !authorizationId) blockers.push({ code: 'PRECONDITION_FAILED', message: 'No usable YouTube channel; configure one in Connections' });
   if (readiness.disk.availableBytes !== null && readiness.disk.availableBytes < 1024 * 1024 * 1024) blockers.push({ code: 'PRECONDITION_FAILED', message: 'Less than 1 GiB of free disk space' });
@@ -159,7 +174,7 @@ function planBatch(input, principal) {
     const item = { sourceId: 'bilibili', sourceInput: video.url, sourceDurationSeconds: video.durationSeconds, title: video.title,
       processorIds, uploaderId, youtubeAuthorizationId: authorizationId,
       scheduledFor: new Date(start + index * (input.everyDays || 1) * 86400000).toISOString(), agentPrincipal: principal,
-      options: { metadata: { reviewMetadata: false, title: video.title, description: video.description, tags: video.tags,
+      options: { ...presetStepOptions(preset, processorIds), metadata: { ...(preset?.options?.metadata || {}), reviewMetadata: false, title: video.title, description: video.description, tags: video.tags,
         sourceTitle: video.sourceTitle, sourceDescription: video.sourceDescription, sourceUrl: video.url, creatorId: input.creatorId, bvid,
         generationFields: video.generationFields, copyPrompt: video.copyPrompt }, youtube: video.youtubeOptions } };
     items.push(item);
@@ -279,7 +294,19 @@ function retry(job, input, principal) {
 
 const writeHandlers = {
   save_upload_metadata: (input) => saveUploadMetadata(input),
-  queue_saved_uploads: (input, principal) => ({ batch: queueLibraryUploads({ ...input, uploadMethod: 'studio' }, { principal }), nextAction: 'wait' }),
+  queue_saved_uploads: (input, principal) => {
+    const preset = presetTemplate(input.presetId);
+    const processorIds = preset?.processorIds || ['metadata'];
+    return { batch: queueLibraryUploads({ ...input, uploadMethod: 'studio', processorIds, processorOptions: presetStepOptions(preset, processorIds) }, { principal }), nextAction: 'wait' };
+  },
+  save_pipeline_preset: (input) => {
+    const processorIds = input.processorIds.map(String);
+    const chain = validateProcessorChain(processorIds);
+    const problems = Array.isArray(chain) ? chain : chain?.errors || [];
+    if (problems.length) throw new AgentError('INVALID_INPUT', problems.join(' '));
+    const saved = savePreset({ id: input.presetId, name: input.name, template: { processorIds, uploaderId: input.uploaderId ?? 'youtube', options: input.options || {} } });
+    return { preset: sanitize(saved) };
+  },
   save_youtube_post: (input) => saveYouTubePost({ id: input.postId, ifMatch: input.ifMatch, channelId: input.channelId, text: input.text, scheduledFor: input.scheduledFor, videoId: input.videoId }),
   claim_youtube_post: (input, principal) => claimYouTubePost(input.postId, input.ifMatch, principal),
   record_youtube_post: (input, principal) => recordYouTubePost(input.postId, input.ifMatch, input, principal),

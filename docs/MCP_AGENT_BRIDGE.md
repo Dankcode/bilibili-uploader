@@ -33,7 +33,7 @@ No token, pairing, or insecure-HTTP opt-in flag is needed. For local use, the
 base URL defaults to `http://127.0.0.1:4455`. Point the client at the backend
 beside its SQLite database, not a remote-mode frontend.
 
-The bridge exposes the same 24 operations as `/api/agent/v1/openapi.json`.
+The bridge exposes the same 25 operations as `/api/agent/v1/openapi.json`.
 It does not open SQLite or run the upload worker in the stdio process.
 Optional legacy bearer headers still work, without granting a different role.
 
