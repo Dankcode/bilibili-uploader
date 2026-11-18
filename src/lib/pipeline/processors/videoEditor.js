@@ -98,7 +98,13 @@ export async function process(inputPath, options = {}, onProgress = () => {}, cr
           throw error;
         }
         if (job.status === 'done') return job.result;
-        if (['failed', 'canceled', 'interrupted'].includes(job.status)) throw new Error(`Video editor job ${job.id}: ${job.error?.message || job.error || job.status}`);
+        if (['failed', 'canceled', 'interrupted'].includes(job.status)) {
+          // Forget the finished-badly job so a retry submits this stage again;
+          // completed stages before it stay checkpointed and are not redone.
+          delete state[key];
+          await save();
+          throw new Error(`Video editor job ${job.id}: ${job.error?.message || job.error || job.status}`);
+        }
         if (Date.now() >= deadline) throw new Error(`Video editor job ${job.id} timed out; retry resumes the saved job.`);
         await delay(2000);
       }
