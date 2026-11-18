@@ -32,13 +32,20 @@ async function fixture(t, overrides = {}) {
         calls.push(params);
         let data;
         switch (params.name) {
-          case 'get_status': data = { ffmpeg: { ready: true }, providers: state.providers }; break;
+          case 'get_status': data = { ffmpeg: { ready: true }, providers: state.providers, capabilities: state.capabilities || {} }; break;
+          case 'update_settings': data = { id: 'prj_abcdefghij' }; break;
+          case 'list_overlay_profiles': data = { profiles: state.profiles || [] }; break;
+          case 'reconstruct_overlay': data = { job: { id: 'job_overlay' } }; break;
+          case 'transcribe': data = { job: { id: 'job_speech' } }; break;
+          case 'translate': data = { job: { id: 'job_translate' } }; break;
+          case 'translate_screen_text': data = { job: { id: 'job_screen' } }; break;
           case 'create_project': data = { id: 'prj_abcdefghij' }; break;
           case 'autopilot': data = { job: { id: 'job_localize' } }; break;
           case 'render': data = { job: { id: 'job_render' } }; break;
           case 'cancel_job': data = { ok: true }; break;
           case 'get_job': data = { id: params.arguments.jobId, status: state.jobStatus, progress: .5, error: state.jobError,
-            result: params.arguments.jobId === 'job_render' ? { id: 'exp_final', path: state.renderedPath } : { provider: 'llm' } }; break;
+            result: params.arguments.jobId === 'job_render' ? { id: 'exp_final', path: state.renderedPath, summary: { audio: 'copied', regions: 1, subtitleEvents: 0, screenTextEvents: 3 } }
+              : state.results?.[params.arguments.jobId] || { provider: 'llm' } }; break;
           case 'get_transcript': data = params.arguments.offset ? { total: 2, cues: [{ sourceText: '第二', translatedText: 'Second' }] }
             : { total: 2, cues: [{ sourceText: '第一', translatedText: 'First' }] }; break;
           default: data = {};
@@ -190,4 +197,56 @@ test('the uploader worker validates and records the returned video as its publis
   assert.equal(finished.status, 'done', finished.error);
   assert.ok(finished.assets.some((asset) => asset.kind === 'videoEditor' && asset.meta.validation.output.width === 64));
   assert.ok(fs.existsSync(path.join(f.directory, String(job.id), 'video-editor.json')));
+});
+
+const cleanState = () => ({
+  providers: { codex: true },
+  capabilities: { overlayReconstruction: true, speech: true, screenTextOverlays: true },
+  profiles: [{ id: 'prisma-watermark' }],
+  results: {
+    job_overlay: { motion: 'stationary', regions: [{ id: 'reg_1' }], samples: 55, counts: { present: 55 }, reviewTimesMs: [], maskScaled: false, method: 'removelogo', maskProvenance: { method: 'SAM3_Detect' } },
+    job_speech: { cues: 0, speech: { segments: 7, kept: 0, reliable: false, dropped: { noSpeech: 5, hallucination: 2 } }, notes: ['no speech'] },
+    job_screen: { intervalMs: 1000, samples: 540, tracks: 4, translated: 3, untranslated: 1, uncertain: 2, excluded: 540, reviewed: false, coverageNote: 'one frame per second' },
+  },
+});
+
+test('clean mode removes the watermark, skips translation when no speech is reliable, translates on-screen text and reports each part', async (t) => {
+  const f = await fixture(t, cleanState());
+  const progress = [];
+  const result = await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark', glossary: [{ source: '蝶', target: 'Vlinder' }], context: 'Delta Force' },
+    (percent, note) => progress.push([percent, note]), f.credentials, { title: 'Vlinder' }, { workDir: f.directory });
+  const tools = f.calls.map((call) => call.name).filter((name) => !['get_job', 'get_transcript'].includes(name));
+  assert.deepEqual(tools, ['get_status', 'list_overlay_profiles', 'create_project', 'update_settings', 'reconstruct_overlay', 'transcribe', 'translate_screen_text', 'render']);
+  const settings = f.calls.find((call) => call.name === 'update_settings').arguments;
+  assert.deepEqual(settings.glossary, [{ source: '蝶', target: 'Vlinder' }]);
+  assert.equal(settings.subtitles.layout, 'target');
+  assert.equal(f.calls.find((call) => call.name === 'transcribe').arguments.allowNoSpeech, true);
+  assert.equal(f.calls.find((call) => call.name === 'reconstruct_overlay').arguments.profile, 'prisma-watermark');
+  assert.ok(progress.some(([, note]) => /^Removing watermark:/.test(note)) && progress.some(([, note]) => /^Translating on-screen text:/.test(note)));
+  assert.match(result.metrics.watermark, /stationary; 1 region; found in 55\/55/);
+  assert.match(result.metrics.speech, /no reliable speech \(7 Whisper segment/);
+  assert.match(result.metrics.onScreenText, /4 line\(s\).*3 translated, 1 untranslated, 2 uncertain; not reviewed/);
+  assert.equal(result.artifacts.editorReport.overlay.maskSource, 'SAM3_Detect');
+  assert.equal(fs.readFileSync(result.outputPath, 'utf8'), 'finished-video');
+});
+
+test('clean mode translates speech only when Whisper kept reliable lines', async (t) => {
+  const state = cleanState();
+  state.results.job_speech = { cues: 3, speech: { segments: 4, kept: 3, reliable: true } };
+  state.results.job_translate = { cues: 3 };
+  const f = await fixture(t, state);
+  const result = await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory });
+  assert.deepEqual(f.calls.find((call) => call.name === 'translate').arguments, { projectId: 'prj_abcdefghij', scope: 'transcript' });
+  assert.match(result.metrics.speech, /3 reliable line\(s\), 3 translated/);
+});
+
+test('clean mode stops before sending media when the editor lacks a capability or the overlay profile', async (t) => {
+  const state = cleanState();
+  state.capabilities.screenTextOverlays = false;
+  const f = await fixture(t, state);
+  await assert.rejects(editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory }), /missing on-screen text reading/);
+  const g = await fixture(t, cleanState());
+  await assert.rejects(editVideo(g.input, { mode: 'clean', overlayProfile: 'another-channel' }, () => {}, g.credentials, {}, { workDir: g.directory }), /no overlay profile "another-channel"/);
+  assert.equal(f.state.upload, undefined);
+  assert.equal(g.state.upload, undefined);
 });

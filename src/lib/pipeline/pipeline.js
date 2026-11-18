@@ -5,7 +5,7 @@ import { titleContextForVideo } from '../operations/titleContext.js';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import db, { finalizeUpload, logError, updateVideoStatus } from '../db/sqlite';
-import { validateVideoOutput } from '../media/validation';
+import { compareToSource, probeVideo, validateVideoOutput } from '../media/validation';
 import {
   addAutomationBatchItem,
   createAutomationBatch,
@@ -571,7 +571,8 @@ async function runStep(job, step, currentFilePath, currentMeta) {
       kind: 'original',
       filePath: result.filePath,
       probe: validation.output,
-      validation,
+      // How the source was obtained (signed-in or public, quality offered/picked).
+      validation: { ...validation, ...(result.meta?.streamSelection ? { streamSelection: result.meta.streamSelection } : {}) },
     });
     currentFilePath = result.filePath;
     currentMeta = { ...currentMeta, ...sourceMeta };
@@ -621,7 +622,7 @@ async function runStep(job, step, currentFilePath, currentMeta) {
         kind: id,
         filePath: result.outputPath,
         probe: validation.output,
-        validation,
+        validation: { ...validation, ...(result.artifacts?.editorReport ? { report: result.artifacts.editorReport } : {}), ...(options[id]?.mode ? { mode: options[id].mode } : {}) },
       });
     }
     const providerDetails = [
@@ -633,6 +634,18 @@ async function runStep(job, step, currentFilePath, currentMeta) {
     currentFilePath = result.outputPath;
     currentMeta = { ...currentMeta, ...processorArtifacts };
   } else if (role === 'uploader') {
+    // Last check before anything leaves the machine: the file being published
+    // must still have its source's size, length, frame rate and audio. Edits
+    // are supposed to change pixels, not these; a mismatch means a bad render.
+    const source = db.prepare("SELECT file_path FROM video_assets WHERE job_id = ? AND kind = 'original' ORDER BY id DESC LIMIT 1").get(job.id);
+    if (source?.file_path && currentFilePath && path.resolve(source.file_path) !== path.resolve(currentFilePath) && fs.existsSync(source.file_path)) {
+      const [sourceProbe, outputProbe] = await Promise.all([probeVideo(source.file_path), probeVideo(currentFilePath)]);
+      const comparison = compareToSource(sourceProbe, outputProbe);
+      appendStepLog(step.id, `Pre-publish check against source: ${comparison.ok ? 'size, duration, frame rate and audio preserved' : comparison.differences.join('; ')} (duration Δ ${comparison.durationDeltaSeconds}s, tolerance ${comparison.durationToleranceSeconds}s)`);
+      if (!comparison.ok && !options[id]?.allowSourceChange) {
+        throw new Error(`Refusing to publish: the output no longer matches its source (${comparison.differences.join('; ')}). Fix the edit, or set allowSourceChange for an intended change.`);
+      }
+    }
     if (id === 'youtube' && job.video_record_id) {
       const blocker = uploadBlocker(job.video_record_id, { excludeJobId: job.id, includeActive: false });
       if (blocker) throw new Error(`Source already uploaded or submitted: ${blocker.url || blocker.remoteId || blocker.reason}`);
