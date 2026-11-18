@@ -647,7 +647,7 @@ async function runStep(job, step, currentFilePath, currentMeta) {
       }
     }
     if (id === 'youtube' && job.video_record_id) {
-      const blocker = uploadBlocker(job.video_record_id, { excludeJobId: job.id, includeActive: false });
+      const blocker = uploadBlocker(job.video_record_id, { excludeJobId: job.id, includeActive: false, replaces: String(options[id]?.replacesRemoteId || '') });
       if (blocker) throw new Error(`Source already uploaded or submitted: ${blocker.url || blocker.remoteId || blocker.reason}`);
     }
     if (job.agent_principal) {

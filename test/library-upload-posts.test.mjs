@@ -111,3 +111,35 @@ test('a later publication is detected again before worker delivery and saved edi
   recordPublication({ videoId: b.id, platformId: 'youtube', remoteId: 'LaterVideo1', url: 'https://youtu.be/LaterVideo1', status: 'submitted' });
   assert.equal(uploadBlocker(a.id, { excludeJobId: batch.jobs[0].id, includeActive: false }).url, 'https://youtu.be/LaterVideo1');
 });
+
+test('a new version replaces exactly the named upload of the same source, and the old one is then marked replaced', async () => {
+  const sourceUrl = 'https://www.bilibili.com/video/BV1sN4A6DEoX';
+  const make = () => {
+    const file = path.join(dir, `${randomUUID()}.mp4`); fs.writeFileSync(file, 'test');
+    return ensureVideoRecord({ sourceType: 'bilibili', sourcePath: file, sourceUrl, title: 'Vlinder', metadata: { sourceUrl } });
+  };
+  const old = make(); const next = make();
+  recordPublication({ videoId: old.id, platformId: 'youtube', status: 'published', remoteId: 'PX9Q3s_t2ag', url: 'https://www.youtube.com/watch?v=PX9Q3s_t2ag' });
+  // The duplicate guard holds, and a replacement must name exactly the blocking upload.
+  assert.throws(() => queueLibraryUploads({ videoIds: [next.id] }), /already has already uploaded/);
+  assert.throws(() => queueLibraryUploads({ videoIds: [next.id], replacesRemoteId: 'AAAAAAAAAAA' }), /blocked by PX9Q3s_t2ag, not AAAAAAAAAAA/);
+  const other = make();
+  assert.throws(() => queueLibraryUploads({ videoIds: [next.id, other.id], replacesRemoteId: 'PX9Q3s_t2ag' }), /one video at a time/);
+  const batch = queueLibraryUploads({ videoIds: [next.id], replacesRemoteId: 'PX9Q3s_t2ag', reviewMetadata: false });
+  const job = db.prepare('SELECT * FROM video_jobs WHERE id=?').get(batch.jobs[0].id);
+  assert.equal(JSON.parse(job.options_json).youtube.replacesRemoteId, 'PX9Q3s_t2ag');
+  db.prepare("UPDATE video_jobs SET status='canceled' WHERE id=?").run(job.id);
+  // Marking needs the new upload to be published first.
+  await assert.rejects(executeOperation('mark_publication_replaced', { remoteId: 'PX9Q3s_t2ag', replacementRemoteId: 'NeWvErSiOn1', idempotencyKey: randomUUID() }, 'agent'), /No published YouTube publication NeWvErSiOn1/);
+  recordPublication({ videoId: next.id, jobId: job.id, platformId: 'youtube', status: 'published', remoteId: 'NeWvErSiOn1', url: 'https://www.youtube.com/watch?v=NeWvErSiOn1' });
+  const result = await executeOperation('mark_publication_replaced', { remoteId: 'PX9Q3s_t2ag', replacementRemoteId: 'NeWvErSiOn1', idempotencyKey: randomUUID() }, 'agent');
+  assert.equal(result.replaced.remoteId, 'PX9Q3s_t2ag'); assert.equal(result.by.remoteId, 'NeWvErSiOn1');
+  const row = db.prepare("SELECT status, metadata_json FROM video_publications WHERE remote_id='PX9Q3s_t2ag'").get();
+  assert.equal(row.status, 'replaced'); assert.equal(JSON.parse(row.metadata_json).replacedBy.remoteId, 'NeWvErSiOn1');
+  // The new upload now guards the source against further duplicates.
+  assert.throws(() => queueLibraryUploads({ videoIds: [other.id] }), /already uploaded/);
+  // Unrelated uploads cannot be marked replaced by each other.
+  const unrelated = ensureVideoRecord({ sourceType: 'bilibili', sourcePath: path.join(dir, 'x.mp4'), sourceUrl: 'https://www.bilibili.com/video/BV1foXxY5EMQ', title: 'tulip' });
+  recordPublication({ videoId: unrelated.id, platformId: 'youtube', status: 'published', remoteId: 'nOMimVSTauI', url: 'https://www.youtube.com/watch?v=nOMimVSTauI' });
+  await assert.rejects(executeOperation('mark_publication_replaced', { remoteId: 'nOMimVSTauI', replacementRemoteId: 'NeWvErSiOn1', idempotencyKey: randomUUID() }, 'agent'), /not of the same source/);
+});

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import db from '../db/sqlite.js';
 import { savedVideo } from '../pipeline/sources/library.js';
-import { uploadBlocker, generationSettings, sourceIdentity } from './uploadCatalog.js';
+import { assertReplaceable, uploadBlocker, generationSettings, sourceIdentity } from './uploadCatalog.js';
 import { updateVideoRecord } from './store.js';
 import { createJobBatch } from '../pipeline/pipeline.js';
 
@@ -19,7 +19,10 @@ export function queueLibraryUploads(input = {}, { principal = '' } = {}) {
     const itemsSeen = [];
     const items = ids.map((id, index) => {
       const video = savedVideo(id);
-      const blocker = uploadBlocker(id);
+      const replaces = ids.length === 1 && input.replacesRemoteId ? String(input.replacesRemoteId) : '';
+      if (input.replacesRemoteId && ids.length !== 1) throw new Error('Replace one video at a time');
+      if (replaces) assertReplaceable(id, replaces);
+      const blocker = uploadBlocker(id, { replaces });
       if (blocker) throw new Error(`${video.title} already has ${blocker.reason}${blocker.url ? ': ' + blocker.url : ''}`);
       const duplicate = itemsSeen.find((entry) => entry.keys.some((key) => sourceIdentity(key) && sourceIdentity(key) === sourceIdentity(video.row.source_url || video.row.source_ref)));
       if (duplicate) throw new Error('The same source video appears more than once in this batch');
@@ -46,7 +49,7 @@ export function queueLibraryUploads(input = {}, { principal = '' } = {}) {
           generationFields: useSaved ? [] : ['title', 'description', 'tags'],
           title: saved.titleEn || '', description: saved.descriptionEn || '', tags: saved.tags || [],
           reviewMetadata: principal ? false : Boolean(input.reviewMetadata) },
-          youtube: { uploadMethod: input.uploadMethod || 'studio', privacyStatus },
+          youtube: { uploadMethod: input.uploadMethod || 'studio', privacyStatus, ...(replaces ? { replacesRemoteId: replaces } : {}) },
           ...(input.processorOptions && typeof input.processorOptions === 'object' ? input.processorOptions : {}) } };
     });
     return createJobBatch({ name: input.name || 'Library uploads', items });
