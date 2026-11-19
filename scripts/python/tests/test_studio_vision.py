@@ -522,6 +522,47 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, uploader.EXIT_BAD_INPUT)
 
 
+class StudioWindowTests(unittest.TestCase):
+    """Opening Studio reuses the signed-in window instead of the default browser."""
+
+    def setUp(self):
+        self.calls = []
+        self.saved = (uploader.sys.platform, uploader.shutil.which, uploader.subprocess.run, uploader.time.sleep)
+        uploader.sys.platform = 'linux'
+        uploader.shutil.which = lambda name: '/usr/bin/xdotool'
+        uploader.time.sleep = lambda seconds: None
+
+    def tearDown(self):
+        uploader.sys.platform, uploader.shutil.which, uploader.subprocess.run, uploader.time.sleep = self.saved
+
+    def desktop(self):
+        calls = self.calls
+        class Desk:
+            def hotkey(self, *keys): calls.append(('hotkey', keys))
+            def paste(self, text, replace=True): calls.append(('paste', text))
+            def press(self, key): calls.append(('press', key))
+        return Desk()
+
+    def run_with(self, window_ids):
+        def fake_run(args, **kwargs):
+            self.calls.append(('run', tuple(args)))
+            class Result: stdout = window_ids
+            return Result()
+        uploader.subprocess.run = fake_run
+        return uploader.open_in_studio_window(self.desktop())
+
+    def test_raises_the_studio_window_and_loads_the_dashboard(self):
+        self.assertTrue(self.run_with('4194326\n'))
+        self.assertIn(('run', ('xdotool', 'windowactivate', '--sync', '4194326')), self.calls)
+        self.assertIn(('hotkey', ('ctrl', 'l')), self.calls)
+        self.assertIn(('paste', uploader.STUDIO_URL), self.calls)
+        self.assertEqual(self.calls[-1], ('press', 'enter'))
+
+    def test_falls_back_when_no_studio_window_is_open(self):
+        self.assertFalse(self.run_with(''))
+        self.assertFalse(any(call[0] == 'paste' for call in self.calls))
+
+
 class CliTests(unittest.TestCase):
     def test_uncalibrated_run_reports_a_clean_not_sent_result(self):
         import subprocess

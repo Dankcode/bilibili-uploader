@@ -370,6 +370,32 @@ def verify_saved_content(session, payload):
                      f'Reconcile this upload before retrying (screenshot: {screenshot})')
 
 
+STUDIO_WINDOW_NAME = os.getenv('YOUTUBE_STUDIO_WINDOW_NAME', 'YouTube Studio')
+
+
+def open_in_studio_window(desktop):
+    """Linux/X11: raise the window already showing YouTube Studio and load the
+    dashboard in it (Ctrl+L, URL, Enter). Returns False when there is no such
+    window or no xdotool, so the caller can fall back to the default browser."""
+    if not sys.platform.startswith('linux') or not shutil.which('xdotool'):
+        return False
+    try:
+        ids = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', STUDIO_WINDOW_NAME],
+                             capture_output=True, text=True, timeout=10).stdout.split()
+        if not ids:
+            return False
+        subprocess.run(['xdotool', 'windowactivate', '--sync', ids[-1]], capture_output=True, timeout=10)
+        time.sleep(0.5)
+        desktop.hotkey('ctrl', 'l')
+        time.sleep(0.3)
+        desktop.paste(STUDIO_URL)
+        desktop.press('enter')
+        event('progress', stage='open_studio', percent=6, note='Loaded the Studio dashboard in the signed-in browser window')
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def upload(payload, session):
     desktop, matcher = session.desktop, session.matcher
     video_path = str(Path(payload['videoPath']).expanduser().resolve())
@@ -389,7 +415,11 @@ def upload(payload, session):
     session.stage = 'open_studio'
     event('progress', stage=session.stage, percent=5, note='Opening YouTube Studio')
     if not session.find('dashboard_ready'):
-        webbrowser.open(STUDIO_URL)
+        # Prefer the browser that is already signed in and calibrated (the
+        # window showing YouTube Studio) over the system default browser,
+        # which may be a different, signed-out browser.
+        if not open_in_studio_window(desktop):
+            webbrowser.open(STUDIO_URL)
     session.wait_for('dashboard_ready', timeout=max(STEP_TIMEOUT, 60))
 
     if matcher.has('channel_badge'):
