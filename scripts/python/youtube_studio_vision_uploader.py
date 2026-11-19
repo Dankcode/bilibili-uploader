@@ -384,7 +384,12 @@ def verify_saved_content(session, payload):
                      f'Reconcile this upload before retrying (screenshot: {screenshot})')
 
 
-STUDIO_WINDOW_NAME = os.getenv('YOUTUBE_STUDIO_WINDOW_NAME', 'YouTube Studio')
+# xdotool --name regex for the signed-in Studio tab's window title, e.g.
+# "Channel dashboard - YouTube Studio — Mozilla Firefox" or, while loading,
+# "YouTube Creator Studio — Mozilla Firefox". A Chrome tab showing only the
+# URL ("studio.youtube.com - Google Chrome") is deliberately not matched.
+STUDIO_WINDOW_NAME = os.getenv('YOUTUBE_STUDIO_WINDOW_NAME', 'YouTube( Creator)? Studio')
+DASHBOARD_WAIT = float(os.getenv('YOUTUBE_STUDIO_DASHBOARD_WAIT_SECONDS', '150'))
 
 
 def open_in_studio_window(desktop, settle=1.0):
@@ -441,9 +446,9 @@ def upload(payload, session):
         # which may be a different, signed-out browser.
         if not open_in_studio_window(desktop):
             webbrowser.open(STUDIO_URL)
-        elif not session.wait_for('dashboard_ready', timeout=max(STEP_TIMEOUT, 60), required=False):
+        elif not session.wait_for('dashboard_ready', timeout=max(STEP_TIMEOUT, DASHBOARD_WAIT), required=False):
             open_in_studio_window(desktop, settle=2.0)  # once more, slower, before failing
-    session.wait_for('dashboard_ready', timeout=max(STEP_TIMEOUT, 60))
+    session.wait_for('dashboard_ready', timeout=max(STEP_TIMEOUT, DASHBOARD_WAIT))
 
     if matcher.has('channel_badge'):
         session.stage = 'verify_channel'

@@ -559,6 +559,13 @@ class StudioWindowTests(unittest.TestCase):
         self.assertEqual(runs[4], ('xdotool', 'type', '--clearmodifiers', '--delay', '25', uploader.STUDIO_URL))
         self.assertEqual(runs[5], ('xdotool', 'key', '--clearmodifiers', 'Return'))
 
+    def test_window_title_pattern_matches_firefox_studio_but_not_a_chrome_url_tab(self):
+        import re
+        pattern = re.compile(uploader.STUDIO_WINDOW_NAME)
+        self.assertTrue(pattern.search('Channel dashboard - YouTube Studio — Mozilla Firefox'))
+        self.assertTrue(pattern.search('YouTube Creator Studio — Mozilla Firefox'))
+        self.assertFalse(pattern.search('studio.youtube.com - Google Chrome'))
+
     def test_falls_back_when_no_studio_window_is_open(self):
         self.assertFalse(self.run_with(''))
         self.assertEqual([call for call in self.calls if call[0] == 'run' and call[1][1] != 'search'], [])
