@@ -8,7 +8,7 @@ import Ajv from 'ajv';
 import db from '../db/sqlite.js';
 import { operations } from './contract.js';
 import { bridgeConfig, equalSecret } from './auth.js';
-import { approveCorrections, approveMetadata, createJobBatch, validateJobInput, retryJob, cancelJob } from '../pipeline/pipeline.js';
+import { approveCorrections, approveMetadata, createJobBatch, validateJobInput, retryJob, cancelJob, listAgentRequests, submitAgentTranslation } from '../pipeline/pipeline.js';
 import { SOURCES, PROCESSORS, UPLOADERS, validateProcessorChain } from '../pipeline/registry.js';
 import { getPreset, savePreset } from '../pipeline/presets.js';
 import { listConnections } from '../pipeline/connections.js';
@@ -18,6 +18,7 @@ import { getSavedCreatorVideo, pageSavedCreatorVideos, saveScrapedBilibiliVideos
 import { normalizeBilibiliSpaceUrl, scanBilibiliCreatorPage } from '../video/scraper.js';
 import { listYouTubePosts, getYouTubePost, saveYouTubePost, claimYouTubePost, recordYouTubePost } from '../youtube/posts.js';
 import { naturalText } from '../ai/editorial.js';
+import { methodNeedsAuthorization, normalizeUploadMethod } from '../youtube/uploadMethod.js';
 
 export class AgentError extends Error {
   constructor(code, message, status = 400, details) { super(message); Object.assign(this, { code, status, details }); }
@@ -155,16 +156,23 @@ function planBatch(input, principal) {
   const readiness = preconditions();
   const uploaderId = input.uploaderId ?? 'youtube';
   let authorizationId = input.youtubeAuthorizationId || '';
-  if (uploaderId === 'youtube' && !authorizationId) {
+  const preset = presetTemplate(input.presetId);
+  // The upload account comes with the job, not from a forced choice: the
+  // preset's method wins; with no OAuth channel at all, uploads go through
+  // YouTube Studio as the account signed in on the upload machine.
+  const presetYouTube = preset?.options?.youtube || {};
+  const uploadMethod = normalizeUploadMethod(input.uploadMethod || presetYouTube.uploadMethod || (readiness.channels.length || authorizationId ? '' : 'studio'));
+  const needsChannel = methodNeedsAuthorization(uploadMethod);
+  if (!needsChannel) authorizationId = '';
+  if (uploaderId === 'youtube' && needsChannel && !authorizationId) {
     if (readiness.channels.length > 1) throw new AgentError('NEEDS_CHOICE', 'Choose a YouTube authorization', 409, { options: readiness.channels.map(({ id, channelTitle, channelId }) => ({ id, channelTitle, channelId })) });
     authorizationId = readiness.channels[0]?.id || '';
   }
   const start = input.startAt ? Date.parse(input.startAt) : Date.now();
   if (!Number.isFinite(start)) throw new AgentError('INVALID_INPUT', 'startAt must be an ISO date');
-  const preset = presetTemplate(input.presetId);
   const processorIds = input.processorIds || preset?.processorIds || ['metadata'];
   const blockers = []; const versions = []; const items = [];
-  if (uploaderId === 'youtube' && !authorizationId) blockers.push({ code: 'PRECONDITION_FAILED', message: 'No usable YouTube channel; configure one in Connections' });
+  if (uploaderId === 'youtube' && needsChannel && !authorizationId) blockers.push({ code: 'PRECONDITION_FAILED', message: 'No usable YouTube channel; configure one in Connections' });
   if (readiness.disk.availableBytes !== null && readiness.disk.availableBytes < 1024 * 1024 * 1024) blockers.push({ code: 'PRECONDITION_FAILED', message: 'Less than 1 GiB of free disk space' });
   input.bvids.forEach((bvid, index) => {
     const video = savedVideo(input.creatorId, bvid);
@@ -173,10 +181,12 @@ function planBatch(input, principal) {
     if (blocker) blockers.push({ bvid, code: 'PRECONDITION_FAILED', message: blocker });
     const item = { sourceId: 'bilibili', sourceInput: video.url, sourceDurationSeconds: video.durationSeconds, title: video.title,
       processorIds, uploaderId, youtubeAuthorizationId: authorizationId,
-      scheduledFor: new Date(start + index * (input.everyDays || 1) * 86400000).toISOString(), agentPrincipal: principal,
+      scheduledFor: new Date(start + index * (input.spacingMinutes !== undefined ? input.spacingMinutes * 60000 : (input.everyDays || 1) * 86400000)).toISOString(), agentPrincipal: principal,
       options: { ...presetStepOptions(preset, processorIds), metadata: { ...(preset?.options?.metadata || {}), reviewMetadata: false, title: video.title, description: video.description, tags: video.tags,
         sourceTitle: video.sourceTitle, sourceDescription: video.sourceDescription, sourceUrl: video.url, creatorId: input.creatorId, bvid,
-        generationFields: video.generationFields, copyPrompt: video.copyPrompt }, youtube: video.youtubeOptions } };
+        // Saved English title/description/tags are used as written; only missing
+        // fields are left for the metadata step to generate.
+        generationFields: ['title', 'description', 'tags'].filter((field) => !(Array.isArray(video[field]) ? video[field].length : String(video[field] || '').trim())), copyPrompt: video.copyPrompt }, youtube: { ...presetYouTube, ...(video.youtubeOptions || {}), uploadMethod } } };
     items.push(item);
     try { validateJobInput(item); } catch (error) { blockers.push({ bvid, code: 'PRECONDITION_FAILED', message: sanitize(error.message) }); }
   });
@@ -218,7 +228,22 @@ const readHandlers = {
   search_catalog: searchCatalog,
   list_creator_videos: (input) => pageSavedCreatorVideos(input),
   plan_batch: (input, principal) => planBatch(input, principal),
+  list_agent_requests: () => ({ requests: listAgentRequests(), nextAction: 'get_agent_request' }),
+  get_agent_request: (input) => {
+    const request = listAgentRequests({ includeBody: true }).find((item) => item.jobId === Number(input.jobId));
+    if (!request) throw new AgentError('NOT_FOUND', 'That job is not waiting for the agent', 404);
+    return { ...request, nextAction: 'submit_translation' };
+  },
+  get_job_captions: (input) => jobCaptions(input.jobId),
 };
+
+function jobCaptions(jobId) {
+  const asset = db.prepare("SELECT * FROM video_assets WHERE job_id = ? AND kind = 'captions' ORDER BY id DESC LIMIT 1").get(jobId);
+  const meta = parse(asset?.meta_json);
+  const srt = asset?.file_path && fs.existsSync(asset.file_path) ? fs.readFileSync(asset.file_path, 'utf8') : '';
+  const publications = db.prepare("SELECT remote_id, url, status FROM video_publications WHERE video_id = (SELECT video_record_id FROM video_jobs WHERE id = ?) ORDER BY id DESC").all(jobId);
+  return { jobId: Number(jobId), language: meta.language || '', cues: meta.cues || 0, uploaded: meta.uploaded || null, srt, publications };
+}
 
 // Picks only the editable catalog fields the Library console exposes.
 const RECORD_FIELDS = ['title', 'campaign', 'language', 'priority', 'scheduledAt'];
@@ -318,6 +343,7 @@ const writeHandlers = {
   queue_batch: queueBatch,
   propose_metadata: jobWrite(proposeMetadata),
   retry_job: jobWrite(retry),
+  submit_translation: (input, principal) => submitAgentTranslation(input.jobId, input.srt, principal),
   cancel_job: jobWrite((job) => cancelJob(job.id)),
   // scan_creator awaits the network, so executeOperation handles it separately.
 };

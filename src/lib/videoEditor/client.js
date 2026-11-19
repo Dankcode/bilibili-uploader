@@ -34,6 +34,8 @@ export async function withEditor(credentials, action) {
     };
     return await action({ client, call, ...config });
   } catch (error) {
+    // A pause for the agent is not a failure: keep its code and detail intact.
+    if (error?.code === 'AGENT_INPUT_REQUIRED') throw error;
     throw new Error(redactEditorError(error, config.token));
   } finally {
     await client.close().catch(() => {});

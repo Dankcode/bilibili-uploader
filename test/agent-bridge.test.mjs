@@ -28,8 +28,9 @@ function fixtureJob(status = 'review', uploaderId = '') {
   return job.id;
 }
 
-test('one shared contract has 24 tools, matching REST/OpenAPI, and exposes record deletion', () => {
-  assert.equal(operations.length, 26);
+test('one shared contract has 30 tools, matching REST/OpenAPI, and exposes record deletion and the agent translation hold', () => {
+  assert.equal(operations.length, 30);
+  for (const name of ['list_agent_requests', 'get_agent_request', 'submit_translation', 'get_job_captions']) assert.ok(operations.some((op) => op.name === name), name);
   assert.equal(readAgentResource('videops://manifest').humanApprovalRequired, false);
   const spec = openApiDocument();
   for (const op of operations) assert.equal(spec.paths[op.path][op.method.toLowerCase()].operationId, op.name);
@@ -201,6 +202,18 @@ test('published source rows are omitted from loading and blocked from a plan', a
   assert.equal((await call('list_creator_videos', { creatorId: '105', includeUploaded: true })).items[0].isUploaded, true);
   const plan = await call('plan_batch', { creatorId: '105', bvids: [video.bvid], uploaderId: '' });
   assert.equal(plan.planToken, null); assert.ok(plan.blockers.some((blocker) => /uploaded/.test(blocker.message)));
+});
+
+test('a Studio preset plans uploads for the signed-in Studio account without choosing an OAuth channel', async () => {
+  const [video] = seed('107');
+  await call('save_pipeline_preset', { presetId: 'studio-preset', name: 'Studio', processorIds: [], uploaderId: 'youtube', options: { youtube: { uploadMethod: 'studio', privacyStatus: 'private' } }, idempotencyKey: 'studio-preset' });
+  const plan = await call('plan_batch', { creatorId: '107', bvids: [video.bvid], presetId: 'studio-preset', spacingMinutes: 0 });
+  assert.deepEqual(plan.blockers, []);
+  assert.equal(plan.batch.items[0].youtubeAuthorizationId, '');
+  assert.equal(plan.batch.items[0].options.youtube.uploadMethod, 'studio');
+  assert.equal(plan.batch.items[0].options.youtube.privacyStatus, 'private');
+  assert.deepEqual(plan.batch.items[0].options.metadata.generationFields.filter((field) => plan.batch.items[0].options.metadata[field]?.length), [], 'saved fields are not regenerated');
+  assert.ok(plan.planToken);
 });
 
 test('ambiguous channels return typed choices and MCP can retry legacy uploads without an approval gate', async () => {

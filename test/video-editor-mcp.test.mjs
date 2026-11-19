@@ -39,11 +39,17 @@ async function fixture(t, overrides = {}) {
           case 'transcribe': data = { job: { id: 'job_speech' } }; break;
           case 'translate': data = { job: { id: 'job_translate' } }; break;
           case 'translate_screen_text': data = { job: { id: 'job_screen' } }; break;
+          case 'request_translation': data = state.translationRequest || { requestId: null, cues: 0 }; break;
+          case 'apply_translation': data = { requestId: params.arguments.requestId, applied: { speech: 1, screen: 1 }, missing: [], unknown: [], stale: [] }; break;
+          case 'export_captions': data = state.captions || { cues: 0, path: null }; break;
+          case 'get_transcript_library': data = state.library || { found: false }; break;
+          case 'apply_transcript_library': data = { reference: params.arguments.reference, speechCues: 3, screenLines: 2, untranslated: 0, notes: [] }; break;
+          case 'save_transcript_library': data = { reference: params.arguments.reference, dir: '/data/transcripts/' + params.arguments.reference, files: ['transcript.json'] }; break;
           case 'create_project': data = { id: 'prj_abcdefghij' }; break;
           case 'autopilot': data = { job: { id: 'job_localize' } }; break;
           case 'render': data = { job: { id: 'job_render' } }; break;
           case 'cancel_job': data = { ok: true }; break;
-          case 'get_job': data = { id: params.arguments.jobId, status: state.jobStatusFor ? state.jobStatusFor(params.arguments.jobId) : state.jobStatus, progress: .5, error: state.jobErrorFor ? state.jobErrorFor(params.arguments.jobId) : state.jobError,
+          case 'get_job': data = { id: params.arguments.jobId, status: state.jobStatusFor ? state.jobStatusFor(params.arguments.jobId) : state.jobStatus, progress: .5, error: state.jobError,
             result: params.arguments.jobId === 'job_render' ? { id: 'exp_final', path: state.renderedPath, summary: { audio: 'copied', regions: 1, subtitleEvents: 0, screenTextEvents: 3 } }
               : state.results?.[params.arguments.jobId] || { provider: 'llm' } }; break;
           case 'get_transcript': data = params.arguments.offset ? { total: 2, cues: [{ sourceText: '第二', translatedText: 'Second' }] }
@@ -65,6 +71,9 @@ async function fixture(t, overrides = {}) {
     } else if (request.url === '/api/v1/projects/prj_abcdefghij/files/renders/final.mp4') {
       response.writeHead(state.failDownload ? 503 : 200, { 'Content-Type': 'video/mp4' });
       response.end(state.media || 'finished-video');
+    } else if (state.files?.[request.url]) {
+      response.writeHead(200, { 'Content-Type': 'application/x-subrip' });
+      response.end(state.files[request.url]);
     } else response.writeHead(405).end();
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -213,7 +222,7 @@ const cleanState = () => ({
 test('clean mode removes the watermark, skips translation when no speech is reliable, translates on-screen text and reports each part', async (t) => {
   const f = await fixture(t, cleanState());
   const progress = [];
-  const result = await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark', glossary: [{ source: '蝶', target: 'Vlinder' }], context: 'Delta Force' },
+  const result = await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark', glossary: [{ source: '蝶', target: 'Vlinder' }], context: 'Delta Force', translator: 'model', captions: 'burn' },
     (percent, note) => progress.push([percent, note]), f.credentials, { title: 'Vlinder' }, { workDir: f.directory });
   const tools = f.calls.map((call) => call.name).filter((name) => !['get_job', 'get_transcript'].includes(name));
   assert.deepEqual(tools, ['get_status', 'list_overlay_profiles', 'create_project', 'update_settings', 'reconstruct_overlay', 'transcribe', 'translate_screen_text', 'render']);
@@ -235,7 +244,7 @@ test('clean mode translates speech only when Whisper kept reliable lines', async
   state.results.job_speech = { cues: 3, speech: { segments: 4, kept: 3, reliable: true } };
   state.results.job_translate = { cues: 3 };
   const f = await fixture(t, state);
-  const result = await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory });
+  const result = await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark', translator: 'model', captions: 'burn' }, () => {}, f.credentials, {}, { workDir: f.directory });
   assert.deepEqual(f.calls.find((call) => call.name === 'translate').arguments, { projectId: 'prj_abcdefghij', scope: 'transcript' });
   assert.match(result.metrics.speech, /3 reliable line\(s\), 3 translated/);
 });
@@ -244,9 +253,10 @@ test('clean mode stops before sending media when the editor lacks a capability o
   const state = cleanState();
   state.capabilities.screenTextOverlays = false;
   const f = await fixture(t, state);
-  await assert.rejects(editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory }), /missing on-screen text reading/);
+  await assert.rejects(editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark', translator: 'model', captions: 'burn' }, () => {}, f.credentials, {}, { workDir: f.directory }), /missing on-screen text reading/);
   const g = await fixture(t, cleanState());
-  await assert.rejects(editVideo(g.input, { mode: 'clean', overlayProfile: 'another-channel' }, () => {}, g.credentials, {}, { workDir: g.directory }), /no overlay profile "another-channel"/);
+  await assert.rejects(editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory }), /missing .*agent translation/);
+  await assert.rejects(editVideo(g.input, { mode: 'clean', overlayProfile: 'another-channel', translator: 'model' }, () => {}, g.credentials, {}, { workDir: g.directory }), /no overlay profile "another-channel"/);
   assert.equal(f.state.upload, undefined);
   assert.equal(g.state.upload, undefined);
 });
@@ -257,15 +267,98 @@ test('a failed editor stage is resubmitted on retry while finished stages are re
   let failSpeech = true;
   const original = f.state.results.job_speech;
   Object.defineProperty(f.state.results, 'job_speech', { get: () => (failSpeech ? undefined : original), configurable: true });
-  f.state.jobStatusFor = (id) => (id === 'job_speech' && failSpeech ? 'interrupted' : 'done');
-  // A failed/interrupted job record carries its own error text, as video-automation's do.
-  f.state.jobError = undefined;
-  f.state.jobErrorFor = (id) => (id === 'job_speech' && failSpeech ? 'Server restarted while this job was running' : undefined);
-  await assert.rejects(editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory }), /job_speech: Server restarted/);
+  f.state.jobStatusFor = (id) => (id === 'job_speech' && failSpeech ? 'failed' : 'done');
+  await assert.rejects(editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark', translator: 'model', captions: 'burn' }, () => {}, f.credentials, {}, { workDir: f.directory }), /job_speech: failed/);
   failSpeech = false;
-  await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, {}, { workDir: f.directory });
+  await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark', translator: 'model', captions: 'burn' }, () => {}, f.credentials, {}, { workDir: f.directory });
   const count = (name) => f.calls.filter((call) => call.name === name).length;
   assert.equal(count('reconstruct_overlay'), 1);
   assert.equal(count('transcribe'), 2);
   assert.equal(count('create_project'), 1);
+});
+
+test('agent translator: one subtitle file out, the job pauses, one file back, captions not burned', async (t) => {
+  const state = cleanState();
+  state.capabilities.agentTranslation = true;
+  state.providers = {};
+  state.results.job_speech = { cues: 1, speech: { segments: 1, kept: 1, reliable: true } };
+  const srt = '1\n00:00:00,000 --> 00:00:02,000\n晚上好\n\n2\n00:00:03,000 --> 00:00:04,000\n今晚的主题\n';
+  state.translationRequest = { requestId: 'tr_0123456789ab', cues: 2, speech: 1, screen: 1, srt, instructions: 'Translate this Chinese subtitle file into English.', kinds: [{ n: 1, kind: 'speech' }, { n: 2, kind: 'screen' }] };
+  state.captions = { cues: 1, language: 'en-US', format: 'srt', path: 'renders/captions/source.en-US.srt', sha256: 'abc' };
+  state.files = { '/api/v1/projects/prj_abcdefghij/files/renders/captions/source.en-US.srt': '1\n00:00:00,000 --> 00:00:02,000\nGood evening\n' };
+  const f = await fixture(t, state);
+  const options = { mode: 'clean', overlayProfile: 'prisma-watermark' };
+  const meta = { bvid: 'BV1sN4A6DEoX', title: 'source' };
+  const paused = await editVideo(f.input, options, () => {}, f.credentials, meta, { workDir: f.directory }).then(() => null, (error) => error);
+  assert.equal(paused?.code, 'AGENT_INPUT_REQUIRED');
+  assert.equal(paused.kind, 'translation');
+  assert.equal(paused.detail.cues, 2);
+  assert.equal(fs.readFileSync(path.join(f.directory, 'translation-request.srt'), 'utf8'), srt);
+  assert.equal(f.calls.find((call) => call.name === 'translate_screen_text').arguments.translate, false);
+  assert.ok(!f.calls.some((call) => ['translate', 'render'].includes(call.name)), 'nothing is translated server-side or rendered before the agent answers');
+  assert.deepEqual(f.calls.find((call) => call.name === 'get_transcript_library').arguments, { reference: 'BV1sN4A6DEoX' });
+
+  fs.writeFileSync(path.join(f.directory, 'translation-response.srt'), srt.replace('晚上好', 'Good evening').replace('今晚的主题', "Tonight's theme"));
+  const result = await editVideo(f.input, options, () => {}, f.credentials, meta, { workDir: f.directory });
+  const count = (name) => f.calls.filter((call) => call.name === name).length;
+  assert.equal(count('transcribe'), 1, 'finished stages are not redone after the pause');
+  assert.equal(count('request_translation'), 1);
+  assert.deepEqual(f.calls.find((call) => call.name === 'apply_translation').arguments.requestId, 'tr_0123456789ab');
+  assert.match(f.calls.find((call) => call.name === 'apply_translation').arguments.srt, /Good evening/);
+  assert.deepEqual(f.calls.find((call) => call.name === 'render').arguments.layers, { subtitles: false });
+  const captions = result.artifactFiles.find((file) => file.kind === 'captions');
+  assert.equal(fs.readFileSync(captions.path, 'utf8'), '1\n00:00:00,000 --> 00:00:02,000\nGood evening\n');
+  assert.equal(result.artifacts.captionsLanguage, 'en-US');
+  assert.deepEqual(f.calls.find((call) => call.name === 'save_transcript_library').arguments, { projectId: 'prj_abcdefghij', reference: 'BV1sN4A6DEoX' });
+  assert.match(result.metrics.translation, /agent translated 2 line\(s\) from one subtitle file/);
+});
+
+test('a saved transcript for the same source is reused instead of transcribing and translating again', async (t) => {
+  const state = cleanState();
+  state.capabilities.agentTranslation = true;
+  state.library = { found: true, reference: 'BV1sN4A6DEoX', speechCues: 3, screenLines: 2 };
+  const f = await fixture(t, state);
+  const result = await editVideo(f.input, { mode: 'clean', overlayProfile: 'prisma-watermark' }, () => {}, f.credentials, { sourceUrl: 'https://www.bilibili.com/video/BV1sN4A6DEoX' }, { workDir: f.directory });
+  const names = f.calls.map((call) => call.name);
+  assert.ok(names.includes('apply_transcript_library'));
+  assert.ok(!names.includes('transcribe') && !names.includes('translate_screen_text'));
+  assert.equal(result.metrics.transcript, 'reused saved transcript BV1sN4A6DEoX');
+});
+
+test('the worker parks a job in review:translation, the agent answers once, and the job finishes with a caption asset', async (t) => {
+  const state = cleanState();
+  state.capabilities.agentTranslation = true;
+  state.providers = {};
+  const srt = '1\n00:00:00,000 --> 00:00:00,200\n晚上好\n';
+  state.translationRequest = { requestId: 'tr_0123456789ab', cues: 1, speech: 1, screen: 0, srt, instructions: 'Translate.', kinds: [{ n: 1, kind: 'speech' }] };
+  state.captions = { cues: 1, language: 'en-US', format: 'srt', path: 'renders/captions/c.en-US.srt' };
+  state.files = { '/api/v1/projects/prj_abcdefghij/files/renders/captions/c.en-US.srt': '1\n00:00:00,000 --> 00:00:00,200\nGood evening\n' };
+  const f = await fixture(t, state);
+  execFileSync(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:r=10', '-t', '0.3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-y', f.input]);
+  f.state.media = fs.readFileSync(f.input);
+  const { saveConnection } = await import('../src/lib/pipeline/connections.js');
+  const pipeline = await import('../src/lib/pipeline/pipeline.js');
+  const previousWork = process.env.VIDEO_WORK_DIR;
+  process.env.VIDEO_WORK_DIR = f.directory;
+  t.after(() => { if (previousWork === undefined) delete process.env.VIDEO_WORK_DIR; else process.env.VIDEO_WORK_DIR = previousWork; });
+  saveConnection('videoEditor', { endpoint: f.credentials.endpoint });
+  const previousToken = process.env.VIDEO_EDITOR_MCP_TOKEN;
+  process.env.VIDEO_EDITOR_MCP_TOKEN = f.credentials.apiKey;
+  t.after(() => { if (previousToken === undefined) delete process.env.VIDEO_EDITOR_MCP_TOKEN; else process.env.VIDEO_EDITOR_MCP_TOKEN = previousToken; });
+  const job = pipeline.createJob({ sourceId: 'localFile', sourceInput: f.input, processorIds: ['videoEditor'], uploaderId: '', options: { videoEditor: { mode: 'clean', overlayProfile: 'prisma-watermark' } } });
+  await pipeline.runNextQueuedJob();
+  let current = pipeline.listJobs().find((item) => item.id === job.id);
+  assert.equal(current.status, 'review');
+  assert.equal(current.currentStep, 'review:translation');
+  const waiting = pipeline.listAgentRequests({ includeBody: true }).find((item) => item.jobId === job.id);
+  assert.equal(waiting.srt, srt);
+  assert.equal(waiting.cues, 1);
+  assert.throws(() => pipeline.submitAgentTranslation(job.id, 'no timings here'), /translated subtitle file/);
+  pipeline.submitAgentTranslation(job.id, srt.replace('晚上好', 'Good evening'), 'agent:test');
+  await pipeline.runNextQueuedJob();
+  current = pipeline.listJobs().find((item) => item.id === job.id);
+  assert.equal(current.status, 'done', current.error);
+  assert.match(f.calls.find((call) => call.name === 'apply_translation').arguments.srt, /Good evening/);
+  assert.ok(current.assets.some((asset) => asset.kind === 'captions'), 'captions asset recorded');
+  assert.equal(f.calls.filter((call) => call.name === 'transcribe').length, 1);
 });
