@@ -49,7 +49,11 @@ export function codexChildEnvironment() {
   const allowed = ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'TEMP', 'TMP', 'CODEX_HOME',
     'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
     'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'LANG'];
-  return Object.fromEntries(allowed.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+  const env = Object.fromEntries(allowed.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+  // A proxy for the Codex CLI alone (hosts that reach the model only through
+  // one), without routing the app's own traffic, e.g. Bilibili, through it.
+  if (process.env.CODEX_HTTPS_PROXY) Object.assign(env, { HTTPS_PROXY: process.env.CODEX_HTTPS_PROXY, HTTP_PROXY: process.env.CODEX_HTTPS_PROXY });
+  return env;
 }
 
 export async function completeCodexText(prompt, { system, json = false, credentials = {} } = {}) {

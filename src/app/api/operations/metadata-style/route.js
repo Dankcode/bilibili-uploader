@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { withOperator } from '@/lib/agent/auth';
 import { applyMetadataStyleToVideo, getMetadataStyle, saveMetadataStyle } from '@/lib/operations/metadataStyle';
 import { getSavedCreatorVideo } from '@/lib/video/scrapedCatalog';
+import { hasCodexText } from '@/lib/ai/codexText';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -17,7 +18,7 @@ async function handlePOST(request) {
   try {
     const body = await request.json();
     if (body.action === 'apply') {
-      const result = await applyMetadataStyleToVideo({ creatorId: body.creatorId, bvid: body.bvid, prompt: body.prompt, provider: body.provider || 'codex' });
+      const result = await applyMetadataStyleToVideo({ creatorId: body.creatorId, bvid: body.bvid, prompt: body.prompt, provider: body.provider || (hasCodexText() ? 'codexCli' : undefined) });
       let video = null;
       try { video = getSavedCreatorVideo(result.creatorId, result.bvid); } catch { video = null; }
       return NextResponse.json({ result, video });
