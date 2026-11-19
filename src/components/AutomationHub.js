@@ -141,6 +141,13 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
   const [categoryContexts, setCategoryContexts] = useState({});
   const [contextDraft, setContextDraft] = useState('');
   const [contextSaving, setContextSaving] = useState(false);
+  // Saved metadata style: one prompt every title/description/tags rewrite follows.
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [styleDraft, setStyleDraft] = useState('');
+  const [styleSaved, setStyleSaved] = useState(null);
+  const [styleBusy, setStyleBusy] = useState('');
+  const [styleProgress, setStyleProgress] = useState(null);
+  const styleStop = useRef(false);
   const [contextLoaded, setContextLoaded] = useState(false);
   const categoryKey = youtubeOptions.categoryId || 'default';
   const fileInput = useRef(null);
@@ -242,6 +249,54 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
     } finally {
       setSavingAutomationSettings(false);
     }
+  }
+
+  async function openMetadataStyle() {
+    setStyleOpen(true); setStyleProgress(null);
+    try {
+      const response = await fetch('/api/control/operations/metadata-style', { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not load the metadata style');
+      setStyleSaved(payload.style); setStyleDraft(payload.style.prompt || '');
+    } catch (loadError) { setError(loadError.message); }
+  }
+
+  async function saveMetadataStylePrompt() {
+    setStyleBusy('save'); setError('');
+    try {
+      const response = await fetch('/api/control/operations/metadata-style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: styleDraft }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Could not save the metadata style');
+      setStyleSaved(payload.style);
+      setNotice('Metadata style saved. New AI titles, descriptions and tags follow it.');
+      return true;
+    } catch (saveError) { setError(saveError.message); return false; } finally { setStyleBusy(''); }
+  }
+
+  // Rewrites each target's saved English metadata (and its queued jobs) one
+  // video at a time, so progress is visible and a failure skips only that row.
+  async function applyMetadataStyle(targets) {
+    if (!targets.length) return;
+    if (styleDraft !== (styleSaved?.prompt || '') || styleSaved?.isDefault) {
+      if (!(await saveMetadataStylePrompt())) return;
+    }
+    setStyleBusy('apply'); setError(''); styleStop.current = false;
+    const failed = [];
+    setStyleProgress({ done: 0, total: targets.length, failed });
+    for (const [index, item] of targets.entries()) {
+      if (styleStop.current) break;
+      try {
+        const response = await fetch('/api/control/operations/metadata-style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'apply', creatorId: item.creatorId, bvid: item.bvid }) });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Rewrite failed');
+        if (payload.video) replaceReviewVideo(payload.video);
+      } catch (applyError) {
+        failed.push(`${item.bvid}: ${applyError.message}`);
+      }
+      setStyleProgress({ done: index + 1, total: targets.length, failed: [...failed] });
+    }
+    setStyleBusy('');
+    setNotice(`Metadata style applied to ${targets.length - failed.length} of ${targets.length} video(s)${failed.length ? `; ${failed.length} failed` : ''}. Queued uploads use the new text.`);
   }
 
   async function saveCategoryContext() {
@@ -513,6 +568,29 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
 
       {(notice || error) && <div className={error ? styles.inlineError : styles.inlineNotice}>{error || notice}</div>}
 
+      {styleOpen && (() => {
+        const selectedTargets = bilibiliReview.filter((item) => canAutomateScrapedVideo(item));
+        const listedTargets = visibleBilibiliReview.filter((item) => !item.isUploaded);
+        const targets = selectedTargets.length ? selectedTargets : listedTargets;
+        return <div className={styles.modalOverlay} onMouseDown={(event) => event.target === event.currentTarget && !styleBusy && setStyleOpen(false)}>
+          <div className={styles.recordModal} role="dialog" aria-label="Metadata style">
+            <div className={styles.modalTitleRow}><div><span className={styles.eyebrow}>Saved prompt</span><h2>Metadata style</h2></div><button type="button" className={styles.iconButton} disabled={Boolean(styleBusy)} onClick={() => setStyleOpen(false)} title="Close" aria-label="Close"><X size={17} /></button></div>
+            <p className={styles.fieldHint}>Every AI-written title, description and tag list follows this format. Applying it rewrites the English metadata of the {selectedTargets.length ? 'selected' : 'listed, not yet uploaded'} videos (and their queued uploads) so they all match. Facts, the source link and the disclaimer are kept.</p>
+            <label className={styles.formField}><span>Format and rules{styleSaved?.isDefault ? ' (suggested — not saved yet)' : styleSaved?.updatedAt ? ` · saved ${new Date(styleSaved.updatedAt).toLocaleString()}` : ''}</span><textarea rows={16} maxLength={6000} value={styleDraft} onChange={(event) => setStyleDraft(event.target.value)} disabled={styleBusy === 'apply'} aria-label="Metadata style prompt" /></label>
+            {styleProgress && <div className={styles.inlineNotice} role="status">{styleBusy === 'apply' ? 'Rewriting' : 'Rewrote'} {styleProgress.done}/{styleProgress.total}{styleProgress.failed.length ? ` · ${styleProgress.failed.length} failed: ${styleProgress.failed.join('; ')}` : ''}</div>}
+            <div className={styles.modalActions}>
+              {styleBusy === 'apply'
+                ? <button type="button" className={styles.buttonSecondary} onClick={() => { styleStop.current = true; }}>Stop after this video</button>
+                : <>
+                  <button type="button" className={styles.buttonSecondary} disabled={Boolean(styleBusy) || !styleDraft.trim()} onClick={saveMetadataStylePrompt}>{styleBusy === 'save' ? 'Saving…' : 'Save style'}</button>
+                  <button type="button" className={styles.buttonSecondary} disabled={Boolean(styleBusy) || !targets.length || !styleDraft.trim()} onClick={() => applyMetadataStyle(targets.slice(0, 1))}>Try on first video</button>
+                  <button type="button" className={styles.buttonPrimary} disabled={Boolean(styleBusy) || !targets.length || !styleDraft.trim()} onClick={() => applyMetadataStyle(targets)}>Apply to {targets.length} video{targets.length === 1 ? '' : 's'}</button>
+                </>}
+            </div>
+          </div>
+        </div>;
+      })()}
+
       {tab === 'planner' && <form className={`${styles.plannerGrid} ${plannerStep === 'sources' ? styles.plannerGridSources : ''}`} onSubmit={createBatch}>
         <div className={styles.plannerMain}>
           {sourceType === 'bilibili' ? <section className={styles.scrapeReviewPanel}>
@@ -534,6 +612,7 @@ export default function AutomationHub({ onQueued, youtubeAuthorizations = [] }) 
                 <span className={styles.catalogSelectionMeta}><strong>{bilibiliReview.filter(canAutomateScrapedVideo).length}</strong> selected · {catalogSummary.loadedCount} SQL rows</span>
                 <button type="button" className={styles.editBtn} onClick={() => setShowUploaded((value) => !value)}>{showUploaded ? 'Hide uploaded' : `Show uploaded${catalogSummary.uploadedCount ? ` (${catalogSummary.uploadedCount})` : ''}`}</button>
                 <button type="button" className={styles.editBtn} onClick={() => setCatalogSearchOpen((open) => !open)} aria-expanded={catalogSearchOpen}><Search size={13} /> {catalogSearchOpen ? 'Hide search' : 'Search'}</button>
+                <button type="button" className={styles.editBtn} onClick={openMetadataStyle} title="Saved prompt for titles, descriptions and tags">Metadata style</button>
                 <button type="button" className={styles.editBtn} onClick={() => selectReviewRows(true)}>Select ready</button>
                 <button type="button" className={styles.editBtn} onClick={() => selectReviewRows(false)}>Clear selection</button>
                 <button type="button" className={styles.buttonPrimary} disabled={!sourceItems.length} onClick={() => setPlannerStep('automation')}>Next: configure <ChevronRight size={14} /></button>

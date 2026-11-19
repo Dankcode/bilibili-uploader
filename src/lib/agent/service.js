@@ -19,6 +19,7 @@ import { normalizeBilibiliSpaceUrl, scanBilibiliCreatorPage } from '../video/scr
 import { listYouTubePosts, getYouTubePost, saveYouTubePost, claimYouTubePost, recordYouTubePost } from '../youtube/posts.js';
 import { naturalText } from '../ai/editorial.js';
 import { methodNeedsAuthorization, normalizeUploadMethod } from '../youtube/uploadMethod.js';
+import { getMetadataStyle, saveMetadataStyle } from '../operations/metadataStyle.js';
 
 export class AgentError extends Error {
   constructor(code, message, status = 400, details) { super(message); Object.assign(this, { code, status, details }); }
@@ -235,6 +236,7 @@ const readHandlers = {
     return { ...request, nextAction: 'submit_translation' };
   },
   get_job_captions: (input) => jobCaptions(input.jobId),
+  get_metadata_style: () => ({ style: getMetadataStyle() }),
 };
 
 function jobCaptions(jobId) {
@@ -344,6 +346,7 @@ const writeHandlers = {
   propose_metadata: jobWrite(proposeMetadata),
   retry_job: jobWrite(retry),
   submit_translation: (input, principal) => submitAgentTranslation(input.jobId, input.srt, principal),
+  save_metadata_style: (input) => ({ style: saveMetadataStyle(input.prompt) }),
   cancel_job: jobWrite((job) => cancelJob(job.id)),
   // scan_creator awaits the network, so executeOperation handles it separately.
 };
