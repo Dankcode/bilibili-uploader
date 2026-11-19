@@ -553,14 +553,36 @@ class StudioWindowTests(unittest.TestCase):
 
     def test_raises_the_studio_window_and_loads_the_dashboard(self):
         self.assertTrue(self.run_with('4194326\n'))
-        self.assertIn(('run', ('xdotool', 'windowactivate', '--sync', '4194326')), self.calls)
-        self.assertIn(('hotkey', ('ctrl', 'l')), self.calls)
-        self.assertIn(('paste', uploader.STUDIO_URL), self.calls)
-        self.assertEqual(self.calls[-1], ('press', 'enter'))
+        runs = [call[1] for call in self.calls if call[0] == 'run']
+        self.assertEqual(runs[1], ('xdotool', 'windowactivate', '--sync', '4194326'))
+        self.assertEqual(runs[3], ('xdotool', 'key', '--clearmodifiers', 'ctrl+l'))
+        self.assertEqual(runs[4], ('xdotool', 'type', '--clearmodifiers', '--delay', '25', uploader.STUDIO_URL))
+        self.assertEqual(runs[5], ('xdotool', 'key', '--clearmodifiers', 'Return'))
 
     def test_falls_back_when_no_studio_window_is_open(self):
         self.assertFalse(self.run_with(''))
-        self.assertFalse(any(call[0] == 'paste' for call in self.calls))
+        self.assertEqual([call for call in self.calls if call[0] == 'run' and call[1][1] != 'search'], [])
+
+
+class ClipboardTests(unittest.TestCase):
+    def test_linux_clipboard_helper_never_inherits_stdout(self):
+        seen = {}
+        saved = uploader.subprocess.Popen
+        class Fake:
+            def __init__(self, args, **kwargs):
+                seen.update(kwargs, args=args)
+            def communicate(self, input=None, timeout=None):
+                seen['input'] = input
+        uploader.subprocess.Popen = Fake
+        try:
+            uploader.linux_clipboard_copy('https://studio.youtube.com')
+        finally:
+            uploader.subprocess.Popen = saved
+        self.assertEqual(seen['args'], ['xclip', '-selection', 'clipboard'])
+        self.assertIs(seen['stdout'], uploader.subprocess.DEVNULL)
+        self.assertIs(seen['stderr'], uploader.subprocess.DEVNULL)
+        self.assertTrue(seen['start_new_session'])
+        self.assertEqual(seen['input'], b'https://studio.youtube.com')
 
 
 class CliTests(unittest.TestCase):

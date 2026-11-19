@@ -87,6 +87,14 @@ class StudioError(Exception):
 FILE_DIALOG_TITLE = r'^(File Upload|Open File|Open Files)\b'
 
 
+def linux_clipboard_copy(text):
+    """Copy with xclip detached from our stdout/stderr and process group."""
+    process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               close_fds=True, start_new_session=True)
+    process.communicate(input=str(text or '').encode('utf-8'), timeout=10)
+
+
 class Desktop:
     """Screen capture + input. Imported lazily so --check on a saved
     screenshot works on a headless machine."""
@@ -96,6 +104,12 @@ class Desktop:
         import pyperclip
         self.pyautogui = pyautogui
         self.pyperclip = pyperclip
+        if sys.platform.startswith('linux') and shutil.which('xclip'):
+            # xclip stays alive to own the clipboard. Through pyperclip it
+            # inherits this process's stdout, so the app reading that pipe never
+            # sees it close and the upload step hangs after the script exits.
+            pyperclip.set_clipboard('xclip')
+            pyperclip.copy = linux_clipboard_copy
         pyautogui.FAILSAFE = True  # slam the mouse into a screen corner to abort
         pyautogui.PAUSE = 0.05
         self.modifier = 'command' if sys.platform == 'darwin' else 'ctrl'
@@ -373,10 +387,12 @@ def verify_saved_content(session, payload):
 STUDIO_WINDOW_NAME = os.getenv('YOUTUBE_STUDIO_WINDOW_NAME', 'YouTube Studio')
 
 
-def open_in_studio_window(desktop):
+def open_in_studio_window(desktop, settle=1.0):
     """Linux/X11: raise the window already showing YouTube Studio and load the
-    dashboard in it (Ctrl+L, URL, Enter). Returns False when there is no such
-    window or no xdotool, so the caller can fall back to the default browser."""
+    dashboard in it. Keys go through xdotool with real pauses (a loaded machine
+    can lag behind fast hotkeys, so Ctrl+L must land before the URL is typed).
+    Returns False when there is no such window or no xdotool, so the caller can
+    fall back to the default browser."""
     if not sys.platform.startswith('linux') or not shutil.which('xdotool'):
         return False
     try:
@@ -384,12 +400,17 @@ def open_in_studio_window(desktop):
                              capture_output=True, text=True, timeout=10).stdout.split()
         if not ids:
             return False
-        subprocess.run(['xdotool', 'windowactivate', '--sync', ids[-1]], capture_output=True, timeout=10)
-        time.sleep(0.5)
-        desktop.hotkey('ctrl', 'l')
-        time.sleep(0.3)
-        desktop.paste(STUDIO_URL)
-        desktop.press('enter')
+        window = ids[-1]
+        steps = [
+            ['xdotool', 'windowactivate', '--sync', window],
+            ['xdotool', 'key', '--clearmodifiers', 'Escape'],
+            ['xdotool', 'key', '--clearmodifiers', 'ctrl+l'],
+            ['xdotool', 'type', '--clearmodifiers', '--delay', '25', STUDIO_URL],
+            ['xdotool', 'key', '--clearmodifiers', 'Return'],
+        ]
+        for args in steps:
+            subprocess.run(args, capture_output=True, timeout=30)
+            time.sleep(settle)
         event('progress', stage='open_studio', percent=6, note='Loaded the Studio dashboard in the signed-in browser window')
         return True
     except (OSError, subprocess.SubprocessError):
@@ -420,6 +441,8 @@ def upload(payload, session):
         # which may be a different, signed-out browser.
         if not open_in_studio_window(desktop):
             webbrowser.open(STUDIO_URL)
+        elif not session.wait_for('dashboard_ready', timeout=max(STEP_TIMEOUT, 60), required=False):
+            open_in_studio_window(desktop, settle=2.0)  # once more, slower, before failing
     session.wait_for('dashboard_ready', timeout=max(STEP_TIMEOUT, 60))
 
     if matcher.has('channel_badge'):
